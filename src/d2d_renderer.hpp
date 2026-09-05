@@ -17,6 +17,13 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct TabRenderInfo {
+    std::wstring title;
+    bool isActive = false;
+    bool isHovered = false;
+    bool isCloseHovered = false;
+};
+
 class D2DRenderer {
 public:
     D2DRenderer();
@@ -26,7 +33,12 @@ public:
     void Cleanup();
     void Resize(UINT width, UINT height);
 
-    void RenderBlank(const std::wstring& message, bool showHelp = false);
+    void RenderBlank(
+        const std::wstring& message,
+        bool showHelp = false,
+        const std::vector<TabRenderInfo>& tabs = {},
+        bool isAddHovered = false
+    );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
         float zoom,
@@ -36,7 +48,9 @@ public:
         uint32_t currentPageIndex,
         uint32_t totalPages,
         const std::wstring& zoomModeText,
-        bool showHelp = false
+        bool showHelp = false,
+        const std::vector<TabRenderInfo>& tabs = {},
+        bool isAddHovered = false
     );
 
     bool PrintPageToHdc(
@@ -57,6 +71,7 @@ private:
     bool CreateWindowSizeDependentResources();
     void DiscardDeviceResources();
     void DrawHelpOverlay();
+    void DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered);
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;
@@ -82,6 +97,9 @@ private:
     ComPtr<IDWriteTextFormat> m_textFormatHelpSub;
     ComPtr<IDWriteTextFormat> m_textFormatHelpKey;
     ComPtr<IDWriteTextFormat> m_textFormatHelpDesc;
+    ComPtr<IDWriteTextFormat> m_textFormatTab;
+    ComPtr<IDWriteTextFormat> m_textFormatTabClose;
+    ComPtr<IDWriteTextFormat> m_textFormatTabAdd;
 
     // Brushes
     ComPtr<ID2D1SolidColorBrush> m_brushBg;
@@ -100,6 +118,17 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushHelpKeyText;
     ComPtr<ID2D1SolidColorBrush> m_brushHelpDescText;
     ComPtr<ID2D1SolidColorBrush> m_brushHelpSubText;
+
+    // Tab Bar Brushes
+    ComPtr<ID2D1SolidColorBrush> m_brushTabBarBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabActiveBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabInactiveBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabHoverBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabAccent;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabCloseHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabText;
+    ComPtr<ID2D1SolidColorBrush> m_brushTabTextInactive;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;

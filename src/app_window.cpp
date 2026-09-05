@@ -6,7 +6,7 @@
 #include <cmath>
 #include <vector>
 
-static const wchar_t* CLASS_NAME = L"LightPDF_WindowClass";
+const wchar_t* WINDOW_CLASS_NAME = L"LightPDF_WindowClass";
 
 AppWindow::AppWindow() = default;
 
@@ -31,14 +31,14 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED);
     wc.hbrBackground = nullptr;
-    wc.lpszClassName = CLASS_NAME;
+    wc.lpszClassName = WINDOW_CLASS_NAME;
 
     RegisterClassExW(&wc);
 
     // Create window with standard modern window styling
     m_hwnd = CreateWindowExW(
         WS_EX_APPWINDOW | WS_EX_ACCEPTFILES,
-        CLASS_NAME,
+        WINDOW_CLASS_NAME,
         L"LightPDF",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT,
@@ -58,7 +58,7 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     }
 
     if (!initialFile.empty()) {
-        OpenFile(initialFile);
+        OpenTab(initialFile);
     } else {
         UpdateTitle();
         m_renderer.RenderBlank(L"");
@@ -99,10 +99,21 @@ LRESULT CALLBACK AppWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
 LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_COPYDATA: {
+        PCOPYDATASTRUCT pCds = (PCOPYDATASTRUCT)lParam;
+        if (pCds && pCds->dwData == 1 && pCds->lpData) {
+            const wchar_t* pFilePath = (const wchar_t*)pCds->lpData;
+            if (pFilePath && pFilePath[0] != L'\0') {
+                OpenTab(pFilePath);
+            }
+        }
+        return TRUE;
+    }
+
     case WM_APP_OPEN_FILE: {
         std::unique_ptr<std::wstring> pPath((std::wstring*)lParam);
         if (pPath && !pPath->empty()) {
-            OpenFile(*pPath);
+            OpenTab(*pPath);
         }
         return 0;
     }
@@ -119,7 +130,8 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         UINT width = LOWORD(lParam);
         UINT height = HIWORD(lParam);
         m_renderer.Resize(width, height);
-        if (m_zoomMode != ZoomMode::Custom) {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->zoomMode != ZoomMode::Custom) {
             RecalculateLayout();
         }
         Render();
@@ -138,15 +150,21 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_DROPFILES: {
         HDROP hDrop = (HDROP)wParam;
-        wchar_t droppedPath[MAX_PATH * 2] = { 0 };
-        if (DragQueryFileW(hDrop, 0, droppedPath, _countof(droppedPath))) {
-            OpenFile(droppedPath);
+        UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < fileCount; ++i) {
+            wchar_t droppedPath[MAX_PATH * 2] = { 0 };
+            if (DragQueryFileW(hDrop, i, droppedPath, _countof(droppedPath))) {
+                OpenTab(droppedPath);
+            }
         }
         DragFinish(hDrop);
         return 0;
     }
 
     case WM_MOUSEWHEEL: {
+        auto* pTab = GetActiveTab();
+        if (!pTab || !pTab->document.IsLoaded()) return 0;
+
         short delta = GET_WHEEL_DELTA_WPARAM(wParam);
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
@@ -156,37 +174,32 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             ScreenToClient(m_hwnd, &pt);
             AdjustZoom(factor, pt);
         } else {
-            // Check if document is taller than viewport
-            D2D1_SIZE_F pSize = m_document.GetPageSize(m_currentPage);
-            float dipH = m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi());
-            float renderedH = pSize.height * m_zoom;
+            D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+            float topOffset = GetTopOffset();
+            float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
+            float renderedH = pSize.height * pTab->zoom;
 
             if (renderedH > dipH) {
-                // Scroll vertically within page
                 float scrollStep = (float)delta * 0.6f;
-                float oldOffsetY = m_offsetY;
-                m_offsetY += scrollStep;
+                float oldOffsetY = pTab->offsetY;
+                pTab->offsetY += scrollStep;
 
                 float minOffsetY = dipH - renderedH - 20.0f;
                 float maxOffsetY = 20.0f;
 
-                // If scrolled past bottom, advance to next page
                 if (oldOffsetY <= minOffsetY && delta < 0) {
                     NextPage();
-                    m_offsetY = 20.0f;
-                }
-                // If scrolled past top, go to previous page
-                else if (oldOffsetY >= maxOffsetY && delta > 0) {
+                    pTab->offsetY = 20.0f;
+                } else if (oldOffsetY >= maxOffsetY && delta > 0) {
                     PrevPage();
-                    D2D1_SIZE_F prevSize = m_document.GetPageSize(m_currentPage);
-                    m_offsetY = dipH - (prevSize.height * m_zoom) - 20.0f;
+                    D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
+                    pTab->offsetY = dipH - (prevSize.height * pTab->zoom) - 20.0f;
                 } else {
-                    m_offsetY = std::clamp(m_offsetY, minOffsetY, maxOffsetY);
+                    pTab->offsetY = std::clamp(pTab->offsetY, minOffsetY, maxOffsetY);
                 }
-                m_zoomMode = ZoomMode::Custom;
+                pTab->zoomMode = ZoomMode::Custom;
                 Render();
             } else {
-                // Page fits vertically: mouse wheel navigates pages directly
                 if (delta < 0) {
                     NextPage();
                 } else {
@@ -199,28 +212,85 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_LBUTTONDOWN:
     case WM_MBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        float topOffset = GetTopOffset();
+        float dipY = (float)pt.y * (96.0f / m_renderer.GetDpi());
+
+        if (m_tabs.size() > 1 && dipY < topOffset) {
+            bool outClose = false;
+            bool outAdd = false;
+            int hit = HitTestTab(pt, outClose, outAdd);
+
+            if (msg == WM_LBUTTONDOWN) {
+                if (outAdd) {
+                    PromptOpenFile();
+                } else if (outClose && hit >= 0) {
+                    CloseTab((size_t)hit);
+                } else if (hit >= 0) {
+                    SelectTab((size_t)hit);
+                }
+            } else if (msg == WM_MBUTTONDOWN) {
+                if (hit >= 0) {
+                    CloseTab((size_t)hit);
+                }
+            }
+            return 0;
+        }
+
         if (m_showHelp) {
             m_showHelp = false;
             Render();
             return 0;
         }
-        m_isPanning = true;
-        m_lastMousePos = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        SetCapture(m_hwnd);
-        SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->document.IsLoaded()) {
+            m_isPanning = true;
+            m_lastMousePos = pt;
+            SetCapture(m_hwnd);
+            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+        }
         return 0;
     }
 
     case WM_MOUSEMOVE: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        float topOffset = GetTopOffset();
+        float dipY = (float)pt.y * (96.0f / m_renderer.GetDpi());
+
+        if (m_tabs.size() > 1 && dipY < topOffset) {
+            bool outClose = false;
+            bool outAdd = false;
+            int hit = HitTestTab(pt, outClose, outAdd);
+
+            bool changed = (hit != m_hoveredTab) || (outClose != m_hoveredClose) || (outAdd != m_hoveredAdd);
+            m_hoveredTab = hit;
+            m_hoveredClose = outClose;
+            m_hoveredAdd = outAdd;
+
+            if (changed) {
+                Render();
+            }
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        } else {
+            if (m_hoveredTab != -1 || m_hoveredClose || m_hoveredAdd) {
+                m_hoveredTab = -1;
+                m_hoveredClose = false;
+                m_hoveredAdd = false;
+                Render();
+            }
+        }
+
         if (m_isPanning) {
-            int curX = GET_X_LPARAM(lParam);
-            int curY = GET_Y_LPARAM(lParam);
-            float dipScale = 96.0f / m_renderer.GetDpi();
-            m_offsetX += (curX - m_lastMousePos.x) * dipScale;
-            m_offsetY += (curY - m_lastMousePos.y) * dipScale;
-            m_lastMousePos = { curX, curY };
-            m_zoomMode = ZoomMode::Custom;
-            Render();
+            auto* pTab = GetActiveTab();
+            if (pTab) {
+                float dipScale = 96.0f / m_renderer.GetDpi();
+                pTab->offsetX += (pt.x - m_lastMousePos.x) * dipScale;
+                pTab->offsetY += (pt.y - m_lastMousePos.y) * dipScale;
+                m_lastMousePos = pt;
+                pTab->zoomMode = ZoomMode::Custom;
+                Render();
+            }
         }
         return 0;
     }
@@ -236,12 +306,33 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_LBUTTONDBLCLK: {
-        if (m_zoomMode == ZoomMode::FitPage) {
-            SetZoomMode(ZoomMode::FitWidth);
-        } else {
-            SetZoomMode(ZoomMode::FitPage);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        float topOffset = GetTopOffset();
+        float dipY = (float)pt.y * (96.0f / m_renderer.GetDpi());
+        if (m_tabs.size() > 1 && dipY < topOffset) {
+            return 0;
+        }
+
+        auto* pTab = GetActiveTab();
+        if (pTab) {
+            if (pTab->zoomMode == ZoomMode::FitPage) {
+                SetZoomMode(ZoomMode::FitWidth);
+            } else {
+                SetZoomMode(ZoomMode::FitPage);
+            }
         }
         return 0;
+    }
+
+    case WM_SYSKEYDOWN: {
+        if (wParam >= '1' && wParam <= '9') {
+            size_t targetIndex = (size_t)(wParam - '1');
+            if (targetIndex < m_tabs.size()) {
+                SelectTab(targetIndex);
+                return 0;
+            }
+        }
+        break;
     }
 
     case WM_KEYDOWN: {
@@ -249,6 +340,27 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
         switch (wParam) {
+        case VK_TAB:
+            if (isCtrlDown) {
+                if (isShiftDown) PrevTab();
+                else NextTab();
+                return 0;
+            }
+            break;
+        case 'T':
+            if (isCtrlDown) {
+                PromptOpenFile();
+                return 0;
+            }
+            break;
+        case 'W':
+            if (isCtrlDown) {
+                if (!m_tabs.empty()) {
+                    CloseTab(m_activeTab);
+                }
+                return 0;
+            }
+            break;
         case 'O':
             if (isCtrlDown) {
                 PromptOpenFile();
@@ -269,10 +381,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
         case '1':
             if (isCtrlDown) {
-                m_zoom = 1.0f;
-                m_zoomMode = ZoomMode::Custom;
-                RecalculateLayout();
-                Render();
+                auto* pTab = GetActiveTab();
+                if (pTab) {
+                    pTab->zoom = 1.0f;
+                    pTab->zoomMode = ZoomMode::Custom;
+                    RecalculateLayout();
+                    Render();
+                }
                 return 0;
             }
             break;
@@ -310,24 +425,34 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case VK_LEFT:
             PrevPage();
             return 0;
-        case VK_DOWN:
-            m_offsetY -= 40.0f;
-            m_zoomMode = ZoomMode::Custom;
-            Render();
+        case VK_DOWN: {
+            auto* pTab = GetActiveTab();
+            if (pTab) {
+                pTab->offsetY -= 40.0f;
+                pTab->zoomMode = ZoomMode::Custom;
+                Render();
+            }
             return 0;
-        case VK_UP:
-            m_offsetY += 40.0f;
-            m_zoomMode = ZoomMode::Custom;
-            Render();
+        }
+        case VK_UP: {
+            auto* pTab = GetActiveTab();
+            if (pTab) {
+                pTab->offsetY += 40.0f;
+                pTab->zoomMode = ZoomMode::Custom;
+                Render();
+            }
             return 0;
+        }
         case VK_HOME:
             GoToPage(0);
             return 0;
-        case VK_END:
-            if (m_document.IsLoaded()) {
-                GoToPage(m_document.GetPageCount() - 1);
+        case VK_END: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->document.IsLoaded()) {
+                GoToPage(pTab->document.GetPageCount() - 1);
             }
             return 0;
+        }
         case VK_F1:
             m_showHelp = !m_showHelp;
             Render();
@@ -361,17 +486,132 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
 }
 
-void AppWindow::OpenFile(const std::wstring& path) {
-    if (m_document.Open(path)) {
-        m_currentPage = 0;
-        m_zoomMode = ZoomMode::FitPage;
+void AppWindow::OpenTab(const std::wstring& path) {
+    if (path.empty()) return;
+
+    // If we have a single tab that failed to load, reuse it
+    if (m_tabs.size() == 1 && !m_tabs[0].document.IsLoaded()) {
+        if (m_tabs[0].document.Open(path)) {
+            m_tabs[0].currentPage = 0;
+            m_tabs[0].zoomMode = ZoomMode::FitPage;
+            m_activeTab = 0;
+            RecalculateLayout();
+            UpdateTitle();
+            Render();
+        }
+        return;
+    }
+
+    DocumentTab newTab;
+    if (newTab.document.Open(path)) {
+        newTab.currentPage = 0;
+        newTab.zoomMode = ZoomMode::FitPage;
+        m_tabs.push_back(std::move(newTab));
+        m_activeTab = m_tabs.size() - 1;
         RecalculateLayout();
         UpdateTitle();
         Render();
-    } else {
-        UpdateTitle();
-        m_renderer.RenderBlank(L"Could not open file:\n" + path);
     }
+}
+
+void AppWindow::CloseTab(size_t index) {
+    if (index >= m_tabs.size()) return;
+
+    m_tabs.erase(m_tabs.begin() + index);
+
+    if (m_tabs.empty()) {
+        m_activeTab = 0;
+        UpdateTitle();
+        Render();
+        return;
+    }
+
+    if (m_activeTab >= m_tabs.size()) {
+        m_activeTab = m_tabs.size() - 1;
+    } else if (m_activeTab > index) {
+        m_activeTab--;
+    }
+
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::SelectTab(size_t index) {
+    if (index >= m_tabs.size() || index == m_activeTab) return;
+    m_activeTab = index;
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::NextTab() {
+    if (m_tabs.size() <= 1) return;
+    m_activeTab = (m_activeTab + 1) % m_tabs.size();
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::PrevTab() {
+    if (m_tabs.size() <= 1) return;
+    m_activeTab = (m_activeTab == 0) ? (m_tabs.size() - 1) : (m_activeTab - 1);
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+int AppWindow::HitTestTab(POINT pt, bool& outClose, bool& outAdd) const {
+    outClose = false;
+    outAdd = false;
+    if (m_tabs.size() <= 1) return -1;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+
+    if (dipY < 0.0f || dipY > 34.0f) return -1;
+
+    float dipWidth = (float)m_renderer.GetWidth() * dipScale;
+    float availW = dipWidth - 44.0f;
+    float tabW = std::clamp(availW / (float)m_tabs.size(), 100.0f, 220.0f);
+
+    // Check '+' Add Tab button
+    float addX = (float)m_tabs.size() * tabW + 6.0f;
+    if (dipX >= addX && dipX <= addX + 24.0f && dipY >= 5.0f && dipY <= 29.0f) {
+        outAdd = true;
+        return -1;
+    }
+
+    // Check tabs
+    for (size_t i = 0; i < m_tabs.size(); ++i) {
+        float tx = (float)i * tabW;
+        if (dipX >= tx && dipX < tx + tabW) {
+            // Check close button
+            if (dipX >= tx + tabW - 24.0f && dipX <= tx + tabW - 8.0f && dipY >= 8.0f && dipY <= 26.0f) {
+                outClose = true;
+            }
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+std::vector<TabRenderInfo> AppWindow::GetTabRenderInfos() const {
+    std::vector<TabRenderInfo> infos;
+    infos.reserve(m_tabs.size());
+
+    for (size_t i = 0; i < m_tabs.size(); ++i) {
+        TabRenderInfo info;
+        info.title = m_tabs[i].document.IsLoaded() ? m_tabs[i].document.GetFileName() : L"Empty";
+        info.isActive = (i == m_activeTab);
+        info.isHovered = ((int)i == m_hoveredTab);
+        info.isCloseHovered = ((int)i == m_hoveredTab && m_hoveredClose);
+        infos.push_back(std::move(info));
+    }
+
+    return infos;
 }
 
 void AppWindow::PromptOpenFile() {
@@ -438,7 +678,8 @@ void AppWindow::PromptOpenFile() {
 }
 
 void AppWindow::PromptPrint() {
-    if (!m_document.IsLoaded() || m_document.GetPageCount() == 0) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
         return;
     }
     if (m_isPrinting.exchange(true)) {
@@ -451,10 +692,10 @@ void AppWindow::PromptPrint() {
 
     m_cancelPrint = false;
     HWND hwnd = m_hwnd;
-    uint32_t currentPage = m_currentPage;
-    uint32_t totalPages = m_document.GetPageCount();
-    std::wstring docName = m_document.GetFileName();
-    auto doc = m_document.GetDoc();
+    uint32_t currentPage = pTab->currentPage;
+    uint32_t totalPages = pTab->document.GetPageCount();
+    std::wstring docName = pTab->document.GetFileName();
+    auto doc = pTab->document.GetDoc();
 
     m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -560,15 +801,28 @@ void AppWindow::PromptPrint() {
 }
 
 void AppWindow::UpdateTitle() {
-    if (m_document.IsLoaded() && m_document.GetPageCount() > 0) {
+    auto* pTab = GetActiveTab();
+    if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         wchar_t title[512];
-        swprintf_s(
-            title,
-            L"[%u / %u] - %s - LightPDF",
-            m_currentPage + 1,
-            m_document.GetPageCount(),
-            m_document.GetFileName().c_str()
-        );
+        if (m_tabs.size() > 1) {
+            swprintf_s(
+                title,
+                L"[Tab %zu/%zu] [%u / %u] - %s - LightPDF",
+                m_activeTab + 1,
+                m_tabs.size(),
+                pTab->currentPage + 1,
+                pTab->document.GetPageCount(),
+                pTab->document.GetFileName().c_str()
+            );
+        } else {
+            swprintf_s(
+                title,
+                L"[%u / %u] - %s - LightPDF",
+                pTab->currentPage + 1,
+                pTab->document.GetPageCount(),
+                pTab->document.GetFileName().c_str()
+            );
+        }
         SetWindowTextW(m_hwnd, title);
     } else {
         SetWindowTextW(m_hwnd, L"LightPDF - Minimalist PDF Viewer");
@@ -576,72 +830,78 @@ void AppWindow::UpdateTitle() {
 }
 
 void AppWindow::SetZoomMode(ZoomMode mode) {
-    m_zoomMode = mode;
+    auto* pTab = GetActiveTab();
+    if (!pTab) return;
+    pTab->zoomMode = mode;
     RecalculateLayout();
     Render();
 }
 
 void AppWindow::AdjustZoom(float factor, POINT mousePos) {
-    float oldZoom = m_zoom;
-    float newZoom = std::clamp(m_zoom * factor, 0.20f, 6.0f);
+    auto* pTab = GetActiveTab();
+    if (!pTab) return;
+
+    float oldZoom = pTab->zoom;
+    float newZoom = std::clamp(pTab->zoom * factor, 0.20f, 6.0f);
     if (newZoom == oldZoom) return;
 
     float dipScale = 96.0f / m_renderer.GetDpi();
     float mouseX = (float)mousePos.x * dipScale;
-    float mouseY = (float)mousePos.y * dipScale;
+    float mouseY = (float)mousePos.y * dipScale - GetTopOffset();
 
-    // Zoom centered on mouse pointer
-    m_offsetX = mouseX - (mouseX - m_offsetX) * (newZoom / oldZoom);
-    m_offsetY = mouseY - (mouseY - m_offsetY) * (newZoom / oldZoom);
-    m_zoom = newZoom;
-    m_zoomMode = ZoomMode::Custom;
+    pTab->offsetX = mouseX - (mouseX - pTab->offsetX) * (newZoom / oldZoom);
+    pTab->offsetY = mouseY - (mouseY - pTab->offsetY) * (newZoom / oldZoom);
+    pTab->zoom = newZoom;
+    pTab->zoomMode = ZoomMode::Custom;
 
     Render();
 }
 
 void AppWindow::RecalculateLayout() {
-    if (!m_document.IsLoaded() || m_document.GetPageCount() == 0) return;
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
 
-    D2D1_SIZE_F pSize = m_document.GetPageSize(m_currentPage);
+    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
     if (pSize.width <= 0.0f || pSize.height <= 0.0f) return;
 
     float dipW = m_renderer.GetWidth() * (96.0f / m_renderer.GetDpi());
-    float dipH = m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi());
+    float topOffset = GetTopOffset();
+    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
 
-    if (m_zoomMode == ZoomMode::FitPage) {
+    if (pTab->zoomMode == ZoomMode::FitPage) {
         float margin = 24.0f;
         float scaleX = (dipW - margin * 2.0f) / pSize.width;
         float scaleY = (dipH - margin * 2.0f) / pSize.height;
-        m_zoom = std::max(0.10f, std::min(scaleX, scaleY));
-        m_offsetX = (dipW - pSize.width * m_zoom) * 0.5f;
-        m_offsetY = (dipH - pSize.height * m_zoom) * 0.5f;
-    } else if (m_zoomMode == ZoomMode::FitWidth) {
+        pTab->zoom = std::max(0.10f, std::min(scaleX, scaleY));
+        pTab->offsetX = (dipW - pSize.width * pTab->zoom) * 0.5f;
+        pTab->offsetY = (dipH - pSize.height * pTab->zoom) * 0.5f;
+    } else if (pTab->zoomMode == ZoomMode::FitWidth) {
         float margin = 24.0f;
-        m_zoom = std::max(0.10f, (dipW - margin * 2.0f) / pSize.width);
-        m_offsetX = margin;
-        m_offsetY = margin;
+        pTab->zoom = std::max(0.10f, (dipW - margin * 2.0f) / pSize.width);
+        pTab->offsetX = margin;
+        pTab->offsetY = margin;
     } else {
         // Custom zoom: Center if smaller than viewport
-        float renderedW = pSize.width * m_zoom;
-        float renderedH = pSize.height * m_zoom;
+        float renderedW = pSize.width * pTab->zoom;
+        float renderedH = pSize.height * pTab->zoom;
         if (renderedW < dipW) {
-            m_offsetX = (dipW - renderedW) * 0.5f;
+            pTab->offsetX = (dipW - renderedW) * 0.5f;
         }
         if (renderedH < dipH) {
-            m_offsetY = (dipH - renderedH) * 0.5f;
+            pTab->offsetY = (dipH - renderedH) * 0.5f;
         }
     }
 }
 
 void AppWindow::NextPage() {
-    if (!m_document.IsLoaded()) return;
-    if (m_currentPage + 1 < m_document.GetPageCount()) {
-        m_currentPage++;
-        if (m_zoomMode != ZoomMode::Custom) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+    if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
+        pTab->currentPage++;
+        if (pTab->zoomMode != ZoomMode::Custom) {
             RecalculateLayout();
         } else {
-            // Keep horizontal offset, reset vertical to top
-            m_offsetY = 24.0f;
+            pTab->offsetY = 24.0f;
         }
         UpdateTitle();
         Render();
@@ -649,13 +909,14 @@ void AppWindow::NextPage() {
 }
 
 void AppWindow::PrevPage() {
-    if (!m_document.IsLoaded()) return;
-    if (m_currentPage > 0) {
-        m_currentPage--;
-        if (m_zoomMode != ZoomMode::Custom) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+    if (pTab->currentPage > 0) {
+        pTab->currentPage--;
+        if (pTab->zoomMode != ZoomMode::Custom) {
             RecalculateLayout();
         } else {
-            m_offsetY = 24.0f;
+            pTab->offsetY = 24.0f;
         }
         UpdateTitle();
         Render();
@@ -663,12 +924,13 @@ void AppWindow::PrevPage() {
 }
 
 void AppWindow::GoToPage(uint32_t pageIndex) {
-    if (!m_document.IsLoaded() || pageIndex >= m_document.GetPageCount()) return;
-    m_currentPage = pageIndex;
-    if (m_zoomMode != ZoomMode::Custom) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pageIndex >= pTab->document.GetPageCount()) return;
+    pTab->currentPage = pageIndex;
+    if (pTab->zoomMode != ZoomMode::Custom) {
         RecalculateLayout();
     } else {
-        m_offsetY = 24.0f;
+        pTab->offsetY = 24.0f;
     }
     UpdateTitle();
     Render();
@@ -704,25 +966,30 @@ void AppWindow::ToggleFullscreen() {
 }
 
 void AppWindow::Render() {
-    if (m_document.IsLoaded() && m_currentPage < m_document.GetPageCount()) {
-        auto page = m_document.GetPage(m_currentPage);
-        auto pSize = m_document.GetPageSize(m_currentPage);
+    auto* pTab = GetActiveTab();
+    auto tabInfos = GetTabRenderInfos();
+
+    if (pTab && pTab->document.IsLoaded() && pTab->currentPage < pTab->document.GetPageCount()) {
+        auto page = pTab->document.GetPage(pTab->currentPage);
+        auto pSize = pTab->document.GetPageSize(pTab->currentPage);
         std::wstring modeStr = L"";
-        if (m_zoomMode == ZoomMode::FitPage) modeStr = L"Fit Page";
-        else if (m_zoomMode == ZoomMode::FitWidth) modeStr = L"Fit Width";
+        if (pTab->zoomMode == ZoomMode::FitPage) modeStr = L"Fit Page";
+        else if (pTab->zoomMode == ZoomMode::FitWidth) modeStr = L"Fit Width";
 
         m_renderer.RenderPage(
             page,
-            m_zoom,
-            m_offsetX,
-            m_offsetY,
+            pTab->zoom,
+            pTab->offsetX,
+            pTab->offsetY,
             pSize,
-            m_currentPage,
-            m_document.GetPageCount(),
+            pTab->currentPage,
+            pTab->document.GetPageCount(),
             modeStr,
-            m_showHelp
+            m_showHelp,
+            tabInfos,
+            m_hoveredAdd
         );
     } else {
-        m_renderer.RenderBlank(L"", m_showHelp);
+        m_renderer.RenderBlank(L"", m_showHelp, tabInfos, m_hoveredAdd);
     }
 }
