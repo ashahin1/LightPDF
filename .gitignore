@@ -1,0 +1,28 @@
+﻿# Build output & binaries
+bin/
+*.exe
+*.obj
+*.res
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# MSVC portable toolchain
+tools/msvc/
+
+# Python cache & environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Diagnostic images & test artifacts
+*.png
+*.log
+
+# IDE & Editor files
+.vs/
+.vscode/
+*.user
+*.suo
