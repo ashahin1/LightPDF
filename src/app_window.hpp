@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 #include <memory>
 #include <atomic>
 #include <thread>
@@ -14,10 +15,21 @@
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 
+extern const wchar_t* WINDOW_CLASS_NAME;
+
 enum class ZoomMode {
     FitPage,
     FitWidth,
     Custom
+};
+
+struct DocumentTab {
+    PdfDocumentWrapper document;
+    uint32_t currentPage = 0;
+    ZoomMode zoomMode = ZoomMode::FitPage;
+    float zoom = 1.0f;
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
 };
 
 class AppWindow {
@@ -32,7 +44,13 @@ private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
-    void OpenFile(const std::wstring& path);
+    void OpenTab(const std::wstring& path);
+    void CloseTab(size_t index);
+    void SelectTab(size_t index);
+    void NextTab();
+    void PrevTab();
+
+    void OpenFile(const std::wstring& path) { OpenTab(path); }
     void PromptOpenFile();
     void PromptPrint();
     void Render();
@@ -48,17 +66,32 @@ private:
 
     void ToggleFullscreen();
 
+    float GetTopOffset() const { return (m_tabs.size() > 1) ? 34.0f : 0.0f; }
+    int HitTestTab(POINT pt, bool& outClose, bool& outAdd) const;
+    std::vector<TabRenderInfo> GetTabRenderInfos() const;
+
+    DocumentTab* GetActiveTab() {
+        if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
+        return &m_tabs[m_activeTab];
+    }
+    const DocumentTab* GetActiveTab() const {
+        if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
+        return &m_tabs[m_activeTab];
+    }
+
     HWND m_hwnd = nullptr;
     HINSTANCE m_hInstance = nullptr;
 
     D2DRenderer m_renderer;
-    PdfDocumentWrapper m_document;
 
-    uint32_t m_currentPage = 0;
-    ZoomMode m_zoomMode = ZoomMode::FitPage;
-    float m_zoom = 1.0f;
-    float m_offsetX = 0.0f;
-    float m_offsetY = 0.0f;
+    // Multi-tab collection
+    std::vector<DocumentTab> m_tabs;
+    size_t m_activeTab = 0;
+
+    // Tab Bar Mouse Hover state
+    int m_hoveredTab = -1;
+    bool m_hoveredClose = false;
+    bool m_hoveredAdd = false;
 
     // Mouse Panning
     bool m_isPanning = false;

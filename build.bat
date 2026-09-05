@@ -31,7 +31,7 @@ cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINM
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS ^
     /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest ^
     d3d11.lib d2d1.lib dxgi.lib dwrite.lib windows.data.pdf.lib windowsapp.lib ^
-    user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib comdlg32.lib ^
+    user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib comdlg32.lib advapi32.lib ^
     /OUT:bin\LightPDF.exe
 
 if %errorlevel% equ 0 (
