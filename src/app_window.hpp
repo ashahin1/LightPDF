@@ -30,6 +30,8 @@ struct DocumentTab {
     float zoom = 1.0f;
     float offsetX = 0.0f;
     float offsetY = 0.0f;
+    bool continuousScroll = false;
+    float scrollY = 0.0f;
 };
 
 class AppWindow {
@@ -64,11 +66,22 @@ private:
     void PrevPage();
     void GoToPage(uint32_t pageIndex);
 
+    void ToggleContinuousScroll();
+    void ScrollContinuous(float deltaY);
+    float GetTotalDocumentHeight(const DocumentTab* pTab) const;
+    uint32_t GetPageAtScrollOffset(const DocumentTab* pTab) const;
+
     void ToggleFullscreen();
 
     float GetTopOffset() const { return (m_tabs.size() > 1) ? 34.0f : 0.0f; }
     int HitTestTab(POINT pt, bool& outClose, bool& outAdd) const;
     std::vector<TabRenderInfo> GetTabRenderInfos() const;
+
+    ScrollbarRenderInfo GetScrollbarInfo() const;
+    bool HitTestScrollbar(POINT pt, bool& outThumb) const;
+    bool HitTestHud(POINT pt) const;
+    void ShowScrollbar();
+    void HandleScrollbarDrag(float mouseY);
 
     DocumentTab* GetActiveTab() {
         if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
@@ -103,6 +116,18 @@ private:
 
     // Help Overlay state
     bool m_showHelp = false;
+
+    // Go to Page state
+    bool m_showGoToPage = false;
+    std::wstring m_goToPageBuffer;
+
+    // Scrollbar state
+    bool m_isDraggingScrollbar = false;
+    float m_scrollbarDragThumbOffsetY = 0.0f;
+    float m_scrollbarDragThumbY = 0.0f;
+    uint64_t m_lastScrollbarActiveTime = 0;
+    float m_scrollbarAlpha = 0.0f;
+    bool m_isScrollbarHovered = false;
 
     // File Open Dialog state
     std::atomic<bool> m_isDialogOpen{ false };
