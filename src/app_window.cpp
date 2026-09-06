@@ -118,6 +118,16 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_APP_SEARCH_UPDATE: {
+        int activeIdx = m_searchEngine.GetActiveMatchIndex();
+        if (activeIdx >= 0 && activeIdx != m_lastJumpedMatch) {
+            m_lastJumpedMatch = activeIdx;
+            JumpToActiveMatch();
+        }
+        Render();
+        return 0;
+    }
+
     case WM_TIMER: {
         if (wParam == 1) {
             float targetAlpha = 0.0f;
@@ -281,6 +291,41 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        // 2b. Search Bar interaction
+        if (m_showSearch) {
+            int searchHit = HitTestSearchBar(pt);
+            if (msg == WM_LBUTTONDOWN && searchHit > 0) {
+                if (searchHit == 1) { // Prev
+                    if (m_searchEngine.PrevMatch()) {
+                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        JumpToActiveMatch();
+                        Render();
+                    }
+                } else if (searchHit == 2) { // Next
+                    if (m_searchEngine.NextMatch()) {
+                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        JumpToActiveMatch();
+                        Render();
+                    }
+                } else if (searchHit == 3) { // Match Case
+                    m_searchMatchCase = !m_searchMatchCase;
+                    TriggerSearch();
+                    Render();
+                } else if (searchHit == 4) { // OCR
+                    m_searchOcrEnabled = !m_searchOcrEnabled;
+                    TriggerSearch();
+                    Render();
+                } else if (searchHit == 5) { // Close
+                    CloseSearch();
+                    Render();
+                }
+                return 0;
+            } else if (searchHit == 0) {
+                // Clicked inside search bar input area
+                return 0;
+            }
+        }
+
         // 3. Help Overlay dismissal
         if (m_showHelp) {
             m_showHelp = false;
@@ -350,6 +395,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 ShowScrollbar();
             }
             Render();
+        }
+
+        // 2b. Search Bar Hover detection
+        if (m_showSearch) {
+            int hit = HitTestSearchBar(pt);
+            int newBtn = (hit > 0) ? hit : 0;
+            if (newBtn != m_searchHoveredBtn) {
+                m_searchHoveredBtn = newBtn;
+                Render();
+            }
+            if (hit > 0) {
+                SetCursor(LoadCursor(nullptr, IDC_HAND));
+            } else if (hit == 0) {
+                SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+            }
+        } else if (m_searchHoveredBtn != 0) {
+            m_searchHoveredBtn = 0;
         }
 
         // 3. Tab Bar hover
@@ -497,6 +559,43 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         switch (wParam) {
+        case 'F':
+            if (isCtrlDown) {
+                auto* pTab = GetActiveTab();
+                if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
+                    m_showSearch = true;
+                    m_showGoToPage = false;
+                    m_showHelp = false;
+                    if (!m_searchQuery.empty()) {
+                        TriggerSearch();
+                    }
+                    Render();
+                }
+                return 0;
+            }
+            break;
+        case 'V':
+            if (isCtrlDown && m_showSearch) {
+                if (OpenClipboard(m_hwnd)) {
+                    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+                    if (hData) {
+                        const wchar_t* pText = (const wchar_t*)GlobalLock(hData);
+                        if (pText) {
+                            for (const wchar_t* p = pText; *p; ++p) {
+                                if (*p >= 32 && *p != 127) {
+                                    m_searchQuery.push_back(*p);
+                                }
+                            }
+                            GlobalUnlock(hData);
+                            TriggerSearch();
+                            Render();
+                        }
+                    }
+                    CloseClipboard();
+                }
+                return 0;
+            }
+            break;
         case 'G':
             if (isCtrlDown) {
                 auto* pTab = GetActiveTab();
@@ -675,6 +774,51 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         }
+        case VK_RETURN:
+            if (m_showSearch) {
+                if (isShiftDown) {
+                    if (m_searchEngine.PrevMatch()) {
+                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        JumpToActiveMatch();
+                        Render();
+                    }
+                } else {
+                    if (m_searchEngine.NextMatch()) {
+                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        JumpToActiveMatch();
+                        Render();
+                    }
+                }
+                return 0;
+            }
+            break;
+        case VK_F3: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->document.IsLoaded()) {
+                if (!m_showSearch) {
+                    m_showSearch = true;
+                    if (!m_searchQuery.empty()) {
+                        TriggerSearch();
+                    }
+                } else {
+                    if (isShiftDown) {
+                        if (m_searchEngine.PrevMatch()) {
+                            m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                            JumpToActiveMatch();
+                            Render();
+                        }
+                    } else {
+                        if (m_searchEngine.NextMatch()) {
+                            m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                            JumpToActiveMatch();
+                            Render();
+                        }
+                    }
+                }
+                Render();
+            }
+            return 0;
+        }
         case VK_F1:
             m_showHelp = !m_showHelp;
             Render();
@@ -685,6 +829,17 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case VK_ESCAPE:
             if (m_showHelp) {
                 m_showHelp = false;
+                Render();
+                return 0;
+            }
+            if (m_showGoToPage) {
+                m_showGoToPage = false;
+                m_goToPageBuffer.clear();
+                Render();
+                return 0;
+            }
+            if (m_showSearch) {
+                CloseSearch();
                 Render();
                 return 0;
             }
@@ -699,6 +854,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CHAR:
         if (m_showGoToPage) {
             return 0;
+        }
+        if (m_showSearch) {
+            if (wParam == VK_BACK) {
+                if (!m_searchQuery.empty()) {
+                    m_searchQuery.pop_back();
+                    TriggerSearch();
+                    Render();
+                }
+                return 0;
+            } else if (wParam >= 32 && wParam != 127) {
+                m_searchQuery.push_back((wchar_t)wParam);
+                TriggerSearch();
+                Render();
+                return 0;
+            } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
+                return 0;
+            }
         }
         break;
 
@@ -739,6 +911,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
             m_tabs[0].continuousScroll = false;
             m_tabs[0].scrollY = 0.0f;
             m_activeTab = 0;
+            if (m_showSearch && !m_searchQuery.empty()) {
+                TriggerSearch();
+            }
             RecalculateLayout();
             UpdateTitle();
             Render();
@@ -754,6 +929,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
         newTab.scrollY = 0.0f;
         m_tabs.push_back(std::move(newTab));
         m_activeTab = m_tabs.size() - 1;
+        if (m_showSearch && !m_searchQuery.empty()) {
+            TriggerSearch();
+        }
         RecalculateLayout();
         UpdateTitle();
         Render();
@@ -767,6 +945,7 @@ void AppWindow::CloseTab(size_t index) {
 
     if (m_tabs.empty()) {
         m_activeTab = 0;
+        CloseSearch();
         UpdateTitle();
         Render();
         return;
@@ -778,6 +957,9 @@ void AppWindow::CloseTab(size_t index) {
         m_activeTab--;
     }
 
+    if (m_showSearch && !m_searchQuery.empty()) {
+        TriggerSearch();
+    }
     RecalculateLayout();
     UpdateTitle();
     Render();
@@ -786,6 +968,9 @@ void AppWindow::CloseTab(size_t index) {
 void AppWindow::SelectTab(size_t index) {
     if (index >= m_tabs.size() || index == m_activeTab) return;
     m_activeTab = index;
+    if (m_showSearch && !m_searchQuery.empty()) {
+        TriggerSearch();
+    }
     RecalculateLayout();
     UpdateTitle();
     Render();
@@ -794,6 +979,9 @@ void AppWindow::SelectTab(size_t index) {
 void AppWindow::NextTab() {
     if (m_tabs.size() <= 1) return;
     m_activeTab = (m_activeTab + 1) % m_tabs.size();
+    if (m_showSearch && !m_searchQuery.empty()) {
+        TriggerSearch();
+    }
     RecalculateLayout();
     UpdateTitle();
     Render();
@@ -802,6 +990,9 @@ void AppWindow::NextTab() {
 void AppWindow::PrevTab() {
     if (m_tabs.size() <= 1) return;
     m_activeTab = (m_activeTab == 0) ? (m_tabs.size() - 1) : (m_activeTab - 1);
+    if (m_showSearch && !m_searchQuery.empty()) {
+        TriggerSearch();
+    }
     RecalculateLayout();
     UpdateTitle();
     Render();
@@ -1429,7 +1620,9 @@ void AppWindow::Render() {
                 m_hoveredAdd,
                 GetScrollbarInfo(),
                 m_showGoToPage,
-                m_goToPageBuffer
+                m_goToPageBuffer,
+                GetSearchBarInfo(),
+                GetSearchHighlights()
             );
             return;
         }
@@ -1452,7 +1645,9 @@ void AppWindow::Render() {
                 m_hoveredAdd,
                 GetScrollbarInfo(),
                 m_showGoToPage,
-                m_goToPageBuffer
+                m_goToPageBuffer,
+                GetSearchBarInfo(),
+                GetSearchHighlights()
             );
             return;
         }
@@ -1464,7 +1659,8 @@ void AppWindow::Render() {
         tabInfos,
         m_hoveredAdd,
         m_showGoToPage,
-        m_goToPageBuffer
+        m_goToPageBuffer,
+        GetSearchBarInfo()
     );
 }
 
@@ -1620,4 +1816,147 @@ void AppWindow::HandleScrollbarDrag(float mouseY) {
             Render();
         }
     }
+}
+
+SearchBarRenderInfo AppWindow::GetSearchBarInfo() const {
+    SearchBarRenderInfo info;
+    info.visible = m_showSearch;
+    info.hasTabs = (m_tabs.size() > 1);
+    info.query = m_searchQuery;
+    info.matchCase = m_searchMatchCase;
+    info.ocrEnabled = m_searchOcrEnabled;
+    info.isSearching = m_searchEngine.IsSearching();
+    info.hasScanned = m_searchEngine.HasScannedPages();
+    info.totalMatches = m_searchEngine.GetTotalMatches();
+    int activeIdx = m_searchEngine.GetActiveMatchIndex();
+    info.activeMatch = (activeIdx >= 0) ? (uint32_t)(activeIdx + 1) : 0;
+
+    info.isPrevHovered = (m_searchHoveredBtn == 1);
+    info.isNextHovered = (m_searchHoveredBtn == 2);
+    info.isCaseHovered = (m_searchHoveredBtn == 3);
+    info.isOcrHovered = (m_searchHoveredBtn == 4);
+    info.isCloseHovered = (m_searchHoveredBtn == 5);
+
+    return info;
+}
+
+std::vector<SearchHighlight> AppWindow::GetSearchHighlights() const {
+    std::vector<SearchHighlight> highlights;
+    if (!m_showSearch || m_searchQuery.empty()) return highlights;
+
+    auto matches = m_searchEngine.GetAllMatches();
+    int activeIdx = m_searchEngine.GetActiveMatchIndex();
+
+    highlights.reserve(matches.size());
+    for (size_t i = 0; i < matches.size(); ++i) {
+        SearchHighlight hl;
+        hl.pageIndex = matches[i].pageIndex;
+        hl.pageRect = matches[i].pageRect;
+        hl.isActive = ((int)i == activeIdx);
+        highlights.push_back(hl);
+    }
+    return highlights;
+}
+
+int AppWindow::HitTestSearchBar(POINT pt) const {
+    if (!m_showSearch) return -1;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipW = (float)m_renderer.GetWidth() * dipScale;
+
+    D2D1_RECT_F bar = SearchBarLayout::GetBarRect(dipW, m_tabs.size() > 1);
+    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
+        return -1;
+    }
+
+    auto inRect = [](const D2D1_RECT_F& r, float x, float y) {
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
+
+    if (inRect(SearchBarLayout::GetPrevBtnRect(bar), dipX, dipY)) return 1;
+    if (inRect(SearchBarLayout::GetNextBtnRect(bar), dipX, dipY)) return 2;
+    if (inRect(SearchBarLayout::GetCaseBtnRect(bar), dipX, dipY)) return 3;
+    if (inRect(SearchBarLayout::GetOcrBtnRect(bar), dipX, dipY)) return 4;
+    if (inRect(SearchBarLayout::GetCloseBtnRect(bar), dipX, dipY)) return 5;
+    if (inRect(SearchBarLayout::GetInputRect(bar), dipX, dipY)) return 0;
+
+    return 0;
+}
+
+void AppWindow::TriggerSearch() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || m_searchQuery.empty()) {
+        m_searchEngine.Cancel();
+        m_searchEngine.Clear();
+        m_lastJumpedMatch = -1;
+        return;
+    }
+
+    m_lastJumpedMatch = -1;
+    m_searchEngine.StartSearch(
+        m_hwnd,
+        pTab->document.GetFilePath(),
+        pTab->document.GetPageCount(),
+        m_searchQuery,
+        m_searchMatchCase,
+        m_searchOcrEnabled,
+        pTab->document.GetDoc()
+    );
+}
+
+void AppWindow::JumpToActiveMatch() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+
+    SearchMatch match = m_searchEngine.GetActiveMatch();
+    if (match.pageIndex >= pTab->document.GetPageCount()) return;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipW = (float)m_renderer.GetWidth() * dipScale;
+    float dipH = (float)m_renderer.GetHeight() * dipScale - GetTopOffset();
+
+    if (pTab->continuousScroll) {
+        float gap = 12.0f;
+        float curY = 24.0f; // top margin
+        for (uint32_t i = 0; i < match.pageIndex; ++i) {
+            curY += pTab->document.GetPageSize(i).height * pTab->zoom + gap;
+        }
+        float matchCenterY = curY + (match.pageRect.top + (match.pageRect.bottom - match.pageRect.top) * 0.5f) * pTab->zoom;
+        float targetScrollY = matchCenterY - (dipH * 0.5f);
+        float totalH = GetTotalDocumentHeight(pTab);
+        float maxScroll = std::max(0.0f, totalH - dipH);
+        pTab->scrollY = std::clamp(targetScrollY, 0.0f, maxScroll);
+        pTab->currentPage = match.pageIndex;
+    } else {
+        if (pTab->currentPage != match.pageIndex) {
+            pTab->currentPage = match.pageIndex;
+            if (pTab->zoomMode != ZoomMode::Custom) {
+                RecalculateLayout();
+            }
+        }
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(match.pageIndex);
+        float pageRenderW = pSize.width * pTab->zoom;
+        float pageRenderH = pSize.height * pTab->zoom;
+        float matchCenterX = (match.pageRect.left + (match.pageRect.right - match.pageRect.left) * 0.5f) * pTab->zoom;
+        float matchCenterY = (match.pageRect.top + (match.pageRect.bottom - match.pageRect.top) * 0.5f) * pTab->zoom;
+
+        if (pageRenderW > dipW) {
+            pTab->offsetX = (dipW * 0.5f) - matchCenterX;
+        }
+        if (pageRenderH > dipH) {
+            pTab->offsetY = (dipH * 0.5f) - matchCenterY;
+        }
+    }
+    UpdateTitle();
+    ShowScrollbar();
+}
+
+void AppWindow::CloseSearch() {
+    m_showSearch = false;
+    m_searchHoveredBtn = 0;
+    m_searchEngine.Cancel();
+    m_searchEngine.Clear();
+    m_lastJumpedMatch = -1;
 }

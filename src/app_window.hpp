@@ -12,6 +12,7 @@
 #include <thread>
 #include "d2d_renderer.hpp"
 #include "pdf_document.hpp"
+#include "pdf_search.hpp"
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 
@@ -83,6 +84,13 @@ private:
     void ShowScrollbar();
     void HandleScrollbarDrag(float mouseY);
 
+    SearchBarRenderInfo GetSearchBarInfo() const;
+    std::vector<SearchHighlight> GetSearchHighlights() const;
+    int HitTestSearchBar(POINT pt) const;
+    void TriggerSearch();
+    void JumpToActiveMatch();
+    void CloseSearch();
+
     DocumentTab* GetActiveTab() {
         if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
         return &m_tabs[m_activeTab];
@@ -120,6 +128,15 @@ private:
     // Go to Page state
     bool m_showGoToPage = false;
     std::wstring m_goToPageBuffer;
+
+    // Search state
+    bool m_showSearch = false;
+    std::wstring m_searchQuery;
+    bool m_searchMatchCase = false;
+    bool m_searchOcrEnabled = false;
+    PdfSearchEngine m_searchEngine;
+    int m_searchHoveredBtn = 0; // 0=body/none, 1=prev, 2=next, 3=case, 4=ocr, 5=close
+    int m_lastJumpedMatch = -1;
 
     // Scrollbar state
     bool m_isDraggingScrollbar = false;
