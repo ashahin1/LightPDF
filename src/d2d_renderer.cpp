@@ -46,6 +46,7 @@ void D2DRenderer::Cleanup() {
     m_textFormatTab = nullptr;
     m_textFormatTabClose = nullptr;
     m_textFormatTabAdd = nullptr;
+    m_textFormatGoToPageInput = nullptr;
     m_d2dFactory = nullptr;
 }
 
@@ -226,6 +227,21 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatTabAdd->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormatTabAdd->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Go to Page input text format: Segoe UI, 20pt, Semi-Bold, Centered
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        20.0f,
+        L"en-us",
+        &m_textFormatGoToPageInput
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatGoToPageInput->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatGoToPageInput->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     return true;
 }
 
@@ -299,6 +315,12 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.77f, 0.17f, 0.11f, 0.90f), &m_brushTabCloseHover);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.92f, 0.92f, 1.0f), &m_brushTabText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.55f, 0.55f, 0.55f, 1.0f), &m_brushTabTextInactive);
+
+    // Scrollbar & Go to Page Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), &m_brushScrollbarTrack);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.35f), &m_brushScrollbarThumb);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.65f), &m_brushScrollbarThumbHover);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.08f, 0.95f), &m_brushGoToPageBox);
 
     return true;
 }
@@ -401,6 +423,10 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushTabCloseHover = nullptr;
     m_brushTabText = nullptr;
     m_brushTabTextInactive = nullptr;
+    m_brushScrollbarTrack = nullptr;
+    m_brushScrollbarThumb = nullptr;
+    m_brushScrollbarThumbHover = nullptr;
+    m_brushGoToPageBox = nullptr;
     m_pdfRenderer = nullptr;
     m_d2dContext = nullptr;
     m_d2dDevice = nullptr;
@@ -413,7 +439,9 @@ void D2DRenderer::RenderBlank(
     const std::wstring& message,
     bool showHelp,
     const std::vector<TabRenderInfo>& tabs,
-    bool isAddHovered
+    bool isAddHovered,
+    bool showGoToPage,
+    const std::wstring& goToPageBuffer
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -429,7 +457,7 @@ void D2DRenderer::RenderBlank(
     float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
     D2D1_RECT_F layoutRect = D2D1::RectF(20.0f, 20.0f + topOffset, dipWidth - 20.0f, dipHeight - 20.0f);
 
-    std::wstring displayMsg = message.empty() ? L"Drag and drop a PDF file here\nor press Ctrl+O to open\n\n(Press F1 for keyboard shortcuts)" : message;
+    std::wstring displayMsg = message.empty() ? L"Drag and drop a PDF file here,\ndouble-click to browse, or press Ctrl+O\n\n(Press F1 for keyboard shortcuts)" : message;
     m_d2dContext->DrawText(
         displayMsg.c_str(),
         (UINT32)displayMsg.length(),
@@ -440,6 +468,10 @@ void D2DRenderer::RenderBlank(
 
     if (tabs.size() > 1) {
         DrawTabBar(tabs, isAddHovered);
+    }
+
+    if (showGoToPage) {
+        DrawGoToPageOverlay(goToPageBuffer, 0);
     }
 
     if (showHelp) {
@@ -467,7 +499,10 @@ void D2DRenderer::RenderPage(
     const std::wstring& zoomModeText,
     bool showHelp,
     const std::vector<TabRenderInfo>& tabs,
-    bool isAddHovered
+    bool isAddHovered,
+    const ScrollbarRenderInfo& scrollbar,
+    bool showGoToPage,
+    const std::wstring& goToPageBuffer
 ) {
     if (!m_d2dContext || !m_swapChain || !page) return;
 
@@ -562,12 +597,160 @@ void D2DRenderer::RenderPage(
         );
     }
 
-    // 6. Draw Tab Bar if 2+ tabs exist (above page content)
+    // 6. Draw Scrollbar
+    DrawScrollbar(scrollbar);
+
+    // 7. Draw Tab Bar if 2+ tabs exist (above page content)
     if (tabs.size() > 1) {
         DrawTabBar(tabs, isAddHovered);
     }
 
-    // 7. Draw Help Overlay if toggled
+    // 8. Draw Go to Page Overlay if active
+    if (showGoToPage) {
+        DrawGoToPageOverlay(goToPageBuffer, totalPages);
+    }
+
+    // 9. Draw Help Overlay if toggled
+    if (showHelp) {
+        DrawHelpOverlay();
+    }
+
+    HRESULT hr = m_d2dContext->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        DiscardDeviceResources();
+        CreateDeviceResources();
+        CreateWindowSizeDependentResources();
+    } else {
+        m_swapChain->Present(1, 0);
+    }
+}
+
+void D2DRenderer::RenderContinuous(
+    const std::vector<ContinuousPageInfo>& visiblePages,
+    float zoom,
+    uint32_t currentPageIndex,
+    uint32_t totalPages,
+    const std::wstring& zoomModeText,
+    bool isContinuous,
+    bool showHelp,
+    const std::vector<TabRenderInfo>& tabs,
+    bool isAddHovered,
+    const ScrollbarRenderInfo& scrollbar,
+    bool showGoToPage,
+    const std::wstring& goToPageBuffer
+) {
+    if (!m_d2dContext || !m_swapChain) return;
+
+    std::lock_guard<std::mutex> lock(m_renderMutex);
+
+    m_d2dContext->BeginDraw();
+    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
+
+    float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
+    float dpiScale = m_dpi / 96.0f;
+
+    for (const auto& vp : visiblePages) {
+        if (!vp.page) continue;
+
+        float pageX = vp.xOffset;
+        float pageY = vp.yOffset + topOffset;
+        float destW = vp.pageSize.width * zoom;
+        float destH = vp.pageSize.height * zoom;
+
+        // 1. Draw Page Drop Shadow
+        D2D1_RECT_F shadowRect = D2D1::RectF(
+            pageX + 4.0f,
+            pageY + 4.0f,
+            pageX + destW + 5.0f,
+            pageY + destH + 5.0f
+        );
+        m_d2dContext->FillRoundedRectangle(
+            D2D1::RoundedRect(shadowRect, 2.0f, 2.0f),
+            m_brushPageShadow.Get()
+        );
+
+        // 2. Draw Page Background (pure white)
+        D2D1_RECT_F pageRect = D2D1::RectF(
+            pageX,
+            pageY,
+            pageX + destW,
+            pageY + destH
+        );
+        m_d2dContext->FillRectangle(pageRect, m_brushPageBg.Get());
+
+        // 3. Render PDF Content via Hardware Renderer
+        if (m_pdfRenderer) {
+            UINT32 pixelW = (UINT32)std::max(1.0f, std::round(destW * dpiScale));
+            UINT32 pixelH = (UINT32)std::max(1.0f, std::round(destH * dpiScale));
+
+            PDF_RENDER_PARAMS params = {};
+            params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+            params.DestinationWidth = pixelW;
+            params.DestinationHeight = pixelH;
+            params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+            params.IgnoreHighContrast = FALSE;
+
+            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(pageX, pageY));
+            m_pdfRenderer->RenderPageToDeviceContext(
+                (IUnknown*)winrt::get_abi(vp.page),
+                m_d2dContext.Get(),
+                &params
+            );
+            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
+
+        // 4. Draw 1px crisp outline around page
+        m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
+    }
+
+    // 5. Draw Sleek Minimalist HUD Pill (bottom-center)
+    float dipWidth = m_width * (96.0f / m_dpi);
+    float dipHeight = m_height * (96.0f / m_dpi);
+
+    wchar_t hudText[160];
+    int zoomPct = (int)std::round(zoom * 100.0f);
+    if (!zoomModeText.empty()) {
+        swprintf_s(hudText, L"%u / %u  \x2022  %d%% (%s)%s", currentPageIndex + 1, totalPages, zoomPct, zoomModeText.c_str(), isContinuous ? L"  \x2022  Continuous" : L"");
+    } else {
+        swprintf_s(hudText, L"%u / %u  \x2022  %d%%%s", currentPageIndex + 1, totalPages, zoomPct, isContinuous ? L"  \x2022  Continuous" : L"");
+    }
+
+    float pillWidth = 280.0f;
+    if (!zoomModeText.empty()) pillWidth = 330.0f;
+    float pillHeight = 32.0f;
+    float pillLeft = (dipWidth - pillWidth) * 0.5f;
+    float pillTop = dipHeight - pillHeight - 16.0f;
+
+    if (pillLeft > 0.0f && pillTop > 0.0f) {
+        D2D1_RECT_F pillRect = D2D1::RectF(pillLeft, pillTop, pillLeft + pillWidth, pillTop + pillHeight);
+        D2D1_ROUNDED_RECT roundedPill = D2D1::RoundedRect(pillRect, 16.0f, 16.0f);
+
+        m_d2dContext->FillRoundedRectangle(roundedPill, m_brushHudBg.Get());
+        m_d2dContext->DrawRoundedRectangle(roundedPill, m_brushHudBorder.Get(), 1.0f);
+        m_d2dContext->DrawText(
+            hudText,
+            (UINT32)wcslen(hudText),
+            m_textFormatHud.Get(),
+            pillRect,
+            m_brushHudText.Get()
+        );
+    }
+
+    // 6. Draw Scrollbar
+    DrawScrollbar(scrollbar);
+
+    // 7. Draw Tab Bar if 2+ tabs exist (above page content)
+    if (tabs.size() > 1) {
+        DrawTabBar(tabs, isAddHovered);
+    }
+
+    // 8. Draw Go to Page Overlay if active
+    if (showGoToPage) {
+        DrawGoToPageOverlay(goToPageBuffer, totalPages);
+    }
+
+    // 9. Draw Help Overlay if toggled
     if (showHelp) {
         DrawHelpOverlay();
     }
@@ -670,6 +853,125 @@ void D2DRenderer::DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddH
     );
 }
 
+void D2DRenderer::DrawScrollbar(const ScrollbarRenderInfo& scrollbar) {
+    if (!scrollbar.visible || scrollbar.alpha <= 0.001f || !m_d2dContext) return;
+
+    float dipWidth = m_width * (96.0f / m_dpi);
+    float width = (scrollbar.isHovered || scrollbar.isDragging) ? 10.0f : 7.0f;
+    float x = dipWidth - width - 4.0f;
+
+    // 1. Draw Track
+    D2D1_RECT_F trackRect = D2D1::RectF(x, scrollbar.trackY, x + width, scrollbar.trackY + scrollbar.trackH);
+    D2D1_ROUNDED_RECT roundedTrack = D2D1::RoundedRect(trackRect, width * 0.5f, width * 0.5f);
+
+    if (m_brushScrollbarTrack) {
+        m_brushScrollbarTrack->SetOpacity(scrollbar.alpha * 0.08f);
+        m_d2dContext->FillRoundedRectangle(roundedTrack, m_brushScrollbarTrack.Get());
+    }
+
+    // 2. Draw Thumb
+    D2D1_RECT_F thumbRect = D2D1::RectF(x, scrollbar.thumbY, x + width, scrollbar.thumbY + scrollbar.thumbH);
+    D2D1_ROUNDED_RECT roundedThumb = D2D1::RoundedRect(thumbRect, width * 0.5f, width * 0.5f);
+
+    ID2D1SolidColorBrush* pThumbBrush = (scrollbar.isDragging || scrollbar.isHovered)
+        ? m_brushScrollbarThumbHover.Get()
+        : m_brushScrollbarThumb.Get();
+    if (pThumbBrush) {
+        pThumbBrush->SetOpacity(scrollbar.alpha * ((scrollbar.isDragging || scrollbar.isHovered) ? 0.70f : 0.40f));
+        m_d2dContext->FillRoundedRectangle(roundedThumb, pThumbBrush);
+    }
+
+    // 3. Floating Tooltip while dragging: e.g. "Page 14 / 80"
+    if (scrollbar.isDragging && scrollbar.totalPages > 0) {
+        wchar_t tipText[64];
+        swprintf_s(tipText, L"Page %u / %u", scrollbar.hoverPage + 1, scrollbar.totalPages);
+        float tipW = 110.0f;
+        float tipH = 26.0f;
+        float tipX = x - tipW - 10.0f;
+        float tipY = std::clamp(scrollbar.thumbY + (scrollbar.thumbH - tipH) * 0.5f, scrollbar.trackY, scrollbar.trackY + scrollbar.trackH - tipH);
+
+        D2D1_RECT_F tipRect = D2D1::RectF(tipX, tipY, tipX + tipW, tipY + tipH);
+        D2D1_ROUNDED_RECT roundedTip = D2D1::RoundedRect(tipRect, 6.0f, 6.0f);
+
+        m_d2dContext->FillRoundedRectangle(roundedTip, m_brushHudBg.Get());
+        m_d2dContext->DrawRoundedRectangle(roundedTip, m_brushHudBorder.Get(), 1.0f);
+        m_d2dContext->DrawText(
+            tipText,
+            (UINT32)wcslen(tipText),
+            m_textFormatHud.Get(),
+            tipRect,
+            m_brushHudText.Get()
+        );
+    }
+}
+
+void D2DRenderer::DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages) {
+    if (!m_d2dContext) return;
+
+    float dipWidth = m_width * (96.0f / m_dpi);
+    float dipHeight = m_height * (96.0f / m_dpi);
+
+    // 1. Dim background
+    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
+    m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
+
+    // 2. Centered Card
+    float cardW = 320.0f;
+    float cardH = 150.0f;
+    float cardX = (dipWidth - cardW) * 0.5f;
+    float cardY = (dipHeight - cardH) * 0.5f;
+
+    D2D1_RECT_F cardRect = D2D1::RectF(cardX, cardY, cardX + cardW, cardY + cardH);
+    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(cardRect, 12.0f, 12.0f);
+
+    // Drop shadow
+    D2D1_RECT_F cardShadow = D2D1::RectF(cardX + 4.0f, cardY + 4.0f, cardX + cardW + 6.0f, cardY + cardH + 6.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
+
+    // Card background & cyan accent border
+    m_d2dContext->FillRoundedRectangle(roundedCard, m_brushHelpCardBg.Get());
+    m_d2dContext->DrawRoundedRectangle(roundedCard, m_brushTabAccent.Get(), 1.5f);
+
+    // Title: "Go to Page"
+    D2D1_RECT_F titleRect = D2D1::RectF(cardX, cardY + 14.0f, cardX + cardW, cardY + 36.0f);
+    const wchar_t* titleStr = L"Go to Page";
+    m_d2dContext->DrawText(titleStr, (UINT32)wcslen(titleStr), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
+
+    // Input Box in center
+    float boxW = 200.0f;
+    float boxH = 42.0f;
+    float boxX = cardX + (cardW - boxW) * 0.5f;
+    float boxY = cardY + 46.0f;
+
+    D2D1_RECT_F boxRect = D2D1::RectF(boxX, boxY, boxX + boxW, boxY + boxH);
+    D2D1_ROUNDED_RECT roundedBox = D2D1::RoundedRect(boxRect, 6.0f, 6.0f);
+    m_d2dContext->FillRoundedRectangle(roundedBox, m_brushGoToPageBox.Get());
+    m_d2dContext->DrawRoundedRectangle(roundedBox, m_brushTabBorder.Get(), 1.0f);
+
+    // Display string: e.g. "42|  / 150"
+    wchar_t displayText[64];
+    if (buffer.empty()) {
+        if (totalPages > 0) swprintf_s(displayText, L"|  / %u", totalPages);
+        else swprintf_s(displayText, L"|");
+    } else {
+        if (totalPages > 0) swprintf_s(displayText, L"%s|  / %u", buffer.c_str(), totalPages);
+        else swprintf_s(displayText, L"%s|", buffer.c_str());
+    }
+
+    m_d2dContext->DrawText(
+        displayText,
+        (UINT32)wcslen(displayText),
+        m_textFormatGoToPageInput.Get(),
+        boxRect,
+        m_brushHudText.Get()
+    );
+
+    // Subtitle / Hint: "Press Enter to jump • Esc to cancel"
+    D2D1_RECT_F subRect = D2D1::RectF(cardX, cardY + 104.0f, cardX + cardW, cardY + 130.0f);
+    const wchar_t* subStr = L"Enter to jump  \x2022  Esc to cancel";
+    m_d2dContext->DrawText(subStr, (UINT32)wcslen(subStr), m_textFormatHelpSub.Get(), subRect, m_brushHelpSubText.Get());
+}
+
 void D2DRenderer::DrawHelpOverlay() {
     if (!m_d2dContext) return;
 
@@ -682,7 +984,7 @@ void D2DRenderer::DrawHelpOverlay() {
 
     // 2. Centered Help Card
     float cardW = 550.0f;
-    float cardH = 500.0f;
+    float cardH = 555.0f;
     float cardLeft = std::max(10.0f, (dipWidth - cardW) * 0.5f);
     float cardTop = std::max(10.0f, (dipHeight - cardH) * 0.5f);
 
@@ -729,6 +1031,8 @@ void D2DRenderer::DrawHelpOverlay() {
         { L"Alt + 1..9",            L"Jump directly to tab 1 through 9" },
         { L"Middle Click Tab",      L"Close clicked tab" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
+        { L"Ctrl + G",              L"Go to specific page number prompt" },
+        { L"Scrollbar Drag",        L"Scrub through document pages" },
         { L"Drag & Drop",           L"Open dropped PDF files as tabs" },
         { L"Page Down / Space",     L"Advance to next page" },
         { L"Page Up / Shift+Space", L"Go to previous page" },
@@ -740,7 +1044,8 @@ void D2DRenderer::DrawHelpOverlay() {
         { L"Ctrl + 0",              L"Fit full page to window" },
         { L"Ctrl + 1",              L"Actual size (100% zoom)" },
         { L"Ctrl + 2",              L"Fit page width to window" },
-        { L"Double Click",          L"Toggle between Fit Page and Fit Width" },
+        { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
+        { L"Double Click",          L"Fit Page / Fit Width (or Open file if empty)" },
         { L"F11",                   L"Toggle borderless fullscreen" },
         { L"F1 / Esc",              L"Toggle / dismiss this help overlay" },
     };

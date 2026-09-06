@@ -24,6 +24,27 @@ struct TabRenderInfo {
     bool isCloseHovered = false;
 };
 
+struct ContinuousPageInfo {
+    winrt::Windows::Data::Pdf::PdfPage page{ nullptr };
+    D2D1_SIZE_F pageSize = { 0.0f, 0.0f };
+    float xOffset = 0.0f;
+    float yOffset = 0.0f;
+    uint32_t pageIndex = 0;
+};
+
+struct ScrollbarRenderInfo {
+    bool visible = false;
+    float trackY = 0.0f;
+    float trackH = 0.0f;
+    float thumbY = 0.0f;
+    float thumbH = 0.0f;
+    float alpha = 0.0f;
+    bool isHovered = false;
+    bool isDragging = false;
+    uint32_t hoverPage = 0;
+    uint32_t totalPages = 0;
+};
+
 class D2DRenderer {
 public:
     D2DRenderer();
@@ -37,7 +58,9 @@ public:
         const std::wstring& message,
         bool showHelp = false,
         const std::vector<TabRenderInfo>& tabs = {},
-        bool isAddHovered = false
+        bool isAddHovered = false,
+        bool showGoToPage = false,
+        const std::wstring& goToPageBuffer = L""
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -50,7 +73,24 @@ public:
         const std::wstring& zoomModeText,
         bool showHelp = false,
         const std::vector<TabRenderInfo>& tabs = {},
-        bool isAddHovered = false
+        bool isAddHovered = false,
+        const ScrollbarRenderInfo& scrollbar = {},
+        bool showGoToPage = false,
+        const std::wstring& goToPageBuffer = L""
+    );
+    void RenderContinuous(
+        const std::vector<ContinuousPageInfo>& visiblePages,
+        float zoom,
+        uint32_t currentPageIndex,
+        uint32_t totalPages,
+        const std::wstring& zoomModeText,
+        bool isContinuous,
+        bool showHelp = false,
+        const std::vector<TabRenderInfo>& tabs = {},
+        bool isAddHovered = false,
+        const ScrollbarRenderInfo& scrollbar = {},
+        bool showGoToPage = false,
+        const std::wstring& goToPageBuffer = L""
     );
 
     bool PrintPageToHdc(
@@ -72,6 +112,8 @@ private:
     void DiscardDeviceResources();
     void DrawHelpOverlay();
     void DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered);
+    void DrawScrollbar(const ScrollbarRenderInfo& scrollbar);
+    void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;
@@ -100,6 +142,7 @@ private:
     ComPtr<IDWriteTextFormat> m_textFormatTab;
     ComPtr<IDWriteTextFormat> m_textFormatTabClose;
     ComPtr<IDWriteTextFormat> m_textFormatTabAdd;
+    ComPtr<IDWriteTextFormat> m_textFormatGoToPageInput;
 
     // Brushes
     ComPtr<ID2D1SolidColorBrush> m_brushBg;
@@ -129,6 +172,12 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushTabCloseHover;
     ComPtr<ID2D1SolidColorBrush> m_brushTabText;
     ComPtr<ID2D1SolidColorBrush> m_brushTabTextInactive;
+
+    // Scrollbar & Go to Page Brushes
+    ComPtr<ID2D1SolidColorBrush> m_brushScrollbarTrack;
+    ComPtr<ID2D1SolidColorBrush> m_brushScrollbarThumb;
+    ComPtr<ID2D1SolidColorBrush> m_brushScrollbarThumbHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushGoToPageBox;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;

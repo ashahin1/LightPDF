@@ -118,6 +118,28 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_TIMER: {
+        if (wParam == 1) {
+            float targetAlpha = 0.0f;
+            uint64_t now = GetTickCount64();
+            if (m_isDraggingScrollbar || m_isScrollbarHovered || (now - m_lastScrollbarActiveTime < 1200)) {
+                targetAlpha = 1.0f;
+            }
+
+            if (m_scrollbarAlpha != targetAlpha) {
+                if (targetAlpha > m_scrollbarAlpha) {
+                    m_scrollbarAlpha = std::min(targetAlpha, m_scrollbarAlpha + 0.15f);
+                } else {
+                    m_scrollbarAlpha = std::max(targetAlpha, m_scrollbarAlpha - 0.08f);
+                }
+                Render();
+            } else if (targetAlpha == 0.0f) {
+                KillTimer(m_hwnd, 1);
+            }
+        }
+        return 0;
+    }
+
     case WM_PAINT: {
         PAINTSTRUCT ps;
         BeginPaint(m_hwnd, &ps);
@@ -165,6 +187,8 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
 
+        ShowScrollbar();
+
         short delta = GET_WHEEL_DELTA_WPARAM(wParam);
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
@@ -173,6 +197,8 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ScreenToClient(m_hwnd, &pt);
             AdjustZoom(factor, pt);
+        } else if (pTab->continuousScroll) {
+            ScrollContinuous((float)delta * 0.6f);
         } else {
             D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
             float topOffset = GetTopOffset();
@@ -213,9 +239,27 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_LBUTTONDOWN:
     case WM_MBUTTONDOWN: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        float dipScale = 96.0f / m_renderer.GetDpi();
+        float dipX = (float)pt.x * dipScale;
+        float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
-        float dipY = (float)pt.y * (96.0f / m_renderer.GetDpi());
 
+        // 1. If Go to Page overlay is open, click outside closes it
+        if (m_showGoToPage) {
+            float dipW = (float)m_renderer.GetWidth() * dipScale;
+            float dipH = (float)m_renderer.GetHeight() * dipScale;
+            float cardW = 320.0f;
+            float cardH = 150.0f;
+            float cardX = (dipW - cardW) * 0.5f;
+            float cardY = (dipH - cardH) * 0.5f;
+            if (dipX < cardX || dipX > cardX + cardW || dipY < cardY || dipY > cardY + cardH) {
+                m_showGoToPage = false;
+                Render();
+            }
+            return 0;
+        }
+
+        // 2. Tab Bar clicks
         if (m_tabs.size() > 1 && dipY < topOffset) {
             bool outClose = false;
             bool outAdd = false;
@@ -237,12 +281,42 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        // 3. Help Overlay dismissal
         if (m_showHelp) {
             m_showHelp = false;
             Render();
             return 0;
         }
 
+        // 4. Scrollbar interaction (Left button only)
+        if (msg == WM_LBUTTONDOWN) {
+            bool outThumb = false;
+            if (HitTestScrollbar(pt, outThumb)) {
+                m_isDraggingScrollbar = true;
+                SetCapture(m_hwnd);
+                ScrollbarRenderInfo sInfo = GetScrollbarInfo();
+                if (outThumb) {
+                    m_scrollbarDragThumbOffsetY = dipY - sInfo.thumbY;
+                    m_scrollbarDragThumbY = sInfo.thumbY;
+                } else {
+                    m_scrollbarDragThumbOffsetY = sInfo.thumbH * 0.5f;
+                    HandleScrollbarDrag(dipY);
+                }
+                ShowScrollbar();
+                Render();
+                return 0;
+            }
+        }
+
+        // 5. HUD Pill interaction (click opens Go to Page)
+        if (msg == WM_LBUTTONDOWN && HitTestHud(pt)) {
+            m_showGoToPage = true;
+            m_goToPageBuffer.clear();
+            Render();
+            return 0;
+        }
+
+        // 6. Canvas Panning
         auto* pTab = GetActiveTab();
         if (pTab && pTab->document.IsLoaded()) {
             m_isPanning = true;
@@ -255,9 +329,30 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_MOUSEMOVE: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        float dipScale = 96.0f / m_renderer.GetDpi();
+        float dipX = (float)pt.x * dipScale;
+        float dipY = (float)pt.y * dipScale;
+        float dipW = (float)m_renderer.GetWidth() * dipScale;
         float topOffset = GetTopOffset();
-        float dipY = (float)pt.y * (96.0f / m_renderer.GetDpi());
 
+        // 1. Handle Scrollbar Dragging
+        if (m_isDraggingScrollbar) {
+            ShowScrollbar();
+            HandleScrollbarDrag(dipY);
+            return 0;
+        }
+
+        // 2. Scrollbar Hover detection (right 24 DIPs)
+        bool nearRight = (dipX >= dipW - 24.0f && dipY >= topOffset);
+        if (nearRight != m_isScrollbarHovered) {
+            m_isScrollbarHovered = nearRight;
+            if (m_isScrollbarHovered) {
+                ShowScrollbar();
+            }
+            Render();
+        }
+
+        // 3. Tab Bar hover
         if (m_tabs.size() > 1 && dipY < topOffset) {
             bool outClose = false;
             bool outAdd = false;
@@ -281,15 +376,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
 
+        // 4. Canvas Panning
         if (m_isPanning) {
             auto* pTab = GetActiveTab();
             if (pTab) {
-                float dipScale = 96.0f / m_renderer.GetDpi();
-                pTab->offsetX += (pt.x - m_lastMousePos.x) * dipScale;
-                pTab->offsetY += (pt.y - m_lastMousePos.y) * dipScale;
+                float dx = (pt.x - m_lastMousePos.x) * dipScale;
+                float dy = (pt.y - m_lastMousePos.y) * dipScale;
                 m_lastMousePos = pt;
-                pTab->zoomMode = ZoomMode::Custom;
-                Render();
+
+                if (pTab->continuousScroll) {
+                    pTab->offsetX += dx;
+                    ScrollContinuous(dy);
+                } else {
+                    pTab->offsetX += dx;
+                    pTab->offsetY += dy;
+                    pTab->zoomMode = ZoomMode::Custom;
+                    Render();
+                }
             }
         }
         return 0;
@@ -297,6 +400,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_LBUTTONUP:
     case WM_MBUTTONUP: {
+        if (m_isDraggingScrollbar) {
+            m_isDraggingScrollbar = false;
+            ReleaseCapture();
+            ShowScrollbar();
+            Render();
+            return 0;
+        }
         if (m_isPanning) {
             m_isPanning = false;
             ReleaseCapture();
@@ -314,12 +424,14 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         auto* pTab = GetActiveTab();
-        if (pTab) {
+        if (pTab && pTab->document.IsLoaded()) {
             if (pTab->zoomMode == ZoomMode::FitPage) {
                 SetZoomMode(ZoomMode::FitWidth);
             } else {
                 SetZoomMode(ZoomMode::FitPage);
             }
+        } else {
+            PromptOpenFile();
         }
         return 0;
     }
@@ -339,7 +451,63 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
+        if (m_showGoToPage) {
+            if (wParam >= '0' && wParam <= '9') {
+                if (m_goToPageBuffer.size() < 6) {
+                    m_goToPageBuffer.push_back((wchar_t)wParam);
+                    Render();
+                }
+                return 0;
+            } else if (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9) {
+                if (m_goToPageBuffer.size() < 6) {
+                    m_goToPageBuffer.push_back(L'0' + (wchar_t)(wParam - VK_NUMPAD0));
+                    Render();
+                }
+                return 0;
+            } else if (wParam == VK_BACK) {
+                if (!m_goToPageBuffer.empty()) {
+                    m_goToPageBuffer.pop_back();
+                    Render();
+                }
+                return 0;
+            } else if (wParam == VK_RETURN) {
+                if (!m_goToPageBuffer.empty()) {
+                    try {
+                        long p = std::stol(m_goToPageBuffer);
+                        auto* pTab = GetActiveTab();
+                        if (pTab && pTab->document.IsLoaded()) {
+                            uint32_t total = pTab->document.GetPageCount();
+                            if (p >= 1 && (uint32_t)p <= total) {
+                                GoToPage((uint32_t)(p - 1));
+                            }
+                        }
+                    } catch (...) {}
+                }
+                m_showGoToPage = false;
+                m_goToPageBuffer.clear();
+                Render();
+                return 0;
+            } else if (wParam == VK_ESCAPE) {
+                m_showGoToPage = false;
+                m_goToPageBuffer.clear();
+                Render();
+                return 0;
+            }
+            return 0;
+        }
+
         switch (wParam) {
+        case 'G':
+            if (isCtrlDown) {
+                auto* pTab = GetActiveTab();
+                if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
+                    m_showGoToPage = true;
+                    m_goToPageBuffer.clear();
+                    Render();
+                }
+                return 0;
+            }
+            break;
         case VK_TAB:
             if (isCtrlDown) {
                 if (isShiftDown) PrevTab();
@@ -397,6 +565,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             break;
+        case '3':
+            if (isCtrlDown) {
+                ToggleContinuousScroll();
+                return 0;
+            }
+            break;
         case VK_OEM_PLUS:
         case VK_ADD: {
             POINT pt = { (LONG)(m_renderer.GetWidth() / 2), (LONG)(m_renderer.GetHeight() / 2) };
@@ -409,16 +583,38 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             AdjustZoom(1.0f / 1.15f, pt);
             return 0;
         }
-        case VK_NEXT:
-            NextPage();
+        case VK_NEXT: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->continuousScroll) {
+                float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+                ScrollContinuous(-(dipH * 0.85f));
+            } else {
+                NextPage();
+            }
             return 0;
-        case VK_PRIOR:
-            PrevPage();
+        }
+        case VK_PRIOR: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->continuousScroll) {
+                float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+                ScrollContinuous(dipH * 0.85f);
+            } else {
+                PrevPage();
+            }
             return 0;
-        case VK_SPACE:
-            if (isShiftDown) PrevPage();
-            else NextPage();
+        }
+        case VK_SPACE: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->continuousScroll) {
+                float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+                if (isShiftDown) ScrollContinuous(dipH * 0.85f);
+                else ScrollContinuous(-(dipH * 0.85f));
+            } else {
+                if (isShiftDown) PrevPage();
+                else NextPage();
+            }
             return 0;
+        }
         case VK_RIGHT:
             NextPage();
             return 0;
@@ -428,28 +624,54 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case VK_DOWN: {
             auto* pTab = GetActiveTab();
             if (pTab) {
-                pTab->offsetY -= 40.0f;
-                pTab->zoomMode = ZoomMode::Custom;
-                Render();
+                if (pTab->continuousScroll) {
+                    ScrollContinuous(-40.0f);
+                } else {
+                    pTab->offsetY -= 40.0f;
+                    pTab->zoomMode = ZoomMode::Custom;
+                    Render();
+                }
             }
             return 0;
         }
         case VK_UP: {
             auto* pTab = GetActiveTab();
             if (pTab) {
-                pTab->offsetY += 40.0f;
-                pTab->zoomMode = ZoomMode::Custom;
-                Render();
+                if (pTab->continuousScroll) {
+                    ScrollContinuous(40.0f);
+                } else {
+                    pTab->offsetY += 40.0f;
+                    pTab->zoomMode = ZoomMode::Custom;
+                    Render();
+                }
             }
             return 0;
         }
-        case VK_HOME:
-            GoToPage(0);
+        case VK_HOME: {
+            auto* pTab = GetActiveTab();
+            if (pTab && pTab->continuousScroll) {
+                pTab->scrollY = 0.0f;
+                pTab->currentPage = 0;
+                UpdateTitle();
+                Render();
+            } else {
+                GoToPage(0);
+            }
             return 0;
+        }
         case VK_END: {
             auto* pTab = GetActiveTab();
             if (pTab && pTab->document.IsLoaded()) {
-                GoToPage(pTab->document.GetPageCount() - 1);
+                if (pTab->continuousScroll) {
+                    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+                    float totalH = GetTotalDocumentHeight(pTab);
+                    pTab->scrollY = std::max(0.0f, totalH - dipH);
+                    pTab->currentPage = pTab->document.GetPageCount() - 1;
+                    UpdateTitle();
+                    Render();
+                } else {
+                    GoToPage(pTab->document.GetPageCount() - 1);
+                }
             }
             return 0;
         }
@@ -474,6 +696,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
+    case WM_CHAR:
+        if (m_showGoToPage) {
+            return 0;
+        }
+        break;
+
     case WM_ERASEBKGND:
         return 1; // Direct2D handles entire background, avoid flicker
 
@@ -489,11 +717,27 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 void AppWindow::OpenTab(const std::wstring& path) {
     if (path.empty()) return;
 
-    // If we have a single tab that failed to load, reuse it
+    // Resolve to absolute canonical path for comparison
+    wchar_t fullPath[MAX_PATH * 2] = { 0 };
+    DWORD len = GetFullPathNameW(path.c_str(), _countof(fullPath), fullPath, nullptr);
+    std::wstring resolvedPath = (len > 0) ? fullPath : path;
+
+    // Check if this file is already open in an existing tab
+    for (size_t i = 0; i < m_tabs.size(); ++i) {
+        if (m_tabs[i].document.IsLoaded() &&
+            _wcsicmp(m_tabs[i].document.GetFilePath().c_str(), resolvedPath.c_str()) == 0) {
+            SelectTab(i);
+            return;
+        }
+    }
+
+    // If we have a single tab that failed to load or is blank, reuse it
     if (m_tabs.size() == 1 && !m_tabs[0].document.IsLoaded()) {
-        if (m_tabs[0].document.Open(path)) {
+        if (m_tabs[0].document.Open(resolvedPath)) {
             m_tabs[0].currentPage = 0;
             m_tabs[0].zoomMode = ZoomMode::FitPage;
+            m_tabs[0].continuousScroll = false;
+            m_tabs[0].scrollY = 0.0f;
             m_activeTab = 0;
             RecalculateLayout();
             UpdateTitle();
@@ -503,9 +747,11 @@ void AppWindow::OpenTab(const std::wstring& path) {
     }
 
     DocumentTab newTab;
-    if (newTab.document.Open(path)) {
+    if (newTab.document.Open(resolvedPath)) {
         newTab.currentPage = 0;
         newTab.zoomMode = ZoomMode::FitPage;
+        newTab.continuousScroll = false;
+        newTab.scrollY = 0.0f;
         m_tabs.push_back(std::move(newTab));
         m_activeTab = m_tabs.size() - 1;
         RecalculateLayout();
@@ -804,23 +1050,26 @@ void AppWindow::UpdateTitle() {
     auto* pTab = GetActiveTab();
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         wchar_t title[512];
+        const wchar_t* modeSuffix = pTab->continuousScroll ? L" (Continuous)" : L"";
         if (m_tabs.size() > 1) {
             swprintf_s(
                 title,
-                L"[Tab %zu/%zu] [%u / %u] - %s - LightPDF",
+                L"[Tab %zu/%zu] [%u / %u] - %s - LightPDF%s",
                 m_activeTab + 1,
                 m_tabs.size(),
                 pTab->currentPage + 1,
                 pTab->document.GetPageCount(),
-                pTab->document.GetFileName().c_str()
+                pTab->document.GetFileName().c_str(),
+                modeSuffix
             );
         } else {
             swprintf_s(
                 title,
-                L"[%u / %u] - %s - LightPDF",
+                L"[%u / %u] - %s - LightPDF%s",
                 pTab->currentPage + 1,
                 pTab->document.GetPageCount(),
-                pTab->document.GetFileName().c_str()
+                pTab->document.GetFileName().c_str(),
+                modeSuffix
             );
         }
         SetWindowTextW(m_hwnd, title);
@@ -849,10 +1098,24 @@ void AppWindow::AdjustZoom(float factor, POINT mousePos) {
     float mouseX = (float)mousePos.x * dipScale;
     float mouseY = (float)mousePos.y * dipScale - GetTopOffset();
 
-    pTab->offsetX = mouseX - (mouseX - pTab->offsetX) * (newZoom / oldZoom);
-    pTab->offsetY = mouseY - (mouseY - pTab->offsetY) * (newZoom / oldZoom);
-    pTab->zoom = newZoom;
-    pTab->zoomMode = ZoomMode::Custom;
+    if (pTab->continuousScroll) {
+        float docY = pTab->scrollY + mouseY;
+        pTab->scrollY = std::max(0.0f, (docY * (newZoom / oldZoom)) - mouseY);
+        pTab->zoom = newZoom;
+        pTab->zoomMode = ZoomMode::Custom;
+
+        float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+        float totalH = GetTotalDocumentHeight(pTab);
+        float maxScroll = std::max(0.0f, totalH - dipH);
+        pTab->scrollY = std::min(pTab->scrollY, maxScroll);
+        pTab->currentPage = GetPageAtScrollOffset(pTab);
+        UpdateTitle();
+    } else {
+        pTab->offsetX = mouseX - (mouseX - pTab->offsetX) * (newZoom / oldZoom);
+        pTab->offsetY = mouseY - (mouseY - pTab->offsetY) * (newZoom / oldZoom);
+        pTab->zoom = newZoom;
+        pTab->zoomMode = ZoomMode::Custom;
+    }
 
     Render();
 }
@@ -861,12 +1124,41 @@ void AppWindow::RecalculateLayout() {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
 
-    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
-    if (pSize.width <= 0.0f || pSize.height <= 0.0f) return;
-
     float dipW = m_renderer.GetWidth() * (96.0f / m_renderer.GetDpi());
     float topOffset = GetTopOffset();
     float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
+
+    if (pTab->continuousScroll) {
+        float margin = 24.0f;
+        if (pTab->zoomMode == ZoomMode::FitWidth) {
+            float maxW = 0.0f;
+            uint32_t count = pTab->document.GetPageCount();
+            for (uint32_t i = 0; i < count; ++i) {
+                float w = pTab->document.GetPageSize(i).width;
+                if (w > maxW) maxW = w;
+            }
+            if (maxW > 0.0f) {
+                pTab->zoom = std::max(0.10f, (dipW - margin * 2.0f) / maxW);
+            }
+            pTab->offsetX = 0.0f;
+        } else if (pTab->zoomMode == ZoomMode::FitPage) {
+            D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+            if (pSize.height > 0.0f && pSize.width > 0.0f) {
+                float scaleX = (dipW - margin * 2.0f) / pSize.width;
+                float scaleY = (dipH - margin * 2.0f) / pSize.height;
+                pTab->zoom = std::max(0.10f, std::min(scaleX, scaleY));
+            }
+            pTab->offsetX = 0.0f;
+        }
+        float totalH = GetTotalDocumentHeight(pTab);
+        float maxScroll = std::max(0.0f, totalH - dipH);
+        pTab->scrollY = std::clamp(pTab->scrollY, 0.0f, maxScroll);
+        pTab->currentPage = GetPageAtScrollOffset(pTab);
+        return;
+    }
+
+    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    if (pSize.width <= 0.0f || pSize.height <= 0.0f) return;
 
     if (pTab->zoomMode == ZoomMode::FitPage) {
         float margin = 24.0f;
@@ -897,13 +1189,27 @@ void AppWindow::NextPage() {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded()) return;
     if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
-        pTab->currentPage++;
-        if (pTab->zoomMode != ZoomMode::Custom) {
-            RecalculateLayout();
+        if (pTab->continuousScroll) {
+            float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+            float totalH = GetTotalDocumentHeight(pTab);
+            float maxScroll = std::max(0.0f, totalH - dipH);
+            float scrollY = 0.0f;
+            float gap = 12.0f;
+            for (uint32_t i = 0; i < pTab->currentPage + 1; ++i) {
+                scrollY += pTab->document.GetPageSize(i).height * pTab->zoom + gap;
+            }
+            pTab->scrollY = std::min(scrollY, maxScroll);
+            pTab->currentPage++;
         } else {
-            pTab->offsetY = 24.0f;
+            pTab->currentPage++;
+            if (pTab->zoomMode != ZoomMode::Custom) {
+                RecalculateLayout();
+            } else {
+                pTab->offsetY = 24.0f;
+            }
         }
         UpdateTitle();
+        ShowScrollbar();
         Render();
     }
 }
@@ -912,13 +1218,24 @@ void AppWindow::PrevPage() {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded()) return;
     if (pTab->currentPage > 0) {
-        pTab->currentPage--;
-        if (pTab->zoomMode != ZoomMode::Custom) {
-            RecalculateLayout();
+        if (pTab->continuousScroll) {
+            float scrollY = 0.0f;
+            float gap = 12.0f;
+            for (uint32_t i = 0; i < pTab->currentPage - 1; ++i) {
+                scrollY += pTab->document.GetPageSize(i).height * pTab->zoom + gap;
+            }
+            pTab->scrollY = scrollY;
+            pTab->currentPage--;
         } else {
-            pTab->offsetY = 24.0f;
+            pTab->currentPage--;
+            if (pTab->zoomMode != ZoomMode::Custom) {
+                RecalculateLayout();
+            } else {
+                pTab->offsetY = 24.0f;
+            }
         }
         UpdateTitle();
+        ShowScrollbar();
         Render();
     }
 }
@@ -927,13 +1244,105 @@ void AppWindow::GoToPage(uint32_t pageIndex) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pageIndex >= pTab->document.GetPageCount()) return;
     pTab->currentPage = pageIndex;
-    if (pTab->zoomMode != ZoomMode::Custom) {
-        RecalculateLayout();
+    if (pTab->continuousScroll) {
+        float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+        float totalH = GetTotalDocumentHeight(pTab);
+        float maxScroll = std::max(0.0f, totalH - dipH);
+        float scrollY = 0.0f;
+        float gap = 12.0f;
+        for (uint32_t i = 0; i < pageIndex; ++i) {
+            scrollY += pTab->document.GetPageSize(i).height * pTab->zoom + gap;
+        }
+        pTab->scrollY = std::min(scrollY, maxScroll);
     } else {
-        pTab->offsetY = 24.0f;
+        if (pTab->zoomMode != ZoomMode::Custom) {
+            RecalculateLayout();
+        } else {
+            pTab->offsetY = 24.0f;
+        }
     }
     UpdateTitle();
+    ShowScrollbar();
     Render();
+}
+
+void AppWindow::ToggleContinuousScroll() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+
+    pTab->continuousScroll = !pTab->continuousScroll;
+    float gap = 12.0f;
+
+    if (pTab->continuousScroll) {
+        float scrollY = 0.0f;
+        for (uint32_t i = 0; i < pTab->currentPage; ++i) {
+            scrollY += pTab->document.GetPageSize(i).height * pTab->zoom + gap;
+        }
+        pTab->scrollY = scrollY;
+        pTab->offsetX = 0.0f;
+    } else {
+        pTab->currentPage = GetPageAtScrollOffset(pTab);
+        pTab->offsetY = 24.0f;
+    }
+
+    RecalculateLayout();
+    UpdateTitle();
+    ShowScrollbar();
+    Render();
+}
+
+void AppWindow::ScrollContinuous(float deltaY) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+
+    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+    float totalH = GetTotalDocumentHeight(pTab);
+    float maxScroll = std::max(0.0f, totalH - dipH);
+
+    pTab->scrollY = std::clamp(pTab->scrollY - deltaY, 0.0f, maxScroll);
+    pTab->currentPage = GetPageAtScrollOffset(pTab);
+    UpdateTitle();
+    ShowScrollbar();
+    Render();
+}
+
+float AppWindow::GetTotalDocumentHeight(const DocumentTab* pTab) const {
+    if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
+    uint32_t count = pTab->document.GetPageCount();
+    if (count == 0) return 0.0f;
+
+    float gap = 12.0f;
+    float totalH = 24.0f; // top margin
+    for (uint32_t i = 0; i < count; ++i) {
+        D2D1_SIZE_F pSize = const_cast<DocumentTab*>(pTab)->document.GetPageSize(i);
+        totalH += pSize.height * pTab->zoom;
+        if (i + 1 < count) {
+            totalH += gap;
+        }
+    }
+    totalH += 24.0f; // bottom margin
+    return totalH;
+}
+
+uint32_t AppWindow::GetPageAtScrollOffset(const DocumentTab* pTab) const {
+    if (!pTab || !pTab->document.IsLoaded()) return 0;
+    uint32_t count = pTab->document.GetPageCount();
+    if (count <= 1) return 0;
+
+    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+    float targetY = pTab->scrollY + dipH * 0.45f;
+    float curY = 24.0f;
+    float gap = 12.0f;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        D2D1_SIZE_F pSize = const_cast<DocumentTab*>(pTab)->document.GetPageSize(i);
+        float pageH = pSize.height * pTab->zoom;
+        if (targetY < curY + pageH || i == count - 1) {
+            return i;
+        }
+        curY += pageH + gap;
+    }
+    return count - 1;
 }
 
 void AppWindow::ToggleFullscreen() {
@@ -969,27 +1378,246 @@ void AppWindow::Render() {
     auto* pTab = GetActiveTab();
     auto tabInfos = GetTabRenderInfos();
 
-    if (pTab && pTab->document.IsLoaded() && pTab->currentPage < pTab->document.GetPageCount()) {
-        auto page = pTab->document.GetPage(pTab->currentPage);
-        auto pSize = pTab->document.GetPageSize(pTab->currentPage);
+    if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
         if (pTab->zoomMode == ZoomMode::FitPage) modeStr = L"Fit Page";
         else if (pTab->zoomMode == ZoomMode::FitWidth) modeStr = L"Fit Width";
 
-        m_renderer.RenderPage(
-            page,
-            pTab->zoom,
-            pTab->offsetX,
-            pTab->offsetY,
-            pSize,
-            pTab->currentPage,
-            pTab->document.GetPageCount(),
-            modeStr,
-            m_showHelp,
-            tabInfos,
-            m_hoveredAdd
-        );
+        if (pTab->continuousScroll) {
+            float dipW = m_renderer.GetWidth() * (96.0f / m_renderer.GetDpi());
+            float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+            float viewTop = pTab->scrollY;
+            float viewBot = pTab->scrollY + dipH;
+            float gap = 12.0f;
+            float curY = 24.0f; // top margin
+            uint32_t count = pTab->document.GetPageCount();
+
+            std::vector<ContinuousPageInfo> visiblePages;
+            for (uint32_t i = 0; i < count; ++i) {
+                D2D1_SIZE_F pSize = pTab->document.GetPageSize(i);
+                float pageH = pSize.height * pTab->zoom;
+                float pageW = pSize.width * pTab->zoom;
+
+                if (curY + pageH >= viewTop && curY <= viewBot) {
+                    ContinuousPageInfo info;
+                    info.page = pTab->document.GetPage(i);
+                    info.pageSize = pSize;
+                    info.yOffset = curY - viewTop;
+                    if (dipW > pageW) {
+                        info.xOffset = (dipW - pageW) * 0.5f + pTab->offsetX;
+                    } else {
+                        info.xOffset = 24.0f + pTab->offsetX;
+                    }
+                    info.pageIndex = i;
+                    visiblePages.push_back(std::move(info));
+                } else if (curY > viewBot) {
+                    break;
+                }
+
+                curY += pageH + gap;
+            }
+
+            m_renderer.RenderContinuous(
+                visiblePages,
+                pTab->zoom,
+                pTab->currentPage,
+                pTab->document.GetPageCount(),
+                modeStr,
+                true,
+                m_showHelp,
+                tabInfos,
+                m_hoveredAdd,
+                GetScrollbarInfo(),
+                m_showGoToPage,
+                m_goToPageBuffer
+            );
+            return;
+        }
+
+        if (pTab->currentPage < pTab->document.GetPageCount()) {
+            auto page = pTab->document.GetPage(pTab->currentPage);
+            auto pSize = pTab->document.GetPageSize(pTab->currentPage);
+
+            m_renderer.RenderPage(
+                page,
+                pTab->zoom,
+                pTab->offsetX,
+                pTab->offsetY,
+                pSize,
+                pTab->currentPage,
+                pTab->document.GetPageCount(),
+                modeStr,
+                m_showHelp,
+                tabInfos,
+                m_hoveredAdd,
+                GetScrollbarInfo(),
+                m_showGoToPage,
+                m_goToPageBuffer
+            );
+            return;
+        }
+    }
+
+    m_renderer.RenderBlank(
+        L"",
+        m_showHelp,
+        tabInfos,
+        m_hoveredAdd,
+        m_showGoToPage,
+        m_goToPageBuffer
+    );
+}
+
+void AppWindow::ShowScrollbar() {
+    m_lastScrollbarActiveTime = GetTickCount64();
+    SetTimer(m_hwnd, 1, 16, nullptr);
+}
+
+ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
+    ScrollbarRenderInfo info;
+    const auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+        info.visible = false;
+        return info;
+    }
+
+    uint32_t totalPages = pTab->document.GetPageCount();
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float topOffset = GetTopOffset();
+    float dipH = (float)m_renderer.GetHeight() * dipScale;
+
+    info.visible = true;
+    info.trackY = topOffset + 4.0f;
+    info.trackH = std::max(10.0f, dipH - info.trackY - 4.0f);
+    info.alpha = m_scrollbarAlpha;
+    info.isHovered = m_isScrollbarHovered;
+    info.isDragging = m_isDraggingScrollbar;
+    info.totalPages = totalPages;
+
+    if (pTab->continuousScroll) {
+        float totalDocH = GetTotalDocumentHeight(pTab);
+        float viewportH = dipH - topOffset;
+        if (totalDocH <= viewportH || totalDocH <= 0.0f) {
+            info.thumbH = info.trackH;
+            info.thumbY = info.trackY;
+            info.hoverPage = pTab->currentPage;
+        } else {
+            float ratio = viewportH / totalDocH;
+            info.thumbH = std::clamp(info.trackH * ratio, 24.0f, info.trackH);
+            if (m_isDraggingScrollbar) {
+                info.thumbY = std::clamp(m_scrollbarDragThumbY, info.trackY, info.trackY + info.trackH - info.thumbH);
+            } else {
+                float scrollFraction = pTab->scrollY / (totalDocH - viewportH);
+                scrollFraction = std::clamp(scrollFraction, 0.0f, 1.0f);
+                info.thumbY = info.trackY + scrollFraction * (info.trackH - info.thumbH);
+            }
+            info.hoverPage = pTab->currentPage;
+        }
     } else {
-        m_renderer.RenderBlank(L"", m_showHelp, tabInfos, m_hoveredAdd);
+        // Single page mode
+        if (totalPages <= 1) {
+            info.thumbH = info.trackH;
+            info.thumbY = info.trackY;
+            info.hoverPage = 0;
+        } else {
+            info.thumbH = std::max(24.0f, info.trackH / (float)totalPages);
+            if (m_isDraggingScrollbar) {
+                info.thumbY = std::clamp(m_scrollbarDragThumbY, info.trackY, info.trackY + info.trackH - info.thumbH);
+            } else {
+                float step = (info.trackH - info.thumbH) / (float)(totalPages - 1);
+                info.thumbY = info.trackY + step * (float)pTab->currentPage;
+            }
+            info.hoverPage = pTab->currentPage;
+        }
+    }
+
+    return info;
+}
+
+bool AppWindow::HitTestScrollbar(POINT pt, bool& outThumb) const {
+    outThumb = false;
+    const auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipW = (float)m_renderer.GetWidth() * dipScale;
+
+    ScrollbarRenderInfo info = GetScrollbarInfo();
+    if (!info.visible) return false;
+
+    // Track hit area extends to 24 DIPs from right window edge
+    if (dipX >= dipW - 24.0f && dipX <= dipW && dipY >= info.trackY && dipY <= info.trackY + info.trackH) {
+        if (dipY >= info.thumbY && dipY <= info.thumbY + info.thumbH) {
+            outThumb = true;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool AppWindow::HitTestHud(POINT pt) const {
+    const auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipWidth = (float)m_renderer.GetWidth() * dipScale;
+    float dipHeight = (float)m_renderer.GetHeight() * dipScale;
+
+    float pillWidth = 190.0f;
+    bool hasZoomMode = (pTab->zoomMode != ZoomMode::Custom);
+    if (pTab->continuousScroll) {
+        pillWidth = hasZoomMode ? 330.0f : 280.0f;
+    } else {
+        pillWidth = hasZoomMode ? 240.0f : 190.0f;
+    }
+
+    float pillHeight = 32.0f;
+    float pillLeft = (dipWidth - pillWidth) * 0.5f;
+    float pillTop = dipHeight - pillHeight - 16.0f;
+
+    return (dipX >= pillLeft && dipX <= pillLeft + pillWidth &&
+            dipY >= pillTop && dipY <= pillTop + pillHeight);
+}
+
+void AppWindow::HandleScrollbarDrag(float mouseY) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    ScrollbarRenderInfo info = GetScrollbarInfo();
+    float usableH = info.trackH - info.thumbH;
+    if (usableH <= 0.0f) return;
+
+    m_scrollbarDragThumbY = std::clamp(mouseY - m_scrollbarDragThumbOffsetY, info.trackY, info.trackY + usableH);
+    float fraction = (m_scrollbarDragThumbY - info.trackY) / usableH;
+    fraction = std::clamp(fraction, 0.0f, 1.0f);
+
+    uint32_t totalPages = pTab->document.GetPageCount();
+
+    if (pTab->continuousScroll) {
+        float dipScale = 96.0f / m_renderer.GetDpi();
+        float topOffset = GetTopOffset();
+        float dipH = (float)m_renderer.GetHeight() * dipScale - topOffset;
+        float totalDocH = GetTotalDocumentHeight(pTab);
+        float maxScroll = std::max(0.0f, totalDocH - dipH);
+
+        pTab->scrollY = fraction * maxScroll;
+        pTab->currentPage = GetPageAtScrollOffset(pTab);
+        UpdateTitle();
+        Render();
+    } else {
+        if (totalPages > 1) {
+            uint32_t targetPage = (uint32_t)std::round(fraction * (float)(totalPages - 1));
+            if (targetPage != pTab->currentPage) {
+                GoToPage(targetPage);
+            } else {
+                Render();
+            }
+        } else {
+            Render();
+        }
     }
 }

@@ -75,12 +75,15 @@ Press **`F1`** in-app to display the translucent Direct2D shortcuts overlay.
 
 | Action | Control |
 | :--- | :--- |
-| Open file | `Ctrl+O`, drag-and-drop, or CLI argument |
+| Open file | `Ctrl+O`, double-click empty canvas, drag-and-drop, or CLI argument |
 | Print | `Ctrl+P` |
+| Go to Page | `Ctrl+G` or click HUD pill (type page number + `Enter`) |
 | Next / Previous page | `PgDn` / `PgUp`, `Space` / `Shift+Space`, `→` / `←`, or scroll wheel |
 | First / Last page | `Home` / `End` |
+| Continuous Scroll | `Ctrl+3` (toggle continuous vertical flow) |
+| Scrollbar Scrubbing | Hover right edge & drag thumb with live page tooltip |
 | Zoom in / out | `Ctrl+Wheel`, `+` / `-` |
-| Fit Page | `Ctrl+0` or double-click |
+| Fit Page | `Ctrl+0` or double-click canvas (when document is open) |
 | Actual Size (100%) | `Ctrl+1` |
 | Fit Width | `Ctrl+2` |
 | Pan canvas | Left-drag or middle-drag |
