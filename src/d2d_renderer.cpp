@@ -47,6 +47,9 @@ void D2DRenderer::Cleanup() {
     m_textFormatTabClose = nullptr;
     m_textFormatTabAdd = nullptr;
     m_textFormatGoToPageInput = nullptr;
+    m_textFormatSearchInput = nullptr;
+    m_textFormatSearchBadge = nullptr;
+    m_textFormatSearchBtn = nullptr;
     m_d2dFactory = nullptr;
 }
 
@@ -242,6 +245,52 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatGoToPageInput->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormatGoToPageInput->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Search Bar Input Format: Segoe UI, 12.5pt, Regular
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.5f,
+        L"en-us",
+        &m_textFormatSearchInput
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatSearchInput->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatSearchInput->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    m_textFormatSearchInput->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+    // Search Bar Badge Format: Segoe UI, 11.5pt, Semi-Bold
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        11.5f,
+        L"en-us",
+        &m_textFormatSearchBadge
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatSearchBadge->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatSearchBadge->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Search Bar Button Format: Segoe UI, 11.5pt, Semi-Bold
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        11.5f,
+        L"en-us",
+        &m_textFormatSearchBtn
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatSearchBtn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatSearchBtn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     return true;
 }
 
@@ -321,6 +370,13 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.35f), &m_brushScrollbarThumb);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.65f), &m_brushScrollbarThumbHover);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.08f, 0.08f, 0.95f), &m_brushGoToPageBox);
+
+    // Search Highlights & Search Bar Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.90f, 0.18f, 0.40f), &m_brushSearchHighlight);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.65f, 0.96f, 0.55f), &m_brushSearchActiveHighlight);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.75f, 1.0f, 0.95f), &m_brushSearchActiveBorder);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.09f), &m_brushSearchBtnBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.40f), &m_brushSearchBtnActive);
 
     return true;
 }
@@ -427,6 +483,11 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushScrollbarThumb = nullptr;
     m_brushScrollbarThumbHover = nullptr;
     m_brushGoToPageBox = nullptr;
+    m_brushSearchHighlight = nullptr;
+    m_brushSearchActiveHighlight = nullptr;
+    m_brushSearchActiveBorder = nullptr;
+    m_brushSearchBtnBg = nullptr;
+    m_brushSearchBtnActive = nullptr;
     m_pdfRenderer = nullptr;
     m_d2dContext = nullptr;
     m_d2dDevice = nullptr;
@@ -441,7 +502,8 @@ void D2DRenderer::RenderBlank(
     const std::vector<TabRenderInfo>& tabs,
     bool isAddHovered,
     bool showGoToPage,
-    const std::wstring& goToPageBuffer
+    const std::wstring& goToPageBuffer,
+    const SearchBarRenderInfo& searchBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -468,6 +530,10 @@ void D2DRenderer::RenderBlank(
 
     if (tabs.size() > 1) {
         DrawTabBar(tabs, isAddHovered);
+    }
+
+    if (searchBar.visible) {
+        DrawSearchBar(searchBar);
     }
 
     if (showGoToPage) {
@@ -502,7 +568,9 @@ void D2DRenderer::RenderPage(
     bool isAddHovered,
     const ScrollbarRenderInfo& scrollbar,
     bool showGoToPage,
-    const std::wstring& goToPageBuffer
+    const std::wstring& goToPageBuffer,
+    const SearchBarRenderInfo& searchBar,
+    const std::vector<SearchHighlight>& highlights
 ) {
     if (!m_d2dContext || !m_swapChain || !page) return;
 
@@ -561,6 +629,23 @@ void D2DRenderer::RenderPage(
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
     }
 
+    // 3b. Draw Search Match Highlights over page
+    for (const auto& hl : highlights) {
+        if (hl.pageIndex == currentPageIndex) {
+            float hx = offsetX + hl.pageRect.left * zoom;
+            float hy = pageY + hl.pageRect.top * zoom;
+            float hw = (hl.pageRect.right - hl.pageRect.left) * zoom;
+            float hh = (hl.pageRect.bottom - hl.pageRect.top) * zoom;
+            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+            if (hl.isActive) {
+                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+            } else {
+                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+            }
+        }
+    }
+
     // 4. Draw 1px crisp outline around page
     m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
 
@@ -600,12 +685,17 @@ void D2DRenderer::RenderPage(
     // 6. Draw Scrollbar
     DrawScrollbar(scrollbar);
 
-    // 7. Draw Tab Bar if 2+ tabs exist (above page content)
+    // 7. Draw Floating Search Bar if visible
+    if (searchBar.visible) {
+        DrawSearchBar(searchBar);
+    }
+
+    // 8. Draw Tab Bar if 2+ tabs exist (above page content)
     if (tabs.size() > 1) {
         DrawTabBar(tabs, isAddHovered);
     }
 
-    // 8. Draw Go to Page Overlay if active
+    // 9. Draw Go to Page Overlay if active
     if (showGoToPage) {
         DrawGoToPageOverlay(goToPageBuffer, totalPages);
     }
@@ -637,7 +727,9 @@ void D2DRenderer::RenderContinuous(
     bool isAddHovered,
     const ScrollbarRenderInfo& scrollbar,
     bool showGoToPage,
-    const std::wstring& goToPageBuffer
+    const std::wstring& goToPageBuffer,
+    const SearchBarRenderInfo& searchBar,
+    const std::vector<SearchHighlight>& highlights
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -700,6 +792,23 @@ void D2DRenderer::RenderContinuous(
             m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         }
 
+        // 3b. Draw Search Match Highlights for this page
+        for (const auto& hl : highlights) {
+            if (hl.pageIndex == vp.pageIndex) {
+                float hx = pageX + hl.pageRect.left * zoom;
+                float hy = pageY + hl.pageRect.top * zoom;
+                float hw = (hl.pageRect.right - hl.pageRect.left) * zoom;
+                float hh = (hl.pageRect.bottom - hl.pageRect.top) * zoom;
+                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                if (hl.isActive) {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+                } else {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+                }
+            }
+        }
+
         // 4. Draw 1px crisp outline around page
         m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
     }
@@ -740,17 +849,22 @@ void D2DRenderer::RenderContinuous(
     // 6. Draw Scrollbar
     DrawScrollbar(scrollbar);
 
-    // 7. Draw Tab Bar if 2+ tabs exist (above page content)
+    // 7. Draw Floating Search Bar if visible
+    if (searchBar.visible) {
+        DrawSearchBar(searchBar);
+    }
+
+    // 8. Draw Tab Bar if 2+ tabs exist (above page content)
     if (tabs.size() > 1) {
         DrawTabBar(tabs, isAddHovered);
     }
 
-    // 8. Draw Go to Page Overlay if active
+    // 9. Draw Go to Page Overlay if active
     if (showGoToPage) {
         DrawGoToPageOverlay(goToPageBuffer, totalPages);
     }
 
-    // 9. Draw Help Overlay if toggled
+    // 10. Draw Help Overlay if toggled
     if (showHelp) {
         DrawHelpOverlay();
     }
@@ -972,6 +1086,163 @@ void D2DRenderer::DrawGoToPageOverlay(const std::wstring& buffer, uint32_t total
     m_d2dContext->DrawText(subStr, (UINT32)wcslen(subStr), m_textFormatHelpSub.Get(), subRect, m_brushHelpSubText.Get());
 }
 
+void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
+    if (!searchBar.visible || !m_d2dContext) return;
+
+    float dipWidth = m_width * (96.0f / m_dpi);
+    D2D1_RECT_F barRect = SearchBarLayout::GetBarRect(dipWidth, searchBar.hasTabs);
+
+    // Drop shadow
+    D2D1_RECT_F shadowRect = D2D1::RectF(barRect.left + 3.0f, barRect.top + 3.0f, barRect.right + 4.0f, barRect.bottom + 4.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 6.0f, 6.0f), m_brushPageShadow.Get());
+
+    // Search Bar Card Background & Border
+    D2D1_ROUNDED_RECT roundedBar = D2D1::RoundedRect(barRect, 6.0f, 6.0f);
+    m_d2dContext->FillRoundedRectangle(roundedBar, m_brushHudBg.Get());
+    m_d2dContext->DrawRoundedRectangle(roundedBar, m_brushHudBorder.Get(), 1.0f);
+
+    // 1. Search Query Input Area
+    D2D1_RECT_F inputRect = SearchBarLayout::GetInputRect(barRect);
+    if (searchBar.query.empty()) {
+        const wchar_t* placeholder = L"Find in document...";
+        m_d2dContext->DrawText(
+            placeholder,
+            (UINT32)wcslen(placeholder),
+            m_textFormatSearchInput.Get(),
+            inputRect,
+            m_brushTabTextInactive.Get()
+        );
+    } else {
+        std::wstring queryWithCursor = searchBar.query + L"|";
+        m_d2dContext->DrawText(
+            queryWithCursor.c_str(),
+            (UINT32)queryWithCursor.length(),
+            m_textFormatSearchInput.Get(),
+            inputRect,
+            m_brushHudText.Get()
+        );
+    }
+
+    // 2. Match Count Badge
+    D2D1_RECT_F badgeRect = SearchBarLayout::GetBadgeRect(barRect);
+    if (searchBar.isSearching) {
+        const wchar_t* searchingStr = L"Searching...";
+        m_d2dContext->DrawText(
+            searchingStr,
+            (UINT32)wcslen(searchingStr),
+            m_textFormatSearchBadge.Get(),
+            badgeRect,
+            m_brushHelpKeyText.Get()
+        );
+    } else if (!searchBar.query.empty()) {
+        wchar_t badgeText[64];
+        if (searchBar.totalMatches == 0) {
+            swprintf_s(badgeText, L"0 / 0");
+            m_d2dContext->DrawText(
+                badgeText,
+                (UINT32)wcslen(badgeText),
+                m_textFormatSearchBadge.Get(),
+                badgeRect,
+                m_brushTabTextInactive.Get()
+            );
+        } else {
+            swprintf_s(badgeText, L"%u of %u", searchBar.activeMatch, searchBar.totalMatches);
+            m_d2dContext->DrawText(
+                badgeText,
+                (UINT32)wcslen(badgeText),
+                m_textFormatSearchBadge.Get(),
+                badgeRect,
+                m_brushHelpKeyText.Get()
+            );
+        }
+    }
+
+    // 3. Subtle Vertical Separator
+    float sepX = barRect.left + 227.0f;
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(sepX, barRect.top + 7.0f),
+        D2D1::Point2F(sepX, barRect.bottom - 7.0f),
+        m_brushHudBorder.Get(),
+        1.0f
+    );
+
+    // 4. Previous Button (▲)
+    D2D1_RECT_F prevRect = SearchBarLayout::GetPrevBtnRect(barRect);
+    if (searchBar.isPrevHovered) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(prevRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
+    }
+    const wchar_t* prevIcon = L"\x25B2";
+    m_d2dContext->DrawText(
+        prevIcon,
+        1,
+        m_textFormatSearchBtn.Get(),
+        prevRect,
+        searchBar.isPrevHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
+    );
+
+    // 5. Next Button (▼)
+    D2D1_RECT_F nextRect = SearchBarLayout::GetNextBtnRect(barRect);
+    if (searchBar.isNextHovered) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(nextRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
+    }
+    const wchar_t* nextIcon = L"\x25BC";
+    m_d2dContext->DrawText(
+        nextIcon,
+        1,
+        m_textFormatSearchBtn.Get(),
+        nextRect,
+        searchBar.isNextHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
+    );
+
+    // 6. Match Case Button (Aa)
+    D2D1_RECT_F caseRect = SearchBarLayout::GetCaseBtnRect(barRect);
+    if (searchBar.matchCase) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushSearchBtnActive.Get());
+        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushTabAccent.Get(), 1.0f);
+    } else if (searchBar.isCaseHovered) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
+    }
+    const wchar_t* caseText = L"Aa";
+    m_d2dContext->DrawText(
+        caseText,
+        2,
+        m_textFormatSearchBtn.Get(),
+        caseRect,
+        searchBar.matchCase ? m_brushHelpKeyText.Get() : (searchBar.isCaseHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get())
+    );
+
+    // 7. OCR Toggle Button (OCR)
+    D2D1_RECT_F ocrRect = SearchBarLayout::GetOcrBtnRect(barRect);
+    if (searchBar.ocrEnabled) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushSearchBtnActive.Get());
+        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushTabAccent.Get(), 1.0f);
+    } else if (searchBar.isOcrHovered) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
+    }
+    const wchar_t* ocrText = L"OCR";
+    m_d2dContext->DrawText(
+        ocrText,
+        3,
+        m_textFormatSearchBtn.Get(),
+        ocrRect,
+        searchBar.ocrEnabled ? m_brushHelpKeyText.Get() : (searchBar.isOcrHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get())
+    );
+
+    // 8. Close Button (✕)
+    D2D1_RECT_F closeRect = SearchBarLayout::GetCloseBtnRect(barRect);
+    if (searchBar.isCloseHovered) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushTabCloseHover.Get());
+    }
+    const wchar_t* closeIcon = L"\x2715";
+    m_d2dContext->DrawText(
+        closeIcon,
+        1,
+        m_textFormatSearchBtn.Get(),
+        closeRect,
+        searchBar.isCloseHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
+    );
+}
+
 void D2DRenderer::DrawHelpOverlay() {
     if (!m_d2dContext) return;
 
@@ -984,7 +1255,7 @@ void D2DRenderer::DrawHelpOverlay() {
 
     // 2. Centered Help Card
     float cardW = 550.0f;
-    float cardH = 555.0f;
+    float cardH = 595.0f;
     float cardLeft = std::max(10.0f, (dipWidth - cardW) * 0.5f);
     float cardTop = std::max(10.0f, (dipHeight - cardH) * 0.5f);
 
@@ -1030,6 +1301,8 @@ void D2DRenderer::DrawHelpOverlay() {
         { L"Ctrl + Shift + Tab",    L"Switch to previous tab" },
         { L"Alt + 1..9",            L"Jump directly to tab 1 through 9" },
         { L"Middle Click Tab",      L"Close clicked tab" },
+        { L"Ctrl + F",              L"Find text in document (search)" },
+        { L"F3 / Shift + F3",       L"Next / previous search match" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
         { L"Ctrl + G",              L"Go to specific page number prompt" },
         { L"Scrollbar Drag",        L"Scrub through document pages" },

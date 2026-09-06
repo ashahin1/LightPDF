@@ -25,7 +25,9 @@ $sources = @(
     "src\main.cpp",
     "src\app_window.cpp",
     "src\d2d_renderer.cpp",
-    "src\pdf_document.cpp"
+    "src\pdf_document.cpp",
+    "src\pdf_parser.cpp",
+    "src\pdf_search.cpp"
 )
 
 Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Green

@@ -45,6 +45,70 @@ struct ScrollbarRenderInfo {
     uint32_t totalPages = 0;
 };
 
+struct SearchBarRenderInfo {
+    bool visible = false;
+    bool hasTabs = false;
+    std::wstring query;
+    uint32_t activeMatch = 0; // 1-based index (e.g. 1)
+    uint32_t totalMatches = 0;
+    bool matchCase = false;
+    bool isSearching = false;
+    bool hasScanned = false;
+    bool ocrEnabled = false;
+
+    bool isPrevHovered = false;
+    bool isNextHovered = false;
+    bool isCaseHovered = false;
+    bool isOcrHovered = false;
+    bool isCloseHovered = false;
+};
+
+struct SearchBarLayout {
+    static constexpr float WIDTH = 384.0f;
+    static constexpr float HEIGHT = 36.0f;
+    static constexpr float MARGIN_RIGHT = 24.0f;
+
+    static inline D2D1_RECT_F GetBarRect(float dipWidth, bool hasTabs) {
+        float x = dipWidth - WIDTH - MARGIN_RIGHT;
+        float y = (hasTabs ? 34.0f : 0.0f) + 10.0f;
+        return D2D1::RectF(x, y, x + WIDTH, y + HEIGHT);
+    }
+
+    static inline D2D1_RECT_F GetInputRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 10.0f, bar.top + 4.0f, bar.left + 160.0f, bar.bottom - 4.0f);
+    }
+
+    static inline D2D1_RECT_F GetBadgeRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 162.0f, bar.top + 4.0f, bar.left + 224.0f, bar.bottom - 4.0f);
+    }
+
+    static inline D2D1_RECT_F GetPrevBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 230.0f, bar.top + 5.0f, bar.left + 256.0f, bar.bottom - 5.0f);
+    }
+
+    static inline D2D1_RECT_F GetNextBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 258.0f, bar.top + 5.0f, bar.left + 284.0f, bar.bottom - 5.0f);
+    }
+
+    static inline D2D1_RECT_F GetCaseBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 286.0f, bar.top + 5.0f, bar.left + 314.0f, bar.bottom - 5.0f);
+    }
+
+    static inline D2D1_RECT_F GetOcrBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 316.0f, bar.top + 5.0f, bar.left + 348.0f, bar.bottom - 5.0f);
+    }
+
+    static inline D2D1_RECT_F GetCloseBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 350.0f, bar.top + 5.0f, bar.left + 376.0f, bar.bottom - 5.0f);
+    }
+};
+
+struct SearchHighlight {
+    uint32_t pageIndex = 0;
+    D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // PDF page coordinates in DIPs
+    bool isActive = false;
+};
+
 class D2DRenderer {
 public:
     D2DRenderer();
@@ -60,7 +124,8 @@ public:
         const std::vector<TabRenderInfo>& tabs = {},
         bool isAddHovered = false,
         bool showGoToPage = false,
-        const std::wstring& goToPageBuffer = L""
+        const std::wstring& goToPageBuffer = L"",
+        const SearchBarRenderInfo& searchBar = {}
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -76,7 +141,9 @@ public:
         bool isAddHovered = false,
         const ScrollbarRenderInfo& scrollbar = {},
         bool showGoToPage = false,
-        const std::wstring& goToPageBuffer = L""
+        const std::wstring& goToPageBuffer = L"",
+        const SearchBarRenderInfo& searchBar = {},
+        const std::vector<SearchHighlight>& highlights = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -90,7 +157,9 @@ public:
         bool isAddHovered = false,
         const ScrollbarRenderInfo& scrollbar = {},
         bool showGoToPage = false,
-        const std::wstring& goToPageBuffer = L""
+        const std::wstring& goToPageBuffer = L"",
+        const SearchBarRenderInfo& searchBar = {},
+        const std::vector<SearchHighlight>& highlights = {}
     );
 
     bool PrintPageToHdc(
@@ -114,6 +183,7 @@ private:
     void DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered);
     void DrawScrollbar(const ScrollbarRenderInfo& scrollbar);
     void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
+    void DrawSearchBar(const SearchBarRenderInfo& searchBar);
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;
@@ -178,6 +248,17 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushScrollbarThumb;
     ComPtr<ID2D1SolidColorBrush> m_brushScrollbarThumbHover;
     ComPtr<ID2D1SolidColorBrush> m_brushGoToPageBox;
+
+    // Search Bar & Highlight Brushes & Formats
+    ComPtr<IDWriteTextFormat> m_textFormatSearchInput;
+    ComPtr<IDWriteTextFormat> m_textFormatSearchBadge;
+    ComPtr<IDWriteTextFormat> m_textFormatSearchBtn;
+
+    ComPtr<ID2D1SolidColorBrush> m_brushSearchHighlight;
+    ComPtr<ID2D1SolidColorBrush> m_brushSearchActiveHighlight;
+    ComPtr<ID2D1SolidColorBrush> m_brushSearchActiveBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnActive;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;
