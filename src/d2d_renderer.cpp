@@ -609,14 +609,10 @@ void D2DRenderer::RenderPage(
 
     // 3. Render PDF Content via Hardware Renderer
     if (m_pdfRenderer) {
-        float dpiScale = m_dpi / 96.0f;
-        UINT32 pixelW = (UINT32)std::max(1.0f, std::round(destW * dpiScale));
-        UINT32 pixelH = (UINT32)std::max(1.0f, std::round(destH * dpiScale));
-
         PDF_RENDER_PARAMS params = {};
         params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-        params.DestinationWidth = pixelW;
-        params.DestinationHeight = pixelH;
+        params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
+        params.DestinationHeight = (UINT32)std::max(1.0f, std::round(destH));
         params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
         params.IgnoreHighContrast = FALSE;
 
@@ -632,16 +628,24 @@ void D2DRenderer::RenderPage(
     // 3b. Draw Search Match Highlights over page
     for (const auto& hl : highlights) {
         if (hl.pageIndex == currentPageIndex) {
-            float hx = offsetX + hl.pageRect.left * zoom;
-            float hy = pageY + hl.pageRect.top * zoom;
-            float hw = (hl.pageRect.right - hl.pageRect.left) * zoom;
-            float hh = (hl.pageRect.bottom - hl.pageRect.top) * zoom;
-            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-            if (hl.isActive) {
-                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
-                m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+            auto drawBox = [&](const D2D1_RECT_F& pr) {
+                float hx = offsetX + pr.left * zoom;
+                float hy = pageY + pr.top * zoom;
+                float hw = (pr.right - pr.left) * zoom;
+                float hh = (pr.bottom - pr.top) * zoom;
+                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                if (hl.isActive) {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+                } else {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+                }
+            };
+
+            if (!hl.rects.empty()) {
+                for (const auto& lr : hl.rects) drawBox(lr);
             } else {
-                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+                drawBox(hl.pageRect);
             }
         }
     }
@@ -740,7 +744,6 @@ void D2DRenderer::RenderContinuous(
     m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
 
     float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
-    float dpiScale = m_dpi / 96.0f;
 
     for (const auto& vp : visiblePages) {
         if (!vp.page) continue;
@@ -773,13 +776,10 @@ void D2DRenderer::RenderContinuous(
 
         // 3. Render PDF Content via Hardware Renderer
         if (m_pdfRenderer) {
-            UINT32 pixelW = (UINT32)std::max(1.0f, std::round(destW * dpiScale));
-            UINT32 pixelH = (UINT32)std::max(1.0f, std::round(destH * dpiScale));
-
             PDF_RENDER_PARAMS params = {};
             params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-            params.DestinationWidth = pixelW;
-            params.DestinationHeight = pixelH;
+            params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
+            params.DestinationHeight = (UINT32)std::max(1.0f, std::round(destH));
             params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
             params.IgnoreHighContrast = FALSE;
 
@@ -795,16 +795,24 @@ void D2DRenderer::RenderContinuous(
         // 3b. Draw Search Match Highlights for this page
         for (const auto& hl : highlights) {
             if (hl.pageIndex == vp.pageIndex) {
-                float hx = pageX + hl.pageRect.left * zoom;
-                float hy = pageY + hl.pageRect.top * zoom;
-                float hw = (hl.pageRect.right - hl.pageRect.left) * zoom;
-                float hh = (hl.pageRect.bottom - hl.pageRect.top) * zoom;
-                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-                if (hl.isActive) {
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
-                    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+                auto drawBox = [&](const D2D1_RECT_F& pr) {
+                    float hx = pageX + pr.left * zoom;
+                    float hy = pageY + pr.top * zoom;
+                    float hw = (pr.right - pr.left) * zoom;
+                    float hh = (pr.bottom - pr.top) * zoom;
+                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                    if (hl.isActive) {
+                        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
+                    } else {
+                        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+                    }
+                };
+
+                if (!hl.rects.empty()) {
+                    for (const auto& lr : hl.rects) drawBox(lr);
                 } else {
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
+                    drawBox(hl.pageRect);
                 }
             }
         }
@@ -1134,7 +1142,7 @@ void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
             badgeRect,
             m_brushHelpKeyText.Get()
         );
-    } else if (!searchBar.query.empty()) {
+    } else if (!searchBar.query.empty() && !searchBar.isDebouncing) {
         wchar_t badgeText[64];
         if (searchBar.totalMatches == 0) {
             swprintf_s(badgeText, L"0 / 0");

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <functional>
 
 namespace MiniZlib {
     struct BitStream {
@@ -198,6 +199,181 @@ bool PdfParser::InflateStream(const uint8_t* inData, size_t inSize, std::vector<
     return MiniZlib::Decompress(inData, inSize, outData);
 }
 
+static const uint16_t HELVETICA_WIDTHS[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 260, 0, 0, 0, 260, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    278, 333, 556, 556, 556, 556, 260, 556, 333, 737, 370, 556, 584, 333, 737, 333,
+    400, 584, 333, 333, 333, 556, 537, 278, 333, 333, 365, 556, 834, 834, 834, 611,
+    667, 667, 667, 667, 667, 667, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278,
+    722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611,
+    556, 556, 556, 556, 556, 556, 889, 500, 556, 556, 556, 556, 278, 278, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 584, 611, 556, 556, 556, 556, 500, 556, 500
+};
+
+static const uint16_t TIMES_WIDTHS[256] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 260, 0, 0, 0, 260, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    250, 333, 408, 500, 500, 833, 778, 180, 333, 333, 500, 564, 250, 333, 250, 278,
+    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 278, 278, 564, 564, 564, 444,
+    921, 722, 667, 667, 722, 611, 556, 722, 722, 333, 389, 722, 611, 889, 722, 722,
+    556, 722, 667, 556, 611, 722, 722, 944, 722, 722, 611, 333, 278, 333, 469, 500,
+    333, 444, 500, 444, 500, 444, 333, 500, 500, 278, 278, 500, 278, 778, 500, 500,
+    500, 500, 333, 389, 278, 500, 500, 722, 500, 500, 444, 480, 200, 480, 541, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    250, 333, 500, 500, 500, 500, 200, 500, 333, 760, 276, 500, 564, 333, 760, 333,
+    400, 564, 300, 300, 333, 500, 453, 250, 333, 300, 310, 500, 750, 750, 750, 444,
+    722, 722, 722, 722, 722, 722, 889, 667, 611, 611, 611, 611, 333, 333, 333, 333,
+    722, 722, 722, 722, 722, 722, 722, 564, 722, 722, 722, 722, 722, 722, 556, 500,
+    444, 444, 444, 444, 444, 444, 667, 444, 444, 444, 444, 444, 278, 278, 278, 278,
+    500, 500, 500, 500, 500, 500, 500, 564, 500, 500, 500, 500, 500, 500, 500, 500
+};
+
+float PdfFontInfo::GetCharWidth(uint32_t charCode) const {
+    if (!cidWidths.empty()) {
+        auto it = cidWidths.find(charCode);
+        if (it != cidWidths.end()) {
+            return it->second;
+        }
+        return defaultWidth;
+    }
+
+    if (!widths.empty() && charCode >= (uint32_t)firstChar && charCode <= (uint32_t)lastChar) {
+        size_t idx = charCode - firstChar;
+        if (idx < widths.size() && widths[idx] > 0.0f) {
+            return widths[idx];
+        }
+    }
+
+    if (baseFont.find("Courier") != std::string::npos) {
+        return 600.0f;
+    }
+    if (baseFont.find("Times") != std::string::npos) {
+        if (charCode < 256) return (float)TIMES_WIDTHS[charCode];
+        return 500.0f;
+    }
+
+    if (charCode < 256) {
+        uint16_t w = HELVETICA_WIDTHS[charCode];
+        if (w > 0) return (float)w;
+    }
+
+    return defaultWidth;
+}
+
+wchar_t PdfFontInfo::DecodeChar(uint32_t charCode) const {
+    if (!toUnicode.empty()) {
+        auto it = toUnicode.find(charCode);
+        if (it != toUnicode.end()) {
+            return it->second;
+        }
+    }
+    return (wchar_t)charCode;
+}
+
+std::string PdfParser::GetObjectString(uint32_t objNum) const {
+    auto it = m_objectOffsets.find(objNum);
+    if (it == m_objectOffsets.end() || m_bufferStr.empty()) return {};
+    size_t start = it->second;
+    size_t end = m_bufferStr.find("endobj", start);
+    if (end == std::string::npos) end = m_bufferStr.size();
+    return m_bufferStr.substr(start, end - start);
+}
+
+bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const {
+    auto it = m_objectOffsets.find(objNum);
+    if (it == m_objectOffsets.end()) return false;
+    size_t start = it->second;
+    size_t stStart = m_bufferStr.find("stream", start);
+    if (stStart == std::string::npos) return false;
+
+    size_t dStart = m_bufferStr.find('\n', stStart);
+    if (dStart == std::string::npos) return false;
+    dStart++;
+    size_t dEnd = m_bufferStr.find("endstream", dStart);
+    if (dEnd == std::string::npos) return false;
+
+    while (dEnd > dStart && (m_bufferStr[dEnd - 1] == '\r' || m_bufferStr[dEnd - 1] == '\n')) dEnd--;
+
+    std::string header = m_bufferStr.substr(start, stStart - start);
+    bool isFlate = (header.find("FlateDecode") != std::string::npos);
+
+    if (isFlate) {
+        return InflateStream(m_buffer.data() + dStart, dEnd - dStart, outData);
+    } else {
+        outData.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
+        return true;
+    }
+}
+
+bool PdfParser::FindIndirectRef(const std::string& dictStr, const std::string& key, uint32_t& outObjNum) const {
+    size_t searchPos = 0;
+    while ((searchPos = dictStr.find(key, searchPos)) != std::string::npos) {
+        size_t pos = searchPos + key.size();
+        while (pos < dictStr.size() && (dictStr[pos] == ' ' || dictStr[pos] == '\t' || dictStr[pos] == '\r' || dictStr[pos] == '\n')) pos++;
+        if (pos < dictStr.size() && dictStr[pos] >= '0' && dictStr[pos] <= '9') {
+            char* endPtr = nullptr;
+            uint32_t num = (uint32_t)strtoul(dictStr.c_str() + pos, &endPtr, 10);
+            if (num > 0 && endPtr) {
+                while (*endPtr == ' ' || *endPtr == '\t' || *endPtr == '\r' || *endPtr == '\n') endPtr++;
+                if (*endPtr >= '0' && *endPtr <= '9') {
+                    while (*endPtr >= '0' && *endPtr <= '9') endPtr++;
+                    while (*endPtr == ' ' || *endPtr == '\t' || *endPtr == '\r' || *endPtr == '\n') endPtr++;
+                    if (*endPtr == 'R') {
+                        outObjNum = num;
+                        return true;
+                    }
+                }
+            }
+        }
+        searchPos = pos;
+    }
+    return false;
+}
+
+std::string PdfParser::ResolveDict(const std::string& parentDict, const std::string& key) const {
+    size_t searchPos = 0;
+    while ((searchPos = parentDict.find(key, searchPos)) != std::string::npos) {
+        size_t pos = searchPos + key.size();
+        while (pos < parentDict.size() && (parentDict[pos] == ' ' || parentDict[pos] == '\t' || parentDict[pos] == '\r' || parentDict[pos] == '\n')) pos++;
+        if (pos >= parentDict.size()) break;
+
+        if (parentDict.compare(pos, 2, "<<") == 0) {
+            int depth = 0;
+            size_t i = pos;
+            while (i < parentDict.size()) {
+                if (parentDict.compare(i, 2, "<<") == 0) {
+                    depth++;
+                    i += 2;
+                } else if (parentDict.compare(i, 2, ">>") == 0) {
+                    depth--;
+                    i += 2;
+                    if (depth == 0) {
+                        return parentDict.substr(pos, i - pos);
+                    }
+                } else {
+                    i++;
+                }
+            }
+        } else if (parentDict[pos] >= '0' && parentDict[pos] <= '9') {
+            uint32_t objNum = 0;
+            if (FindIndirectRef(parentDict.substr(searchPos), key, objNum)) {
+                return GetObjectString(objNum);
+            }
+        }
+        searchPos = pos;
+    }
+    return {};
+}
+
 bool PdfParser::Load(const std::wstring& filePath) {
     Close();
 
@@ -214,7 +390,8 @@ bool PdfParser::Load(const std::wstring& filePath) {
     file.read((char*)m_buffer.data(), fileSize);
     if (!file) return false;
 
-    const char* pData = (const char*)m_buffer.data();
+    m_bufferStr.assign((const char*)m_buffer.data(), fileSize);
+    const char* pData = m_bufferStr.data();
 
     // 1. Index all indirect objects: "N 0 obj" -> offset
     size_t pos = 0;
@@ -224,7 +401,6 @@ bool PdfParser::Load(const std::wstring& filePath) {
 
         pos = pObj - pData;
         if (pos + 3 <= fileSize && pObj[1] == 'b' && pObj[2] == 'j') {
-            // Check preceding digits: e.g. "12 0 obj"
             size_t back = pos;
             while (back > 0 && (pData[back - 1] == ' ' || pData[back - 1] == '\t')) back--;
             if (back > 0 && pData[back - 1] == '0') {
@@ -243,51 +419,75 @@ bool PdfParser::Load(const std::wstring& filePath) {
         pos += 3;
     }
 
-    // 2. Discover all page objects
-    // Look for "/Type /Page" or "/Type/Page" (excluding "/Pages")
-    pos = 0;
-    std::string s(m_buffer.begin(), m_buffer.end());
-
-    // First try page tree navigation from Root
-    size_t rootPos = s.find("/Root");
-    uint32_t rootObj = 0;
+    // 2. Discover page objects in canonical tree order from /Root
+    size_t rootPos = m_bufferStr.find("/Root");
     if (rootPos != std::string::npos) {
-        rootObj = (uint32_t)strtoul(s.c_str() + rootPos + 5, nullptr, 10);
-    }
-
-    // Direct page scanning
-    pos = 0;
-    while ((pos = s.find("/Type", pos)) != std::string::npos) {
-        size_t afterType = pos + 5;
-        while (afterType < s.size() && (s[afterType] == ' ' || s[afterType] == '\t' || s[afterType] == '\r' || s[afterType] == '\n')) {
-            afterType++;
-        }
-        if (afterType < s.size() && s[afterType] == '/') afterType++;
-
-        if (afterType + 4 <= s.size() && s.compare(afterType, 4, "Page") == 0) {
-            // Ensure not "Pages"
-            if (afterType + 4 >= s.size() || s[afterType + 4] != 's') {
-                // Find enclosing object start
-                size_t objStart = s.rfind(" obj", pos);
-                if (objStart != std::string::npos) {
-                    size_t lineStart = s.rfind('\n', objStart);
-                    size_t actualStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
-                    m_pageObjectOffsets.push_back(actualStart);
-                }
+        uint32_t rootObj = (uint32_t)strtoul(m_bufferStr.c_str() + rootPos + 5, nullptr, 10);
+        if (rootObj > 0) {
+            std::string rootStr = GetObjectString(rootObj);
+            uint32_t pagesObj = 0;
+            if (FindIndirectRef(rootStr, "/Pages", pagesObj)) {
+                std::function<void(uint32_t)> traversePages = [&](uint32_t objNum) {
+                    std::string objText = GetObjectString(objNum);
+                    if (objText.find("/Pages") != std::string::npos && objText.find("/Kids") != std::string::npos) {
+                        size_t kPos = objText.find("/Kids");
+                        size_t b1 = objText.find('[', kPos);
+                        size_t b2 = objText.find(']', b1);
+                        if (b1 != std::string::npos && b2 != std::string::npos) {
+                            std::string kStr = objText.substr(b1 + 1, b2 - b1 - 1);
+                            std::stringstream ss(kStr);
+                            uint32_t childObj = 0;
+                            std::string rTok;
+                            while (ss >> childObj >> rTok) {
+                                if (rTok == "0" || rTok == "R") {
+                                    if (rTok == "0") ss >> rTok;
+                                    traversePages(childObj);
+                                }
+                            }
+                        }
+                    } else if (objText.find("/Page") != std::string::npos) {
+                        if (m_objectOffsets.count(objNum)) {
+                            m_pageObjectOffsets.push_back(m_objectOffsets[objNum]);
+                        }
+                    }
+                };
+                traversePages(pagesObj);
             }
         }
-        pos += 5;
     }
 
-    // Sort page offsets in document order
-    std::sort(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end());
-    m_pageObjectOffsets.erase(std::unique(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end()), m_pageObjectOffsets.end());
+    // Fallback: direct page scanning if tree traversal produced no pages
+    if (m_pageObjectOffsets.empty()) {
+        pos = 0;
+        while ((pos = m_bufferStr.find("/Type", pos)) != std::string::npos) {
+            size_t afterType = pos + 5;
+            while (afterType < m_bufferStr.size() && (m_bufferStr[afterType] == ' ' || m_bufferStr[afterType] == '\t' || m_bufferStr[afterType] == '\r' || m_bufferStr[afterType] == '\n')) {
+                afterType++;
+            }
+            if (afterType < m_bufferStr.size() && m_bufferStr[afterType] == '/') afterType++;
+
+            if (afterType + 4 <= m_bufferStr.size() && m_bufferStr.compare(afterType, 4, "Page") == 0) {
+                if (afterType + 4 >= m_bufferStr.size() || m_bufferStr[afterType + 4] != 's') {
+                    size_t objStart = m_bufferStr.rfind(" obj", pos);
+                    if (objStart != std::string::npos) {
+                        size_t lineStart = m_bufferStr.rfind('\n', objStart);
+                        size_t actualStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+                        m_pageObjectOffsets.push_back(actualStart);
+                    }
+                }
+            }
+            pos += 5;
+        }
+        std::sort(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end());
+        m_pageObjectOffsets.erase(std::unique(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end()), m_pageObjectOffsets.end());
+    }
 
     return !m_pageObjectOffsets.empty();
 }
 
 void PdfParser::Close() {
     m_buffer.clear();
+    m_bufferStr.clear();
     m_pageObjectOffsets.clear();
     m_objectOffsets.clear();
 }
@@ -343,25 +543,347 @@ std::map<uint32_t, wchar_t> PdfParser::ParseToUnicodeCMap(const std::vector<uint
             size_t k4 = s.find('>', k3);
             if (k4 == std::string::npos || k4 >= endPos) break;
 
-            size_t v1 = s.find('<', k4);
-            if (v1 == std::string::npos || v1 >= endPos) break;
-            size_t v2 = s.find('>', v1);
-            if (v2 == std::string::npos || v2 >= endPos) break;
-
             uint32_t startCode = (uint32_t)strtoul(s.substr(k1 + 1, k2 - k1 - 1).c_str(), nullptr, 16);
             uint32_t endCode = (uint32_t)strtoul(s.substr(k3 + 1, k4 - k3 - 1).c_str(), nullptr, 16);
-            uint32_t dstCode = (uint32_t)strtoul(s.substr(v1 + 1, v2 - v1 - 1).c_str(), nullptr, 16);
 
-            for (uint32_t code = startCode; code <= endCode && code <= startCode + 1000; ++code) {
-                cmap[code] = (wchar_t)(dstCode + (code - startCode));
+            size_t afterK4 = s.find_first_not_of(" \t\r\n", k4 + 1);
+            if (afterK4 != std::string::npos && afterK4 < endPos) {
+                if (s[afterK4] == '<') {
+                    size_t v2 = s.find('>', afterK4);
+                    if (v2 != std::string::npos && v2 < endPos) {
+                        uint32_t dstCode = (uint32_t)strtoul(s.substr(afterK4 + 1, v2 - afterK4 - 1).c_str(), nullptr, 16);
+                        for (uint32_t code = startCode; code <= endCode && code <= startCode + 10000; ++code) {
+                            cmap[code] = (wchar_t)(dstCode + (code - startCode));
+                        }
+                        cur = v2 + 1;
+                        continue;
+                    }
+                } else if (s[afterK4] == '[') {
+                    size_t bEnd = s.find(']', afterK4);
+                    if (bEnd != std::string::npos && bEnd < endPos) {
+                        size_t bCur = afterK4 + 1;
+                        uint32_t code = startCode;
+                        while (bCur < bEnd && code <= endCode) {
+                            size_t h1 = s.find('<', bCur);
+                            if (h1 == std::string::npos || h1 >= bEnd) break;
+                            size_t h2 = s.find('>', h1);
+                            if (h2 == std::string::npos || h2 >= bEnd) break;
+                            uint32_t dstCode = (uint32_t)strtoul(s.substr(h1 + 1, h2 - h1 - 1).c_str(), nullptr, 16);
+                            cmap[code++] = (wchar_t)dstCode;
+                            bCur = h2 + 1;
+                        }
+                        cur = bEnd + 1;
+                        continue;
+                    }
+                }
             }
 
-            cur = v2 + 1;
+            cur = k4 + 1;
         }
         pos = endPos + 10;
     }
 
     return cmap;
+}
+
+std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string& pageDict) {
+    std::map<std::string, PdfFontInfo> fonts;
+
+    std::string resDict;
+    uint32_t resObj = 0;
+    if (FindIndirectRef(pageDict, "/Resources", resObj)) {
+        resDict = GetObjectString(resObj);
+    } else {
+        resDict = ResolveDict(pageDict, "/Resources");
+        if (resDict.empty()) {
+            uint32_t parentObj = 0;
+            if (FindIndirectRef(pageDict, "/Parent", parentObj)) {
+                std::string parentStr = GetObjectString(parentObj);
+                if (FindIndirectRef(parentStr, "/Resources", resObj)) {
+                    resDict = GetObjectString(resObj);
+                } else {
+                    resDict = ResolveDict(parentStr, "/Resources");
+                }
+            }
+        }
+    }
+
+    if (resDict.empty()) return fonts;
+
+    std::string fontDict;
+    uint32_t fontDictObj = 0;
+    if (FindIndirectRef(resDict, "/Font", fontDictObj)) {
+        fontDict = GetObjectString(fontDictObj);
+    } else {
+        fontDict = ResolveDict(resDict, "/Font");
+    }
+
+    if (fontDict.empty()) return fonts;
+
+    size_t pos = 0;
+    while (pos < fontDict.size()) {
+        size_t slash = fontDict.find('/', pos);
+        if (slash == std::string::npos) break;
+
+        size_t nameEnd = fontDict.find_first_of(" \t\r\n/<>[", slash + 1);
+        if (nameEnd == std::string::npos) nameEnd = fontDict.size();
+
+        std::string fKey = fontDict.substr(slash + 1, nameEnd - slash - 1);
+        if (fKey.empty()) { pos = slash + 1; continue; }
+
+        size_t valStart = fontDict.find_first_not_of(" \t\r\n", nameEnd);
+        if (valStart == std::string::npos) break;
+
+        std::string fontDef;
+        if (fontDict[valStart] >= '0' && fontDict[valStart] <= '9') {
+            char* endPtr = nullptr;
+            uint32_t fObj = (uint32_t)strtoul(fontDict.c_str() + valStart, &endPtr, 10);
+            if (fObj > 0) {
+                fontDef = GetObjectString(fObj);
+            }
+            pos = (endPtr ? (endPtr - fontDict.c_str()) : valStart + 1);
+        } else if (fontDict.compare(valStart, 2, "<<") == 0) {
+            int depth = 0;
+            size_t endDict = valStart;
+            while (endDict < fontDict.size()) {
+                if (fontDict.compare(endDict, 2, "<<") == 0) {
+                    depth++;
+                    endDict += 2;
+                } else if (fontDict.compare(endDict, 2, ">>") == 0) {
+                    depth--;
+                    endDict += 2;
+                    if (depth == 0) break;
+                } else {
+                    endDict++;
+                }
+            }
+            if (depth == 0) {
+                fontDef = fontDict.substr(valStart, endDict - valStart);
+                pos = endDict;
+            } else {
+                pos = valStart + 2;
+            }
+        } else {
+            pos = valStart + 1;
+        }
+
+        if (fontDef.empty()) continue;
+
+        PdfFontInfo fontInfo;
+        fontInfo.fontName = fKey;
+
+        // /Subtype
+        size_t stPos = fontDef.find("/Subtype");
+        if (stPos != std::string::npos) {
+            size_t stSlash = fontDef.find('/', stPos + 8);
+            if (stSlash != std::string::npos) {
+                size_t stEnd = fontDef.find_first_of(" \t\r\n/>", stSlash + 1);
+                if (stEnd != std::string::npos) {
+                    fontInfo.subtype = fontDef.substr(stSlash + 1, stEnd - stSlash - 1);
+                }
+            }
+        }
+
+        // /BaseFont
+        size_t bfPos = fontDef.find("/BaseFont");
+        if (bfPos != std::string::npos) {
+            size_t bfSlash = fontDef.find('/', bfPos + 9);
+            if (bfSlash != std::string::npos) {
+                size_t bfEnd = fontDef.find_first_of(" \t\r\n/>", bfSlash + 1);
+                if (bfEnd != std::string::npos) {
+                    fontInfo.baseFont = fontDef.substr(bfSlash + 1, bfEnd - bfSlash - 1);
+                }
+            }
+        }
+
+        // /FirstChar
+        size_t fcPos = fontDef.find("/FirstChar");
+        if (fcPos != std::string::npos) {
+            fontInfo.firstChar = (int)strtol(fontDef.c_str() + fcPos + 10, nullptr, 10);
+        }
+
+        // /LastChar
+        size_t lcPos = fontDef.find("/LastChar");
+        if (lcPos != std::string::npos) {
+            fontInfo.lastChar = (int)strtol(fontDef.c_str() + lcPos + 9, nullptr, 10);
+        }
+
+        // /Widths
+        uint32_t wObj = 0;
+        std::string wStr;
+        if (FindIndirectRef(fontDef, "/Widths", wObj)) {
+            wStr = GetObjectString(wObj);
+        } else {
+            size_t wPos = fontDef.find("/Widths");
+            if (wPos != std::string::npos) {
+                size_t b1 = fontDef.find('[', wPos);
+                size_t b2 = fontDef.find(']', b1);
+                if (b1 != std::string::npos && b2 != std::string::npos) {
+                    wStr = fontDef.substr(b1, b2 - b1 + 1);
+                }
+            }
+        }
+        if (!wStr.empty()) {
+            size_t b1 = wStr.find('[');
+            size_t b2 = wStr.find(']', b1);
+            if (b1 != std::string::npos && b2 != std::string::npos) {
+                std::stringstream wss(wStr.substr(b1 + 1, b2 - b1 - 1));
+                float wVal = 0.0f;
+                while (wss >> wVal) {
+                    fontInfo.widths.push_back(wVal);
+                }
+            }
+        }
+
+        // /ToUnicode
+        uint32_t tuObj = 0;
+        if (FindIndirectRef(fontDef, "/ToUnicode", tuObj)) {
+            std::vector<uint8_t> tuBytes;
+            if (GetObjectStreamData(tuObj, tuBytes)) {
+                fontInfo.toUnicode = ParseToUnicodeCMap(tuBytes);
+            }
+        }
+
+        // If Type0, parse /DescendantFonts
+        if (fontInfo.subtype == "Type0" || fontDef.find("/DescendantFonts") != std::string::npos) {
+            size_t dfPos = fontDef.find("/DescendantFonts");
+            if (dfPos != std::string::npos) {
+                size_t b1 = fontDef.find('[', dfPos);
+                size_t b2 = fontDef.find(']', b1);
+                if (b1 != std::string::npos && b2 != std::string::npos) {
+                    uint32_t descObj = 0;
+                    std::string descStr = fontDef.substr(b1 + 1, b2 - b1 - 1);
+                    std::stringstream dss(descStr);
+                    if (dss >> descObj) {
+                        std::string descDef = GetObjectString(descObj);
+                        size_t dwPos = descDef.find("/DW");
+                        if (dwPos != std::string::npos) {
+                            fontInfo.defaultWidth = (float)strtod(descDef.c_str() + dwPos + 3, nullptr);
+                            if (fontInfo.defaultWidth <= 0.0f) fontInfo.defaultWidth = 1000.0f;
+                        }
+                        uint32_t cidWObj = 0;
+                        std::string cidWStr;
+                        if (FindIndirectRef(descDef, "/W", cidWObj)) {
+                            cidWStr = GetObjectString(cidWObj);
+                        } else {
+                            size_t wPos = descDef.find("/W");
+                            if (wPos != std::string::npos) {
+                                size_t wb1 = descDef.find('[', wPos);
+                                size_t wb2 = descDef.find(']', wb1);
+                                if (wb1 != std::string::npos && wb2 != std::string::npos) {
+                                    cidWStr = descDef.substr(wb1, wb2 - wb1 + 1);
+                                }
+                            }
+                        }
+                        if (!cidWStr.empty()) {
+                            size_t k = cidWStr.find('[');
+                            size_t kEnd = cidWStr.rfind(']');
+                            if (k != std::string::npos && kEnd != std::string::npos) {
+                                k++;
+                                while (k < kEnd) {
+                                    while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                                    if (k >= kEnd) break;
+                                    if (cidWStr[k] == '[' || cidWStr[k] == ']') { k++; continue; }
+
+                                    char* pEnd = nullptr;
+                                    long c1 = strtol(cidWStr.c_str() + k, &pEnd, 10);
+                                    if (pEnd == cidWStr.c_str() + k) { k++; continue; }
+                                    k = pEnd - cidWStr.c_str();
+
+                                    while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                                    if (k >= kEnd) break;
+
+                                    if (cidWStr[k] == '[') {
+                                        k++;
+                                        uint32_t curCid = (uint32_t)c1;
+                                        while (k < kEnd && cidWStr[k] != ']') {
+                                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                                            if (k >= kEnd || cidWStr[k] == ']') break;
+                                            float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
+                                            if (pEnd == cidWStr.c_str() + k) { k++; break; }
+                                            fontInfo.cidWidths[curCid++] = w;
+                                            k = pEnd - cidWStr.c_str();
+                                        }
+                                        if (k < kEnd && cidWStr[k] == ']') k++;
+                                    } else {
+                                        long c2 = strtol(cidWStr.c_str() + k, &pEnd, 10);
+                                        if (pEnd != cidWStr.c_str() + k) {
+                                            k = pEnd - cidWStr.c_str();
+                                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                                            float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
+                                            if (pEnd != cidWStr.c_str() + k) {
+                                                k = pEnd - cidWStr.c_str();
+                                                for (uint32_t c = (uint32_t)c1; c <= (uint32_t)c2 && c <= (uint32_t)c1 + 10000; ++c) {
+                                                    fontInfo.cidWidths[c] = w;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        fonts[fKey] = std::move(fontInfo);
+    }
+
+    return fonts;
+}
+
+std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string& pageDict) {
+    std::map<std::string, uint32_t> xobjects;
+
+    std::string resDict;
+    uint32_t resObj = 0;
+    if (FindIndirectRef(pageDict, "/Resources", resObj)) {
+        resDict = GetObjectString(resObj);
+    } else {
+        resDict = ResolveDict(pageDict, "/Resources");
+        if (resDict.empty()) {
+            uint32_t parentObj = 0;
+            if (FindIndirectRef(pageDict, "/Parent", parentObj)) {
+                std::string parentStr = GetObjectString(parentObj);
+                if (FindIndirectRef(parentStr, "/Resources", resObj)) {
+                    resDict = GetObjectString(resObj);
+                } else {
+                    resDict = ResolveDict(parentStr, "/Resources");
+                }
+            }
+        }
+    }
+
+    if (resDict.empty()) return xobjects;
+
+    std::string xobjDict;
+    uint32_t xobjDictObj = 0;
+    if (FindIndirectRef(resDict, "/XObject", xobjDictObj)) {
+        xobjDict = GetObjectString(xobjDictObj);
+    } else {
+        xobjDict = ResolveDict(resDict, "/XObject");
+    }
+
+    if (xobjDict.empty()) return xobjects;
+
+    size_t pos = 0;
+    while (pos < xobjDict.size()) {
+        size_t slash = xobjDict.find('/', pos);
+        if (slash == std::string::npos) break;
+
+        size_t nameEnd = xobjDict.find_first_of(" \t\r\n/<>[", slash + 1);
+        if (nameEnd == std::string::npos) break;
+
+        std::string xName = xobjDict.substr(slash + 1, nameEnd - slash - 1);
+        uint32_t targetObj = 0;
+        if (FindIndirectRef(xobjDict.substr(slash), "/" + xName, targetObj)) {
+            xobjects[xName] = targetObj;
+        }
+        pos = nameEnd;
+    }
+
+    return xobjects;
 }
 
 bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
@@ -373,13 +895,11 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     outPage.hasDigitalText = false;
 
     size_t pageOffset = m_pageObjectOffsets[pageIndex];
-    std::string s((const char*)m_buffer.data(), m_buffer.size());
-
-    // Find end of page object
-    size_t endObj = s.find("endobj", pageOffset);
-    if (endObj == std::string::npos) endObj = s.size();
-
-    std::string pageDict = s.substr(pageOffset, endObj - pageOffset);
+    std::string pageDict = m_bufferStr.substr(pageOffset, 4096);
+    size_t endObj = m_bufferStr.find("endobj", pageOffset);
+    if (endObj != std::string::npos) {
+        pageDict = m_bufferStr.substr(pageOffset, endObj - pageOffset);
+    }
 
     // 1. Extract MediaBox dimensions
     float mediaW = 595.28f;
@@ -401,66 +921,18 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     outPage.pageWidth = mediaW;
     outPage.pageHeight = mediaH;
 
-    // 2. Discover Font Resources & CMaps
-    std::map<std::string, std::map<uint32_t, wchar_t>> fontCMaps;
-    size_t resPos = pageDict.find("/Resources");
-    if (resPos != std::string::npos) {
-        size_t fontPos = pageDict.find("/Font", resPos);
-        if (fontPos != std::string::npos) {
-            // Find fonts in dictionary or referenced object
-            size_t fStart = pageDict.find("<<", fontPos);
-            size_t fEnd = pageDict.find(">>", fStart);
-            if (fStart != std::string::npos && fEnd != std::string::npos) {
-                std::string fontList = pageDict.substr(fStart + 2, fEnd - fStart - 2);
-                std::stringstream fss(fontList);
-                std::string token;
-                while (fss >> token) {
-                    if (token[0] == '/') {
-                        std::string fontName = token.substr(1);
-                        uint32_t fontObj = 0;
-                        if (fss >> fontObj) {
-                            if (m_objectOffsets.count(fontObj)) {
-                                size_t fOff = m_objectOffsets[fontObj];
-                                size_t fEndObj = s.find("endobj", fOff);
-                                if (fEndObj != std::string::npos) {
-                                    std::string fDef = s.substr(fOff, fEndObj - fOff);
-                                    size_t tuPos = fDef.find("/ToUnicode");
-                                    if (tuPos != std::string::npos) {
-                                        uint32_t tuObj = (uint32_t)strtoul(fDef.c_str() + tuPos + 10, nullptr, 10);
-                                        if (tuObj > 0 && m_objectOffsets.count(tuObj)) {
-                                            size_t tuOff = m_objectOffsets[tuObj];
-                                            size_t stStart = s.find("stream", tuOff);
-                                            if (stStart != std::string::npos) {
-                                                size_t dStart = s.find('\n', stStart) + 1;
-                                                size_t dEnd = s.find("endstream", dStart);
-                                                if (dEnd != std::string::npos) {
-                                                    while (dEnd > dStart && (s[dEnd - 1] == '\r' || s[dEnd - 1] == '\n')) dEnd--;
-                                                    std::vector<uint8_t> decompCMap;
-                                                    if (InflateStream(m_buffer.data() + dStart, dEnd - dStart, decompCMap)) {
-                                                        fontCMaps[fontName] = ParseToUnicodeCMap(decompCMap);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // 2. Discover Font Resources & Metrics
+    auto fonts = ExtractPageFonts(pageDict);
+    auto xobjects = ExtractPageXObjects(pageDict);
 
     // 3. Extract /Contents objects
     std::vector<uint32_t> contentObjs;
     size_t cPos = pageDict.find("/Contents");
     if (cPos != std::string::npos) {
         size_t afterC = cPos + 9;
-        while (afterC < pageDict.size() && (pageDict[afterC] == ' ' || pageDict[afterC] == '\t')) afterC++;
+        while (afterC < pageDict.size() && (pageDict[afterC] == ' ' || pageDict[afterC] == '\t' || pageDict[afterC] == '\r' || pageDict[afterC] == '\n')) afterC++;
 
         if (afterC < pageDict.size() && pageDict[afterC] == '[') {
-            // Array of content objects
             size_t closeB = pageDict.find(']', afterC);
             if (closeB != std::string::npos) {
                 std::string arrStr = pageDict.substr(afterC + 1, closeB - afterC - 1);
@@ -469,13 +941,12 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
                 std::string rTok;
                 while (css >> cId >> rTok) {
                     if (rTok == "0" || rTok == "R") {
-                        if (rTok == "0") css >> rTok; // eat 'R'
+                        if (rTok == "0") css >> rTok;
                         contentObjs.push_back(cId);
                     }
                 }
             }
         } else {
-            // Single content object reference: "N 0 R"
             uint32_t cId = (uint32_t)strtoul(pageDict.c_str() + afterC, nullptr, 10);
             if (cId > 0) contentObjs.push_back(cId);
         }
@@ -483,30 +954,9 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
 
     // 4. Decompress and parse all content streams in sequence
     for (uint32_t cId : contentObjs) {
-        if (!m_objectOffsets.count(cId)) continue;
-        size_t cOff = m_objectOffsets[cId];
-        size_t stStart = s.find("stream", cOff);
-        if (stStart == std::string::npos) continue;
-
-        size_t dStart = s.find('\n', stStart) + 1;
-        size_t dEnd = s.find("endstream", dStart);
-        if (dEnd == std::string::npos) continue;
-
-        while (dEnd > dStart && (s[dEnd - 1] == '\r' || s[dEnd - 1] == '\n')) dEnd--;
-
-        // Check if FlateDecode compressed
-        std::string objHeader = s.substr(cOff, stStart - cOff);
-        bool isFlate = (objHeader.find("FlateDecode") != std::string::npos);
-
         std::vector<uint8_t> streamBytes;
-        if (isFlate) {
-            InflateStream(m_buffer.data() + dStart, dEnd - dStart, streamBytes);
-        } else {
-            streamBytes.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
-        }
-
-        if (!streamBytes.empty()) {
-            ParseContentStream(streamBytes, mediaH, fontCMaps, outPage);
+        if (GetObjectStreamData(cId, streamBytes) && !streamBytes.empty()) {
+            ParseContentStream(streamBytes, mediaH, fonts, outPage, xobjects);
         }
     }
 
@@ -517,201 +967,448 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
 void PdfParser::ParseContentStream(
     const std::vector<uint8_t>& streamBytes,
     float pageHeight,
-    const std::map<std::string, std::map<uint32_t, wchar_t>>& fontCMaps,
-    PdfPageText& outPage
+    const std::map<std::string, PdfFontInfo>& fonts,
+    PdfPageText& outPage,
+    const std::map<std::string, uint32_t>& xobjects,
+    Matrix2D initialCtm,
+    int recursionDepth,
+    D2D1_RECT_F localClip
 ) {
     if (streamBytes.empty()) return;
 
-    std::string s((const char*)streamBytes.data(), streamBytes.size());
-    size_t len = s.size();
+    const char* pStream = (const char*)streamBytes.data();
+    size_t len = streamBytes.size();
     size_t i = 0;
 
     bool inText = false;
     float curFontSize = 12.0f;
     std::string curFontName = "";
-    float tm_a = 1.0f, tm_b = 0.0f, tm_c = 0.0f, tm_d = 1.0f;
-    float tm_e = 0.0f, tm_f = 0.0f; // Text matrix origin
+    float curCharSpace = 0.0f;
+    float curWordSpace = 0.0f;
+    float curHScale = 100.0f;
+    float curLeading = 12.0f;
+
+    std::vector<Matrix2D> ctmStack;
+    Matrix2D ctm = initialCtm;
+
+    Matrix2D tm = Matrix2D::Identity();
+    Matrix2D tlm = Matrix2D::Identity();
     float curX = 0.0f, curY = 0.0f;
 
-    auto EmitString = [&](const std::string& rawStr, bool isHex) {
-        if (rawStr.empty()) return;
+    auto EmitBytes = [&](const std::vector<uint8_t>& rawBytes, bool isHex) {
+        if (rawBytes.empty()) return;
 
-        std::wstring decoded;
-        const auto* pCmap = fontCMaps.count(curFontName) ? &fontCMaps.at(curFontName) : nullptr;
-
-        if (isHex) {
-            // Hex encoded string
-            for (size_t h = 0; h + 1 < rawStr.size(); h += 2) {
-                char hbuf[3] = { rawStr[h], rawStr[h + 1], 0 };
-                uint32_t val = (uint32_t)strtoul(hbuf, nullptr, 16);
-                if (h + 3 < rawStr.size() && pCmap) {
-                    // Try 2-byte code lookup in CMap
-                    char hbuf4[5] = { rawStr[h], rawStr[h + 1], rawStr[h + 2], rawStr[h + 3], 0 };
-                    uint32_t val4 = (uint32_t)strtoul(hbuf4, nullptr, 16);
-                    if (pCmap->count(val4)) {
-                        decoded.push_back(pCmap->at(val4));
-                        h += 2;
-                        continue;
-                    }
-                }
-                if (pCmap && pCmap->count(val)) {
-                    decoded.push_back(pCmap->at(val));
-                } else if (val >= 32 && val <= 126) {
-                    decoded.push_back((wchar_t)val);
-                }
-            }
-        } else {
-            // Literal ASCII / WinAnsi string
-            for (size_t c = 0; c < rawStr.size(); ++c) {
-                uint8_t ch = (uint8_t)rawStr[c];
-                if (pCmap && pCmap->count(ch)) {
-                    decoded.push_back(pCmap->at(ch));
-                } else {
-                    decoded.push_back((wchar_t)ch);
-                }
+        const PdfFontInfo* pFont = fonts.count(curFontName) ? &fonts.at(curFontName) : nullptr;
+        bool is2Byte = false;
+        if (pFont) {
+            if (pFont->subtype == "Type0" || !pFont->cidWidths.empty() || pFont->baseFont.find("Identity") != std::string::npos) {
+                is2Byte = true;
             }
         }
 
-        if (decoded.empty()) return;
+        float fontScaleX = curFontSize * (curHScale / 100.0f) * std::hypot(tm.a, tm.b) * std::hypot(ctm.a, ctm.b);
+        float fontScaleY = curFontSize * std::hypot(tm.d, tm.c) * std::hypot(ctm.d, ctm.c);
+        if (fontScaleX <= 0.0f) fontScaleX = curFontSize;
+        if (fontScaleY <= 0.0f) fontScaleY = curFontSize;
 
-        // Calculate layout coordinates
-        float glyphW = curFontSize * 0.52f;
-        float glyphH = curFontSize;
+        size_t bIdx = 0;
+        while (bIdx < rawBytes.size()) {
+            uint32_t charCode = 0;
+            if (is2Byte) {
+                if (bIdx + 1 < rawBytes.size()) {
+                    charCode = ((uint32_t)rawBytes[bIdx] << 8) | (uint32_t)rawBytes[bIdx + 1];
+                    bIdx += 2;
+                } else {
+                    charCode = rawBytes[bIdx++];
+                }
+            } else {
+                charCode = rawBytes[bIdx++];
+            }
 
-        for (wchar_t wch : decoded) {
-            float d2dX = curX;
-            float d2dY = pageHeight - (curY + glyphH * 0.85f);
+            wchar_t wch = pFont ? pFont->DecodeChar(charCode) : ((charCode >= 32 && charCode <= 126) ? (wchar_t)charCode : L'?');
+            float charWidthUnits = pFont ? pFont->GetCharWidth(charCode) : 500.0f;
+            if (charWidthUnits <= 0.0f) charWidthUnits = 500.0f;
+
+            float glyphW = (charWidthUnits / 1000.0f) * fontScaleX;
+            float glyphH = fontScaleY;
+
+            float userX = 0.0f, userY = 0.0f;
+            ctm.Transform(curX, curY, userX, userY);
+
+            float baselineY = pageHeight - userY;
+            float top = baselineY - glyphH * 0.88f;
+            float bottom = baselineY + glyphH * 0.22f;
+
+            float charAdv = (charWidthUnits / 1000.0f) * curFontSize * (curHScale / 100.0f) + curCharSpace;
+            if (wch == L' ') {
+                charAdv += curWordSpace;
+            }
+
+            // Skip characters clipped out by Form XObject BBox or too microscopic (< 2 DIPs)
+            if (curX < localClip.left || curX > localClip.right || curY < localClip.top || curY > localClip.bottom || glyphH < 2.0f || glyphW <= 0.0f) {
+                curX += charAdv;
+                continue;
+            }
 
             PdfTextChar tc;
             tc.ch = wch;
-            tc.rect = D2D1::RectF(d2dX, d2dY, d2dX + glyphW, d2dY + glyphH);
+            tc.rect = D2D1::RectF(userX, top, userX + glyphW, bottom);
 
             outPage.fullText.push_back(wch);
             outPage.chars.push_back(tc);
 
-            curX += glyphW;
+            curX += charAdv;
         }
     };
 
     while (i < len) {
-        // Skip whitespace
-        while (i < len && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) i++;
+        while (i < len && (pStream[i] == ' ' || pStream[i] == '\t' || pStream[i] == '\r' || pStream[i] == '\n')) i++;
         if (i >= len) break;
 
-        // Check operators
-        if (s[i] == 'B' && i + 1 < len && s[i + 1] == 'T') {
+        // Save graphics state 'q'
+        if (pStream[i] == 'q' && (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
+            ctmStack.push_back(ctm);
+            i++;
+            continue;
+        }
+
+        // Restore graphics state 'Q'
+        if (pStream[i] == 'Q' && (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
+            if (!ctmStack.empty()) {
+                ctm = ctmStack.back();
+                ctmStack.pop_back();
+            }
+            i++;
+            continue;
+        }
+
+        // Matrix concatenation 'cm'
+        if (i + 2 <= len && pStream[i] == 'c' && pStream[i + 1] == 'm' && (i + 2 >= len || pStream[i + 2] == ' ' || pStream[i + 2] == '\t' || pStream[i + 2] == '\r' || pStream[i + 2] == '\n')) {
+            size_t lineStart = i;
+            while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+            std::string mLine(pStream + lineStart, i - lineStart);
+            std::stringstream mss(mLine);
+            std::vector<float> vals;
+            float v = 0.0f;
+            while (mss >> v) vals.push_back(v);
+            if (vals.size() >= 6) {
+                Matrix2D m{
+                    vals[vals.size() - 6],
+                    vals[vals.size() - 5],
+                    vals[vals.size() - 4],
+                    vals[vals.size() - 3],
+                    vals[vals.size() - 2],
+                    vals[vals.size() - 1]
+                };
+                ctm = m.Multiply(ctm);
+            }
+            i += 2;
+            continue;
+        }
+
+        // Begin text object 'BT'
+        if (pStream[i] == 'B' && i + 1 < len && pStream[i + 1] == 'T') {
             inText = true;
-            tm_e = 0.0f;
-            tm_f = 0.0f;
+            tm = Matrix2D::Identity();
+            tlm = Matrix2D::Identity();
             curX = 0.0f;
             curY = 0.0f;
             i += 2;
             continue;
         }
-        if (s[i] == 'E' && i + 1 < len && s[i + 1] == 'T') {
+
+        // End text object 'ET'
+        if (pStream[i] == 'E' && i + 1 < len && pStream[i + 1] == 'T') {
             inText = false;
-            // Add word separator space
             if (!outPage.fullText.empty() && outPage.fullText.back() != L' ') {
                 outPage.fullText.push_back(L' ');
-                outPage.chars.push_back({ L' ', D2D1::RectF(curX, 0, curX + 4.0f, 0) });
+                outPage.chars.push_back({ L' ', D2D1::RectF(curX, 0, curX, 0) });
             }
             i += 2;
             continue;
         }
 
+        // XObject invocation: "/Name Do"
+        if (!inText && pStream[i] == '/' && recursionDepth < 4) {
+            size_t nStart = i + 1;
+            size_t nEnd = nStart;
+            while (nEnd < len && pStream[nEnd] != ' ' && pStream[nEnd] != '\t' && pStream[nEnd] != '\r' && pStream[nEnd] != '\n' && pStream[nEnd] != '/') nEnd++;
+            std::string xName(pStream + nStart, nEnd - nStart);
+            size_t opPos = nEnd;
+            while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
+            if (opPos + 2 <= len && pStream[opPos] == 'D' && pStream[opPos + 1] == 'o' &&
+                (opPos + 2 >= len || pStream[opPos + 2] == ' ' || pStream[opPos + 2] == '\t' || pStream[opPos + 2] == '\r' || pStream[opPos + 2] == '\n')) {
+                auto itX = xobjects.find(xName);
+                if (itX != xobjects.end()) {
+                    uint32_t xObjId = itX->second;
+                    std::string xDict = GetObjectString(xObjId);
+                    if (xDict.find("/Subtype /Form") != std::string::npos || xDict.find("/Subtype/Form") != std::string::npos) {
+                        // Check for Form /Matrix
+                        Matrix2D formMat = Matrix2D::Identity();
+                        size_t matPos = xDict.find("/Matrix");
+                        if (matPos != std::string::npos) {
+                            size_t b1 = xDict.find('[', matPos);
+                            size_t b2 = xDict.find(']', b1);
+                            if (b1 != std::string::npos && b2 != std::string::npos) {
+                                std::string mStr = xDict.substr(b1 + 1, b2 - b1 - 1);
+                                std::stringstream mss(mStr);
+                                float ma = 1, mb = 0, mc = 0, md = 1, me = 0, mf = 0;
+                                if (mss >> ma >> mb >> mc >> md >> me >> mf) {
+                                    formMat = Matrix2D{ ma, mb, mc, md, me, mf };
+                                }
+                            }
+                        }
+                        Matrix2D formCtm = formMat.Multiply(ctm);
+
+                        // Read Form BBox if present
+                        D2D1_RECT_F formBBox = { -1e9f, -1e9f, 1e9f, 1e9f };
+                        size_t bbPos = xDict.find("/BBox");
+                        if (bbPos != std::string::npos) {
+                            size_t b1 = xDict.find('[', bbPos);
+                            size_t b2 = xDict.find(']', b1);
+                            if (b1 != std::string::npos && b2 != std::string::npos) {
+                                std::string bbStr = xDict.substr(b1 + 1, b2 - b1 - 1);
+                                std::stringstream bss(bbStr);
+                                float bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+                                if (bss >> bx0 >> by0 >> bx1 >> by1) {
+                                    formBBox = D2D1::RectF(
+                                        std::min(bx0, bx1) - 1.0f,
+                                        std::min(by0, by1) - 1.0f,
+                                        std::max(bx0, bx1) + 1.0f,
+                                        std::max(by0, by1) + 1.0f
+                                    );
+                                }
+                            }
+                        }
+
+                        // Inherit fonts and merge with Form XObject fonts
+                        auto formFonts = fonts;
+                        auto childFonts = ExtractPageFonts(xDict);
+                        for (auto& cf : childFonts) {
+                            formFonts[cf.first] = std::move(cf.second);
+                        }
+
+                        // Child XObjects
+                        auto childXObjects = ExtractPageXObjects(xDict);
+
+                        std::vector<uint8_t> formStream;
+                        if (GetObjectStreamData(xObjId, formStream) && !formStream.empty()) {
+                            ParseContentStream(formStream, pageHeight, formFonts, outPage, childXObjects, formCtm, recursionDepth + 1, formBBox);
+                        }
+                    }
+                }
+                i = opPos + 2;
+                continue;
+            }
+        }
+
         if (inText) {
             // Font operator: "/FontName Size Tf"
-            if (s[i] == '/') {
-                size_t fnEnd = s.find_first_of(" \t\r\n", i);
-                if (fnEnd != std::string::npos) {
-                    std::string fName = s.substr(i + 1, fnEnd - i - 1);
-                    size_t szStart = s.find_first_not_of(" \t\r\n", fnEnd);
-                    if (szStart != std::string::npos) {
-                        float fSize = (float)atof(s.c_str() + szStart);
-                        if (fSize > 0.1f) {
-                            curFontName = fName;
-                            curFontSize = fSize;
-                        }
+            if (pStream[i] == '/') {
+                size_t fnStart = i + 1;
+                size_t fnEnd = fnStart;
+                while (fnEnd < len && pStream[fnEnd] != ' ' && pStream[fnEnd] != '\t' && pStream[fnEnd] != '\r' && pStream[fnEnd] != '\n') fnEnd++;
+                std::string fName(pStream + fnStart, fnEnd - fnStart);
+                size_t szStart = fnEnd;
+                while (szStart < len && (pStream[szStart] == ' ' || pStream[szStart] == '\t' || pStream[szStart] == '\r' || pStream[szStart] == '\n')) szStart++;
+                char* pEnd = nullptr;
+                float fSize = (float)strtod(pStream + szStart, &pEnd);
+                if (pEnd && pEnd != pStream + szStart) {
+                    size_t opPos = pEnd - pStream;
+                    while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
+                    if (opPos + 2 <= len && pStream[opPos] == 'T' && pStream[opPos + 1] == 'f') {
+                        curFontName = fName;
+                        if (fSize > 0.1f) curFontSize = fSize;
+                        i = opPos + 2;
+                        continue;
                     }
                 }
             }
 
             // Text matrix: "a b c d e f Tm"
-            if (i + 2 <= len && s.compare(i, 2, "Tm") == 0) {
-                size_t lineStart = s.rfind('\n', i);
-                if (lineStart == std::string::npos) lineStart = 0;
-                std::string mLine = s.substr(lineStart, i - lineStart);
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'm') {
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
                 std::stringstream mss(mLine);
                 std::vector<float> vals;
-                float v = 0;
+                float v = 0.0f;
                 while (mss >> v) vals.push_back(v);
                 if (vals.size() >= 6) {
-                    tm_a = vals[vals.size() - 6];
-                    tm_b = vals[vals.size() - 5];
-                    tm_c = vals[vals.size() - 4];
-                    tm_d = vals[vals.size() - 3];
-                    tm_e = vals[vals.size() - 2];
-                    tm_f = vals[vals.size() - 1];
-                    curX = tm_e;
-                    curY = tm_f;
+                    tm.a = vals[vals.size() - 6];
+                    tm.b = vals[vals.size() - 5];
+                    tm.c = vals[vals.size() - 4];
+                    tm.d = vals[vals.size() - 3];
+                    tm.e = vals[vals.size() - 2];
+                    tm.f = vals[vals.size() - 1];
+                    tlm = tm;
+                    curX = tm.e;
+                    curY = tm.f;
                 }
                 i += 2;
                 continue;
             }
 
-            // Translation operator: "x y Td" or "x y TD"
-            if (i + 2 <= len && (s.compare(i, 2, "Td") == 0 || s.compare(i, 2, "TD") == 0)) {
-                size_t lineStart = s.rfind('\n', i);
-                if (lineStart == std::string::npos) lineStart = 0;
-                std::string mLine = s.substr(lineStart, i - lineStart);
+            // Translation operator: "tx ty Td" or "tx ty TD"
+            if (i + 2 <= len && pStream[i] == 'T' && (pStream[i + 1] == 'd' || pStream[i + 1] == 'D')) {
+                bool isTD = (pStream[i + 1] == 'D');
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
                 std::stringstream mss(mLine);
                 std::vector<float> vals;
-                float v = 0;
+                float v = 0.0f;
                 while (mss >> v) vals.push_back(v);
                 if (vals.size() >= 2) {
-                    float dx = vals[vals.size() - 2];
-                    float dy = vals[vals.size() - 1];
-                    curX += dx;
-                    curY += dy;
+                    float tx = vals[vals.size() - 2];
+                    float ty = vals[vals.size() - 1];
+                    if (isTD) curLeading = -ty;
+
+                    float newE = tx * tlm.a + ty * tlm.c + tlm.e;
+                    float newF = tx * tlm.b + ty * tlm.d + tlm.f;
+                    tlm.e = newE;
+                    tlm.f = newF;
+                    tm = tlm;
+                    curX = tlm.e;
+                    curY = tlm.f;
                 }
+                i += 2;
+                continue;
+            }
+
+            // Move to start of next line: "T*"
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == '*') {
+                float newE = (-curLeading) * tlm.c + tlm.e;
+                float newF = (-curLeading) * tlm.d + tlm.f;
+                tlm.e = newE;
+                tlm.f = newF;
+                tm = tlm;
+                curX = tlm.e;
+                curY = tlm.f;
+                i += 2;
+                continue;
+            }
+
+            // Character spacing: "charSpace Tc"
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'c') {
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
+                std::stringstream mss(mLine);
+                float val = 0.0f;
+                while (mss >> val) curCharSpace = val;
+                i += 2;
+                continue;
+            }
+
+            // Word spacing: "wordSpace Tw"
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'w') {
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
+                std::stringstream mss(mLine);
+                float val = 0.0f;
+                while (mss >> val) curWordSpace = val;
+                i += 2;
+                continue;
+            }
+
+            // Horizontal scaling: "scale Tz"
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'z') {
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
+                std::stringstream mss(mLine);
+                float val = 100.0f;
+                while (mss >> val) curHScale = val;
+                i += 2;
+                continue;
+            }
+
+            // Text leading: "leading TL"
+            if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'L') {
+                size_t lineStart = i;
+                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
+                std::string mLine(pStream + lineStart, i - lineStart);
+                std::stringstream mss(mLine);
+                float val = 12.0f;
+                while (mss >> val) curLeading = val;
                 i += 2;
                 continue;
             }
 
             // Literal string Tj: "(text) Tj"
-            if (s[i] == '(') {
+            if (pStream[i] == '(') {
                 size_t strStart = i + 1;
                 size_t strEnd = strStart;
                 int parenDepth = 1;
                 while (strEnd < len && parenDepth > 0) {
-                    if (s[strEnd] == '\\' && strEnd + 1 < len) {
+                    if (pStream[strEnd] == '\\' && strEnd + 1 < len) {
                         strEnd += 2;
                         continue;
                     }
-                    if (s[strEnd] == '(') parenDepth++;
-                    else if (s[strEnd] == ')') parenDepth--;
+                    if (pStream[strEnd] == '(') parenDepth++;
+                    else if (pStream[strEnd] == ')') parenDepth--;
                     strEnd++;
                 }
-                std::string litStr = s.substr(strStart, strEnd - strStart - 1);
-                size_t opPos = s.find_first_not_of(" \t\r\n", strEnd);
-                if (opPos != std::string::npos && opPos + 2 <= len && s.compare(opPos, 2, "Tj") == 0) {
-                    EmitString(litStr, false);
+
+                size_t opPos = strEnd;
+                while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
+                if (opPos + 2 <= len && pStream[opPos] == 'T' && pStream[opPos + 1] == 'j') {
+                    // Unescape literal bytes
+                    std::vector<uint8_t> rawBytes;
+                    for (size_t k = strStart; k + 1 < strEnd; ++k) {
+                        if (pStream[k] == '\\' && k + 1 < strEnd - 1) {
+                            k++;
+                            char ec = pStream[k];
+                            if (ec == 'n') rawBytes.push_back('\n');
+                            else if (ec == 'r') rawBytes.push_back('\r');
+                            else if (ec == 't') rawBytes.push_back('\t');
+                            else if (ec == 'b') rawBytes.push_back('\b');
+                            else if (ec == 'f') rawBytes.push_back('\f');
+                            else if (ec == '(' || ec == ')' || ec == '\\') rawBytes.push_back((uint8_t)ec);
+                            else if (ec >= '0' && ec <= '7') {
+                                int oct = ec - '0';
+                                if (k + 1 < strEnd - 1 && pStream[k + 1] >= '0' && pStream[k + 1] <= '7') {
+                                    oct = oct * 8 + (pStream[++k] - '0');
+                                    if (k + 1 < strEnd - 1 && pStream[k + 1] >= '0' && pStream[k + 1] <= '7') {
+                                        oct = oct * 8 + (pStream[++k] - '0');
+                                    }
+                                }
+                                rawBytes.push_back((uint8_t)oct);
+                            } else {
+                                rawBytes.push_back((uint8_t)ec);
+                            }
+                        } else {
+                            rawBytes.push_back((uint8_t)pStream[k]);
+                        }
+                    }
+                    EmitBytes(rawBytes, false);
                     i = opPos + 2;
                     continue;
                 }
-                i = strEnd;
-                continue;
             }
 
             // Hex string Tj: "<hex> Tj"
-            if (s[i] == '<' && i + 1 < len && s[i + 1] != '<') {
+            if (pStream[i] == '<' && i + 1 < len && pStream[i + 1] != '<') {
                 size_t hexStart = i + 1;
-                size_t hexEnd = s.find('>', hexStart);
-                if (hexEnd != std::string::npos) {
-                    std::string hexStr = s.substr(hexStart, hexEnd - hexStart);
-                    size_t opPos = s.find_first_not_of(" \t\r\n", hexEnd + 1);
-                    if (opPos != std::string::npos && opPos + 2 <= len && s.compare(opPos, 2, "Tj") == 0) {
-                        EmitString(hexStr, true);
+                size_t hexEnd = hexStart;
+                while (hexEnd < len && pStream[hexEnd] != '>') hexEnd++;
+                if (hexEnd < len) {
+                    size_t opPos = hexEnd + 1;
+                    while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
+                    if (opPos + 2 <= len && pStream[opPos] == 'T' && pStream[opPos + 1] == 'j') {
+                        std::vector<uint8_t> rawBytes;
+                        std::string hexStr;
+                        for (size_t h = hexStart; h < hexEnd; ++h) {
+                            if (!isspace((unsigned char)pStream[h])) hexStr.push_back(pStream[h]);
+                        }
+                        if (hexStr.size() % 2 != 0) hexStr.push_back('0');
+                        for (size_t h = 0; h + 1 < hexStr.size(); h += 2) {
+                            char hbuf[3] = { hexStr[h], hexStr[h + 1], 0 };
+                            rawBytes.push_back((uint8_t)strtoul(hbuf, nullptr, 16));
+                        }
+                        EmitBytes(rawBytes, true);
                         i = opPos + 2;
                         continue;
                     }
@@ -719,61 +1416,107 @@ void PdfParser::ParseContentStream(
             }
 
             // Array string TJ: "[ ... ] TJ"
-            if (s[i] == '[') {
+            if (pStream[i] == '[') {
                 size_t arrStart = i + 1;
-                size_t arrEnd = s.find(']', arrStart);
-                if (arrEnd != std::string::npos) {
-                    size_t opPos = s.find_first_not_of(" \t\r\n", arrEnd + 1);
-                    if (opPos != std::string::npos && opPos + 2 <= len && s.compare(opPos, 2, "TJ") == 0) {
-                        size_t k = arrStart;
-                        while (k < arrEnd) {
-                            while (k < arrEnd && (s[k] == ' ' || s[k] == '\t' || s[k] == '\r' || s[k] == '\n')) k++;
-                            if (k >= arrEnd) break;
-
-                            if (s[k] == '(') {
-                                size_t pStart = k + 1;
-                                size_t pEnd = pStart;
-                                int depth = 1;
-                                while (pEnd < arrEnd && depth > 0) {
-                                    if (s[pEnd] == '\\' && pEnd + 1 < arrEnd) {
-                                        pEnd += 2;
-                                        continue;
-                                    }
-                                    if (s[pEnd] == '(') depth++;
-                                    else if (s[pEnd] == ')') depth--;
-                                    pEnd++;
-                                }
-                                std::string itemStr = s.substr(pStart, pEnd - pStart - 1);
-                                EmitString(itemStr, false);
-                                k = pEnd;
-                            } else if (s[k] == '<' && k + 1 < arrEnd && s[k + 1] != '<') {
-                                size_t hStart = k + 1;
-                                size_t hEnd = s.find('>', hStart);
-                                if (hEnd != std::string::npos && hEnd <= arrEnd) {
-                                    std::string itemHex = s.substr(hStart, hEnd - hStart);
-                                    EmitString(itemHex, true);
-                                    k = hEnd + 1;
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                // Kerning offset float (e.g. -20, 15)
-                                size_t nextTok = s.find_first_of(" ([<\t\r\n", k);
-                                if (nextTok == std::string::npos || nextTok > arrEnd) nextTok = arrEnd;
-                                float kern = (float)atof(s.substr(k, nextTok - k).c_str());
-                                if (std::abs(kern) > 150.0f) {
-                                    // Space gap
-                                    if (!outPage.fullText.empty() && outPage.fullText.back() != L' ') {
-                                        outPage.fullText.push_back(L' ');
-                                        outPage.chars.push_back({ L' ', D2D1::RectF(curX, 0, curX + 4.0f, 0) });
-                                    }
-                                }
-                                k = nextTok;
-                            }
+                size_t arrEnd = arrStart;
+                int bDepth = 1;
+                while (arrEnd < len && bDepth > 0) {
+                    if (pStream[arrEnd] == '[') bDepth++;
+                    else if (pStream[arrEnd] == ']') bDepth--;
+                    else if (pStream[arrEnd] == '(') {
+                        arrEnd++;
+                        int pDepth = 1;
+                        while (arrEnd < len && pDepth > 0) {
+                            if (pStream[arrEnd] == '\\' && arrEnd + 1 < len) { arrEnd += 2; continue; }
+                            if (pStream[arrEnd] == '(') pDepth++;
+                            else if (pStream[arrEnd] == ')') pDepth--;
+                            arrEnd++;
                         }
-                        i = opPos + 2;
                         continue;
                     }
+                    arrEnd++;
+                }
+
+                size_t opPos = arrEnd;
+                while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
+                if (opPos + 2 <= len && pStream[opPos] == 'T' && pStream[opPos + 1] == 'J') {
+                    size_t k = arrStart;
+                    while (k < arrEnd - 1) {
+                        while (k < arrEnd - 1 && (pStream[k] == ' ' || pStream[k] == '\t' || pStream[k] == '\r' || pStream[k] == '\n')) k++;
+                        if (k >= arrEnd - 1) break;
+
+                        if (pStream[k] == '(') {
+                            size_t pStart = k + 1;
+                            size_t pEnd = pStart;
+                            int pDepth = 1;
+                            while (pEnd < arrEnd - 1 && pDepth > 0) {
+                                if (pStream[pEnd] == '\\' && pEnd + 1 < arrEnd - 1) { pEnd += 2; continue; }
+                                if (pStream[pEnd] == '(') pDepth++;
+                                else if (pStream[pEnd] == ')') pDepth--;
+                                pEnd++;
+                            }
+                            std::vector<uint8_t> rawBytes;
+                            for (size_t c = pStart; c + 1 < pEnd; ++c) {
+                                if (pStream[c] == '\\' && c + 1 < pEnd - 1) {
+                                    c++;
+                                    char ec = pStream[c];
+                                    if (ec == 'n') rawBytes.push_back('\n');
+                                    else if (ec == 'r') rawBytes.push_back('\r');
+                                    else if (ec == 't') rawBytes.push_back('\t');
+                                    else if (ec == 'b') rawBytes.push_back('\b');
+                                    else if (ec == 'f') rawBytes.push_back('\f');
+                                    else if (ec == '(' || ec == ')' || ec == '\\') rawBytes.push_back((uint8_t)ec);
+                                    else if (ec >= '0' && ec <= '7') {
+                                        int oct = ec - '0';
+                                        if (c + 1 < pEnd - 1 && pStream[c + 1] >= '0' && pStream[c + 1] <= '7') {
+                                            oct = oct * 8 + (pStream[++c] - '0');
+                                            if (c + 1 < pEnd - 1 && pStream[c + 1] >= '0' && pStream[c + 1] <= '7') {
+                                                oct = oct * 8 + (pStream[++c] - '0');
+                                            }
+                                        }
+                                        rawBytes.push_back((uint8_t)oct);
+                                    } else {
+                                        rawBytes.push_back((uint8_t)ec);
+                                    }
+                                } else {
+                                    rawBytes.push_back((uint8_t)pStream[c]);
+                                }
+                            }
+                            EmitBytes(rawBytes, false);
+                            k = pEnd;
+                        } else if (pStream[k] == '<' && k + 1 < arrEnd - 1 && pStream[k + 1] != '<') {
+                            size_t hStart = k + 1;
+                            size_t hEnd = hStart;
+                            while (hEnd < arrEnd - 1 && pStream[hEnd] != '>') hEnd++;
+                            std::vector<uint8_t> rawBytes;
+                            std::string hexStr;
+                            for (size_t h = hStart; h < hEnd; ++h) {
+                                if (!isspace((unsigned char)pStream[h])) hexStr.push_back(pStream[h]);
+                            }
+                            if (hexStr.size() % 2 != 0) hexStr.push_back('0');
+                            for (size_t h = 0; h + 1 < hexStr.size(); h += 2) {
+                                char hbuf[3] = { hexStr[h], hexStr[h + 1], 0 };
+                                rawBytes.push_back((uint8_t)strtoul(hbuf, nullptr, 16));
+                            }
+                            EmitBytes(rawBytes, true);
+                            k = hEnd + 1;
+                        } else {
+                            char* pEnd = nullptr;
+                            float kern = (float)strtod(pStream + k, &pEnd);
+                            if (pEnd && pEnd != pStream + k) {
+                                curX -= (kern / 1000.0f) * curFontSize * (curHScale / 100.0f);
+                                if (kern < -250.0f && !outPage.fullText.empty() && outPage.fullText.back() != L' ') {
+                                    outPage.fullText.push_back(L' ');
+                                    outPage.chars.push_back({ L' ', D2D1::RectF(curX, 0, curX, 0) });
+                                }
+                                k = pEnd - pStream;
+                            } else {
+                                k++;
+                            }
+                        }
+                    }
+                    i = opPos + 2;
+                    continue;
                 }
             }
         }
@@ -781,3 +1524,4 @@ void PdfParser::ParseContentStream(
         i++;
     }
 }
+

@@ -90,6 +90,7 @@ private:
     void TriggerSearch();
     void JumpToActiveMatch();
     void CloseSearch();
+    void ScheduleSearchDebounce();
 
     DocumentTab* GetActiveTab() {
         if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
@@ -134,6 +135,7 @@ private:
     std::wstring m_searchQuery;
     bool m_searchMatchCase = false;
     bool m_searchOcrEnabled = false;
+    bool m_searchDebouncePending = false;
     PdfSearchEngine m_searchEngine;
     int m_searchHoveredBtn = 0; // 0=body/none, 1=prev, 2=next, 3=case, 4=ocr, 5=close
     int m_lastJumpedMatch = -1;

@@ -53,6 +53,7 @@ struct SearchBarRenderInfo {
     uint32_t totalMatches = 0;
     bool matchCase = false;
     bool isSearching = false;
+    bool isDebouncing = false;
     bool hasScanned = false;
     bool ocrEnabled = false;
 
@@ -106,6 +107,7 @@ struct SearchBarLayout {
 struct SearchHighlight {
     uint32_t pageIndex = 0;
     D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // PDF page coordinates in DIPs
+    std::vector<D2D1_RECT_F> rects;        // Individual line rectangles
     bool isActive = false;
 };
 

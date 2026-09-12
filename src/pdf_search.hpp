@@ -18,7 +18,8 @@
 
 struct SearchMatch {
     uint32_t pageIndex = 0;
-    D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // Page coordinates in DIPs
+    D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // Page coordinates in DIPs (union bounding box)
+    std::vector<D2D1_RECT_F> rects;        // Line rectangles (supports multi-line matches)
     std::wstring matchedText;
 };
 
@@ -51,6 +52,7 @@ public:
 
     bool NextMatch();
     bool PrevMatch();
+    std::wstring GetCurrentQuery() const;
 
 private:
     void SearchWorker(

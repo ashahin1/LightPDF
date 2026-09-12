@@ -78,6 +78,11 @@ bool PdfSearchEngine::PrevMatch() {
     return true;
 }
 
+std::wstring PdfSearchEngine::GetCurrentQuery() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_currentQuery;
+}
+
 void PdfSearchEngine::StartSearch(
     HWND hwndNotify,
     const std::wstring& filePath,
@@ -209,22 +214,49 @@ void PdfSearchEngine::SearchWorker(
             while ((pos = hay.find(needle, pos)) != std::wstring::npos) {
                 if (m_cancelToken) break;
 
-                // Calculate bounding box for the match
-                float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+                // Group matching characters into line rectangles
+                std::vector<D2D1_RECT_F> lineRects;
+                D2D1_RECT_F curLine = { 1e9f, 1e9f, -1e9f, -1e9f };
+                float curLineTop = -9999.0f;
+                float overallMinX = 1e9f, overallMinY = 1e9f, overallMaxX = -1e9f, overallMaxY = -1e9f;
+
                 for (size_t c = pos; c < pos + needle.size() && c < pageText.chars.size(); ++c) {
                     const auto& r = pageText.chars[c].rect;
-                    if (r.right > r.left && r.bottom > r.top) {
-                        minX = std::min(minX, r.left);
-                        minY = std::min(minY, r.top);
-                        maxX = std::max(maxX, r.right);
-                        maxY = std::max(maxY, r.bottom);
+                    if (r.right <= r.left || r.bottom <= r.top) continue;
+
+                    overallMinX = std::min(overallMinX, r.left);
+                    overallMinY = std::min(overallMinY, r.top);
+                    overallMaxX = std::max(overallMaxX, r.right);
+                    overallMaxY = std::max(overallMaxY, r.bottom);
+
+                    if (curLineTop < -9000.0f) {
+                        curLineTop = r.top;
+                        curLine = r;
+                    } else if (std::abs(r.top - curLineTop) > 4.0f) {
+                        // Different line
+                        if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
+                            lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
+                        }
+                        curLineTop = r.top;
+                        curLine = r;
+                    } else {
+                        // Same line
+                        curLine.left = std::min(curLine.left, r.left);
+                        curLine.top = std::min(curLine.top, r.top);
+                        curLine.right = std::max(curLine.right, r.right);
+                        curLine.bottom = std::max(curLine.bottom, r.bottom);
                     }
                 }
 
-                if (maxX > minX && maxY > minY) {
+                if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
+                    lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
+                }
+
+                if (!lineRects.empty()) {
                     SearchMatch match;
                     match.pageIndex = p;
-                    match.pageRect = D2D1::RectF(minX, minY, maxX, maxY);
+                    match.pageRect = D2D1::RectF(overallMinX - 1.0f, overallMinY - 0.5f, overallMaxX + 1.0f, overallMaxY + 0.5f);
+                    match.rects = std::move(lineRects);
                     match.matchedText = pageText.fullText.substr(pos, needle.size());
                     pageMatches.push_back(std::move(match));
                 }

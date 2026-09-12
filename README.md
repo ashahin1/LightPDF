@@ -39,13 +39,14 @@ LightPDF.exe /register /silent
 | | |
 |---|---|
 | ⚡ **Instant Launch** | Cold starts in **159 ms** — faster than any mainstream PDF reader |
-| 🪶 **Tiny Footprint** | **270 KB** single `.exe`, **8.7 MB** private memory, **zero DLLs** |
+| 🪶 **Tiny Footprint** | **492 KB** single `.exe`, **8.7 MB** private memory, **zero DLLs** |
+| 🔍 **Ultra-Fast Search** | `Ctrl+F` text search with floating UI, live highlights, match counter, case matching, & OCR fallback |
 | 🎨 **Chromeless Design** | No toolbars, ribbons, side panels, or telemetry — just your document |
 | 🗂️ **Smart Tabs** | Auto-hiding tab bar: invisible with 1 doc, appears with 2+, vanishes again when closed down to 1 |
 | 🚀 **Single Instance** | Opening PDFs from Explorer forwards into new tabs of the existing window in **54 ms** |
 | 🖨️ **300 DPI Printing** | Native `PrintDlgExW` — All Pages, Current Page, or Custom Ranges — streamed page-by-page |
 | 🎮 **GPU Rendering** | Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard |
-| 🔍 **Smooth Zoom** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page / `Ctrl+1` 100% / `Ctrl+2` Fit Width |
+| 🔎 **Smooth Zoom** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page / `Ctrl+1` 100% / `Ctrl+2` Fit Width |
 | 🖥️ **HiDPI Native** | PerMonitorV2 DPI — crisp on 4K, 8K, and mixed multi-monitor setups |
 | 🔗 **Easy Association** | `LightPDF.exe /register` — adds to Windows "Open with" & Default Apps without admin |
 
@@ -90,6 +91,17 @@ Press **`F1`** in-app to display the translucent Direct2D shortcuts overlay.
 | Toggle fullscreen | `F11` |
 | Exit fullscreen / overlay | `Esc` |
 
+### Search
+
+| Action | Control |
+| :--- | :--- |
+| Find in document | `Ctrl+F` (opens floating search bar at top-right) |
+| Next match | `Enter`, `F3`, or click **`▼`** |
+| Previous match | `Shift+Enter`, `Shift+F3`, or click **`▲`** |
+| Toggle Case Sensitivity | Click **`Aa`** button in search bar |
+| Toggle OCR Fallback | Click **`OCR`** button (for scanned PDFs) |
+| Dismiss search | `Esc` or click **`✕`** |
+
 ### Tabs
 
 | Action | Control |
@@ -124,12 +136,14 @@ When LightPDF is the default viewer:
 ```
 LightPDF/
 ├── bin/
-│   └── LightPDF.exe          # 270 KB standalone release binary
+│   └── LightPDF.exe          # 492 KB standalone release binary (zero DLLs)
 ├── src/
 │   ├── main.cpp               # wWinMain, DPI init, single-instance mutex, /register CLI
-│   ├── app_window.hpp/.cpp    # Win32 window, multi-tab engine, input dispatch, printing
-│   ├── d2d_renderer.hpp/.cpp  # D3D11 + D2D1 renderer, tab bar, HUD, help overlay
-│   └── pdf_document.hpp/.cpp  # Windows.Data.Pdf wrapper, page cache
+│   ├── app_window.hpp/.cpp    # Win32 window, multi-tab engine, search input dispatch, printing
+│   ├── d2d_renderer.hpp/.cpp  # D3D11 + D2D1 renderer, search bar, highlights, tab bar, HUD
+│   ├── pdf_document.hpp/.cpp  # Windows.Data.Pdf wrapper, page cache
+│   ├── pdf_parser.hpp/.cpp    # Built-in deflate, PDF operator text parser, CMap decoder
+│   └── pdf_search.hpp/.cpp    # Background threaded search engine, WinRT OCR fallback
 ├── resources/
 │   ├── app.ico                # Multi-resolution icon (16×16 → 256×256)
 │   ├── app.rc                 # Resource script
