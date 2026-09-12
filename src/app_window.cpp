@@ -146,6 +146,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (targetAlpha == 0.0f) {
                 KillTimer(m_hwnd, 1);
             }
+        } else if (wParam == 2) {
+            // Search debounce timer: User paused typing, trigger search now
+            KillTimer(m_hwnd, 2);
+            m_searchDebouncePending = false;
+            TriggerSearch();
+            Render();
         }
         return 0;
     }
@@ -296,13 +302,17 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             int searchHit = HitTestSearchBar(pt);
             if (msg == WM_LBUTTONDOWN && searchHit > 0) {
                 if (searchHit == 1) { // Prev
-                    if (m_searchEngine.PrevMatch()) {
+                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                        TriggerSearch();
+                    } else if (m_searchEngine.PrevMatch()) {
                         m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
                         JumpToActiveMatch();
                         Render();
                     }
                 } else if (searchHit == 2) { // Next
-                    if (m_searchEngine.NextMatch()) {
+                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                        TriggerSearch();
+                    } else if (m_searchEngine.NextMatch()) {
                         m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
                         JumpToActiveMatch();
                         Render();
@@ -587,8 +597,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 }
                             }
                             GlobalUnlock(hData);
-                            TriggerSearch();
-                            Render();
+                            ScheduleSearchDebounce();
                         }
                     }
                     CloseClipboard();
@@ -776,6 +785,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         case VK_RETURN:
             if (m_showSearch) {
+                if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                    TriggerSearch();
+                    Render();
+                    return 0;
+                }
                 if (isShiftDown) {
                     if (m_searchEngine.PrevMatch()) {
                         m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
@@ -801,7 +815,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         TriggerSearch();
                     }
                 } else {
-                    if (isShiftDown) {
+                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                        TriggerSearch();
+                    } else if (isShiftDown) {
                         if (m_searchEngine.PrevMatch()) {
                             m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
                             JumpToActiveMatch();
@@ -859,14 +875,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam == VK_BACK) {
                 if (!m_searchQuery.empty()) {
                     m_searchQuery.pop_back();
-                    TriggerSearch();
-                    Render();
+                    ScheduleSearchDebounce();
                 }
                 return 0;
             } else if (wParam >= 32 && wParam != 127) {
                 m_searchQuery.push_back((wchar_t)wParam);
-                TriggerSearch();
-                Render();
+                ScheduleSearchDebounce();
                 return 0;
             } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
                 return 0;
@@ -1826,6 +1840,7 @@ SearchBarRenderInfo AppWindow::GetSearchBarInfo() const {
     info.matchCase = m_searchMatchCase;
     info.ocrEnabled = m_searchOcrEnabled;
     info.isSearching = m_searchEngine.IsSearching();
+    info.isDebouncing = m_searchDebouncePending;
     info.hasScanned = m_searchEngine.HasScannedPages();
     info.totalMatches = m_searchEngine.GetTotalMatches();
     int activeIdx = m_searchEngine.GetActiveMatchIndex();
@@ -1852,6 +1867,7 @@ std::vector<SearchHighlight> AppWindow::GetSearchHighlights() const {
         SearchHighlight hl;
         hl.pageIndex = matches[i].pageIndex;
         hl.pageRect = matches[i].pageRect;
+        hl.rects = matches[i].rects;
         hl.isActive = ((int)i == activeIdx);
         highlights.push_back(hl);
     }
@@ -1886,6 +1902,9 @@ int AppWindow::HitTestSearchBar(POINT pt) const {
 }
 
 void AppWindow::TriggerSearch() {
+    KillTimer(m_hwnd, 2);
+    m_searchDebouncePending = false;
+
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || m_searchQuery.empty()) {
         m_searchEngine.Cancel();
@@ -1954,9 +1973,29 @@ void AppWindow::JumpToActiveMatch() {
 }
 
 void AppWindow::CloseSearch() {
+    KillTimer(m_hwnd, 2);
+    m_searchDebouncePending = false;
     m_showSearch = false;
     m_searchHoveredBtn = 0;
     m_searchEngine.Cancel();
     m_searchEngine.Clear();
     m_lastJumpedMatch = -1;
+}
+
+void AppWindow::ScheduleSearchDebounce() {
+    KillTimer(m_hwnd, 2);
+    m_searchDebouncePending = true;
+    m_searchEngine.Cancel();
+    m_searchEngine.Clear();
+    m_lastJumpedMatch = -1;
+
+    if (m_searchQuery.empty()) {
+        m_searchDebouncePending = false;
+        Render();
+        return;
+    }
+
+    // Debounce timer: wait 350 ms after last keystroke before initiating search
+    SetTimer(m_hwnd, 2, 350, nullptr);
+    Render();
 }
