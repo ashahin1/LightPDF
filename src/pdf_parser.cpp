@@ -1483,6 +1483,70 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     return true;
 }
 
+// Helper to extract up to maxCount numeric operands immediately preceding an operator at opIndex.
+// Operands in PDF precede the operator (e.g. "1 0 0 1 72 720 cm" or "-23.036 40.751 Td").
+static std::vector<float> GetPrecedingNumericTokens(const char* pStream, size_t opIndex, size_t maxCount) {
+    std::vector<float> result;
+    size_t pos = opIndex;
+    std::vector<std::pair<size_t, size_t>> tokenRanges;
+
+    while (pos > 0 && tokenRanges.size() < maxCount) {
+        // 1. Skip trailing whitespace backwards
+        while (pos > 0 && (pStream[pos - 1] == ' ' || pStream[pos - 1] == '\t' || 
+                           pStream[pos - 1] == '\r' || pStream[pos - 1] == '\n')) {
+            pos--;
+        }
+        if (pos == 0) break;
+
+        // 2. Stop if delimiter belonging to previous syntactic construct is encountered
+        char prevCh = pStream[pos - 1];
+        if (prevCh == ']' || prevCh == '>' || prevCh == ')' || prevCh == '/') {
+            break;
+        }
+
+        // 3. Scan backward over token characters
+        size_t tokEnd = pos;
+        while (pos > 0 && pStream[pos - 1] != ' ' && pStream[pos - 1] != '\t' && 
+               pStream[pos - 1] != '\r' && pStream[pos - 1] != '\n' &&
+               pStream[pos - 1] != '/' && pStream[pos - 1] != '[' && pStream[pos - 1] != ']' &&
+               pStream[pos - 1] != '<' && pStream[pos - 1] != '>' && pStream[pos - 1] != '(' && pStream[pos - 1] != ')') {
+            pos--;
+        }
+        size_t tokStart = pos;
+
+        // 4. Validate that this token is numeric (sign, digits, decimal point, optional exponent)
+        bool isNumeric = (tokStart < tokEnd);
+        for (size_t k = tokStart; k < tokEnd; ++k) {
+            char c = pStream[k];
+            if (!((c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-' || c == 'e' || c == 'E')) {
+                isNumeric = false;
+                break;
+            }
+        }
+        if (!isNumeric) {
+            // Encountered another operator (e.g. BT, ET, q) -> stop scanning
+            break;
+        }
+
+        tokenRanges.push_back({ tokStart, tokEnd });
+    }
+
+    // Tokens were collected right-to-left; reverse to restore left-to-right operand order
+    std::reverse(tokenRanges.begin(), tokenRanges.end());
+    for (const auto& r : tokenRanges) {
+        char buf[64];
+        size_t tLen = r.second - r.first;
+        if (tLen < sizeof(buf)) {
+            memcpy(buf, pStream + r.first, tLen);
+            buf[tLen] = '\0';
+            char* endPtr = nullptr;
+            float val = (float)strtod(buf, &endPtr);
+            result.push_back(val);
+        }
+    }
+    return result;
+}
+
 void PdfParser::ParseContentStream(
     const std::vector<uint8_t>& streamBytes,
     float cropX0,
@@ -1663,13 +1727,7 @@ void PdfParser::ParseContentStream(
 
         // Matrix concatenation 'cm'
         if (i + 2 <= len && pStream[i] == 'c' && pStream[i + 1] == 'm' && (i + 2 >= len || pStream[i + 2] == ' ' || pStream[i + 2] == '\t' || pStream[i + 2] == '\r' || pStream[i + 2] == '\n')) {
-            size_t lineStart = i;
-            while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-            std::string mLine(pStream + lineStart, i - lineStart);
-            std::stringstream mss(mLine);
-            std::vector<float> vals;
-            float v = 0.0f;
-            while (mss >> v) vals.push_back(v);
+            auto vals = GetPrecedingNumericTokens(pStream, i, 6);
             if (vals.size() >= 6) {
                 Matrix2D m{
                     vals[vals.size() - 6],
@@ -1806,13 +1864,7 @@ void PdfParser::ParseContentStream(
 
             // Text matrix: "a b c d e f Tm"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'm') {
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                std::vector<float> vals;
-                float v = 0.0f;
-                while (mss >> v) vals.push_back(v);
+                auto vals = GetPrecedingNumericTokens(pStream, i, 6);
                 if (vals.size() >= 6) {
                     tm.a = vals[vals.size() - 6];
                     tm.b = vals[vals.size() - 5];
@@ -1831,13 +1883,7 @@ void PdfParser::ParseContentStream(
             // Translation operator: "tx ty Td" or "tx ty TD"
             if (i + 2 <= len && pStream[i] == 'T' && (pStream[i + 1] == 'd' || pStream[i + 1] == 'D')) {
                 bool isTD = (pStream[i + 1] == 'D');
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                std::vector<float> vals;
-                float v = 0.0f;
-                while (mss >> v) vals.push_back(v);
+                auto vals = GetPrecedingNumericTokens(pStream, i, 2);
                 if (vals.size() >= 2) {
                     float tx = vals[vals.size() - 2];
                     float ty = vals[vals.size() - 1];
@@ -1870,48 +1916,32 @@ void PdfParser::ParseContentStream(
 
             // Character spacing: "charSpace Tc"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'c') {
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                float val = 0.0f;
-                while (mss >> val) curCharSpace = val;
+                auto vals = GetPrecedingNumericTokens(pStream, i, 1);
+                if (!vals.empty()) curCharSpace = vals.back();
                 i += 2;
                 continue;
             }
 
             // Word spacing: "wordSpace Tw"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'w') {
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                float val = 0.0f;
-                while (mss >> val) curWordSpace = val;
+                auto vals = GetPrecedingNumericTokens(pStream, i, 1);
+                if (!vals.empty()) curWordSpace = vals.back();
                 i += 2;
                 continue;
             }
 
             // Horizontal scaling: "scale Tz"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'z') {
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                float val = 100.0f;
-                while (mss >> val) curHScale = val;
+                auto vals = GetPrecedingNumericTokens(pStream, i, 1);
+                if (!vals.empty()) curHScale = vals.back();
                 i += 2;
                 continue;
             }
 
             // Text leading: "leading TL"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'L') {
-                size_t lineStart = i;
-                while (lineStart > 0 && pStream[lineStart - 1] != '\n' && pStream[lineStart - 1] != '\r') lineStart--;
-                std::string mLine(pStream + lineStart, i - lineStart);
-                std::stringstream mss(mLine);
-                float val = 12.0f;
-                while (mss >> val) curLeading = val;
+                auto vals = GetPrecedingNumericTokens(pStream, i, 1);
+                if (!vals.empty()) curLeading = vals.back();
                 i += 2;
                 continue;
             }
