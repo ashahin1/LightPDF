@@ -195,6 +195,64 @@ namespace MiniZlib {
     }
 }
 
+bool PdfParser::DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData) {
+    outData.clear();
+    outData.reserve(inSize);
+
+    size_t i = 0;
+    uint32_t tuple = 0;
+    int count = 0;
+
+    while (i < inSize) {
+        uint8_t ch = inData[i++];
+        if (ch == '~') {
+            if (i < inSize && inData[i] == '>') {
+                break; // EOD ~>
+            }
+        }
+        // Whitespace is ignored in ASCII85
+        if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\0' || ch == '\f') {
+            continue;
+        }
+
+        if (ch == 'z' && count == 0) {
+            outData.push_back(0);
+            outData.push_back(0);
+            outData.push_back(0);
+            outData.push_back(0);
+            continue;
+        }
+
+        if (ch < '!' || ch > 'u') {
+            continue;
+        }
+
+        tuple = tuple * 85 + (ch - '!');
+        count++;
+
+        if (count == 5) {
+            outData.push_back((uint8_t)((tuple >> 24) & 0xFF));
+            outData.push_back((uint8_t)((tuple >> 16) & 0xFF));
+            outData.push_back((uint8_t)((tuple >> 8) & 0xFF));
+            outData.push_back((uint8_t)(tuple & 0xFF));
+            tuple = 0;
+            count = 0;
+        }
+    }
+
+    if (count > 1) {
+        // In PDF ASCII85: remaining 2..4 characters are padded with 'u' (value 84)
+        for (int p = count; p < 5; ++p) {
+            tuple = tuple * 85 + 84;
+        }
+        for (int p = 0; p < count - 1; ++p) {
+            outData.push_back((uint8_t)((tuple >> (24 - 8 * p)) & 0xFF));
+        }
+    }
+
+    return true;
+}
+
 bool PdfParser::InflateStream(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData) {
     return MiniZlib::Decompress(inData, inSize, outData);
 }
@@ -466,11 +524,21 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
     while (dEnd > dStart && (m_bufferStr[dEnd - 1] == '\r' || m_bufferStr[dEnd - 1] == '\n')) dEnd--;
 
     std::string header = m_bufferStr.substr(start, stStart - start);
-    bool isFlate = (header.find("FlateDecode") != std::string::npos);
+    bool hasA85 = (header.find("ASCII85Decode") != std::string::npos || header.find("/A85") != std::string::npos);
+    bool hasFlate = (header.find("FlateDecode") != std::string::npos || header.find("/Fl") != std::string::npos);
 
-    if (isFlate) {
+    std::vector<uint8_t> curData;
+    if (hasA85) {
+        if (!DecodeASCII85(m_buffer.data() + dStart, dEnd - dStart, curData)) {
+            return false;
+        }
+    } else {
+        curData.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
+    }
+
+    if (hasFlate) {
         std::vector<uint8_t> rawDecomp;
-        if (!InflateStream(m_buffer.data() + dStart, dEnd - dStart, rawDecomp)) {
+        if (!InflateStream(curData.data(), curData.size(), rawDecomp)) {
             return false;
         }
 
@@ -496,7 +564,7 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
         outData = std::move(rawDecomp);
         return true;
     } else {
-        outData.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
+        outData = std::move(curData);
         return true;
     }
 }
