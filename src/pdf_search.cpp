@@ -5,6 +5,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Graphics.Imaging.h>
+#include <winrt/Windows.Globalization.h>
 #include <winrt/Windows.Media.Ocr.h>
 
 PdfSearchEngine::PdfSearchEngine() = default;
@@ -268,7 +269,22 @@ void PdfSearchEngine::SearchWorker(
             // OCR fallback if enabled by user
             if (ocrEnabled && doc) {
                 try {
-                    auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+                    winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+                    if (isArabic) {
+                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+                        }
+                        if (!ocrEngine) {
+                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
+                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+                            }
+                        }
+                    }
+                    if (!ocrEngine) {
+                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+                    }
                     if (ocrEngine) {
                         auto page = doc.GetPage(p);
                         if (page) {

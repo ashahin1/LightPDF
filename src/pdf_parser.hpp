@@ -92,7 +92,8 @@ public:
     bool ExtractPageText(uint32_t pageIndex, PdfPageText& outPage);
 
 private:
-    // Flate / zlib decompressor & predictor decoding
+    // Stream decompressors & predictor decoding
+    static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
     static bool InflateStream(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
     static bool DecodePredictor(const std::vector<uint8_t>& inData, int predictor, int columns, int colors, int bpc, std::vector<uint8_t>& outData);
 
