@@ -1314,9 +1314,22 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
                     size_t wPos = descDef.find("/W");
                     if (wPos != std::string::npos) {
                         size_t wb1 = descDef.find('[', wPos);
-                        size_t wb2 = descDef.find(']', wb1);
-                        if (wb1 != std::string::npos && wb2 != std::string::npos) {
-                            cidWStr = descDef.substr(wb1, wb2 - wb1 + 1);
+                        if (wb1 != std::string::npos) {
+                            int depth = 0;
+                            size_t wb2 = std::string::npos;
+                            for (size_t idx = wb1; idx < descDef.size(); ++idx) {
+                                if (descDef[idx] == '[') depth++;
+                                else if (descDef[idx] == ']') {
+                                    depth--;
+                                    if (depth == 0) {
+                                        wb2 = idx;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (wb2 != std::string::npos) {
+                                cidWStr = descDef.substr(wb1, wb2 - wb1 + 1);
+                            }
                         }
                     }
                 }
