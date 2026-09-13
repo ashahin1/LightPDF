@@ -23,6 +23,10 @@ struct SearchMatch {
     std::wstring matchedText;
 };
 
+// Arabic script detection and orthographic normalization helpers
+bool ContainsArabic(const std::wstring& str);
+std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap = nullptr);
+
 class PdfSearchEngine {
 public:
     PdfSearchEngine();

@@ -37,9 +37,10 @@ struct PdfFontInfo {
     std::vector<float> widths;
     float defaultWidth = 500.0f;
     std::map<uint32_t, float> cidWidths;
-    std::map<uint32_t, wchar_t> toUnicode;
+    std::map<uint32_t, std::wstring> toUnicode;
 
     float GetCharWidth(uint32_t charCode) const;
+    std::wstring DecodeString(uint32_t charCode) const;
     wchar_t DecodeChar(uint32_t charCode) const;
 };
 
@@ -95,7 +96,7 @@ private:
     std::string ResolveDict(const std::string& parentDict, const std::string& key) const;
 
     // Font and XObject parsing
-    std::map<uint32_t, wchar_t> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData);
+    std::map<uint32_t, std::wstring> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData);
     std::map<std::string, PdfFontInfo> ExtractPageFonts(const std::string& pageDict);
     std::map<std::string, uint32_t> ExtractPageXObjects(const std::string& pageDict);
 

@@ -1121,14 +1121,55 @@ void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
             m_brushTabTextInactive.Get()
         );
     } else {
-        std::wstring queryWithCursor = searchBar.query + L"|";
-        m_d2dContext->DrawText(
-            queryWithCursor.c_str(),
-            (UINT32)queryWithCursor.length(),
-            m_textFormatSearchInput.Get(),
-            inputRect,
-            m_brushHudText.Get()
-        );
+        bool hasArabic = false;
+        for (wchar_t ch : searchBar.query) {
+            if ((ch >= 0x0600 && ch <= 0x06FF) || (ch >= 0xFB50 && ch <= 0xFEFF)) {
+                hasArabic = true;
+                break;
+            }
+        }
+
+        if (hasArabic && m_dwriteFactory) {
+            m_d2dContext->DrawText(
+                searchBar.query.c_str(),
+                (UINT32)searchBar.query.length(),
+                m_textFormatSearchInput.Get(),
+                inputRect,
+                m_brushHudText.Get()
+            );
+
+            Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+            if (SUCCEEDED(m_dwriteFactory->CreateTextLayout(
+                searchBar.query.c_str(),
+                (UINT32)searchBar.query.length(),
+                m_textFormatSearchInput.Get(),
+                inputRect.right - inputRect.left,
+                inputRect.bottom - inputRect.top,
+                &layout))) {
+                DWRITE_HIT_TEST_METRICS htm = {};
+                FLOAT caretX = 0, caretY = 0;
+                if (SUCCEEDED(layout->HitTestTextPosition((UINT32)searchBar.query.length(), FALSE, &caretX, &caretY, &htm))) {
+                    float cx = inputRect.left + caretX;
+                    if (cx >= inputRect.left && cx <= inputRect.right) {
+                        m_d2dContext->DrawLine(
+                            D2D1::Point2F(cx, inputRect.top + 3.0f),
+                            D2D1::Point2F(cx, inputRect.bottom - 3.0f),
+                            m_brushHudText.Get(),
+                            1.5f
+                        );
+                    }
+                }
+            }
+        } else {
+            std::wstring queryWithCursor = searchBar.query + L"|";
+            m_d2dContext->DrawText(
+                queryWithCursor.c_str(),
+                (UINT32)queryWithCursor.length(),
+                m_textFormatSearchInput.Get(),
+                inputRect,
+                m_brushHudText.Get()
+            );
+        }
     }
 
     // 2. Match Count Badge

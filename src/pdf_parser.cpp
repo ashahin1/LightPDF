@@ -269,11 +269,21 @@ float PdfFontInfo::GetCharWidth(uint32_t charCode) const {
     return defaultWidth;
 }
 
-wchar_t PdfFontInfo::DecodeChar(uint32_t charCode) const {
+std::wstring PdfFontInfo::DecodeString(uint32_t charCode) const {
     if (!toUnicode.empty()) {
         auto it = toUnicode.find(charCode);
         if (it != toUnicode.end()) {
             return it->second;
+        }
+    }
+    return std::wstring(1, (wchar_t)charCode);
+}
+
+wchar_t PdfFontInfo::DecodeChar(uint32_t charCode) const {
+    if (!toUnicode.empty()) {
+        auto it = toUnicode.find(charCode);
+        if (it != toUnicode.end() && !it->second.empty()) {
+            return it->second[0];
         }
     }
     return (wchar_t)charCode;
@@ -492,11 +502,24 @@ void PdfParser::Close() {
     m_objectOffsets.clear();
 }
 
-std::map<uint32_t, wchar_t> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) {
-    std::map<uint32_t, wchar_t> cmap;
+std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) {
+    std::map<uint32_t, std::wstring> cmap;
     if (streamData.empty()) return cmap;
 
     std::string s((const char*)streamData.data(), streamData.size());
+
+    auto parseHexToWString = [](const std::string& hex) -> std::wstring {
+        std::wstring res;
+        for (size_t i = 0; i + 3 < hex.size(); i += 4) {
+            uint32_t val = (uint32_t)strtoul(hex.substr(i, 4).c_str(), nullptr, 16);
+            res.push_back((wchar_t)val);
+        }
+        if (res.empty() && !hex.empty()) {
+            uint32_t val = (uint32_t)strtoul(hex.c_str(), nullptr, 16);
+            res.push_back((wchar_t)val);
+        }
+        return res;
+    };
 
     // 1. Parse beginbfchar ... endbfchar
     size_t pos = 0;
@@ -517,8 +540,8 @@ std::map<uint32_t, wchar_t> PdfParser::ParseToUnicodeCMap(const std::vector<uint
             if (v2 == std::string::npos || v2 >= endPos) break;
 
             uint32_t srcCode = (uint32_t)strtoul(s.substr(k1 + 1, k2 - k1 - 1).c_str(), nullptr, 16);
-            uint32_t dstCode = (uint32_t)strtoul(s.substr(v1 + 1, v2 - v1 - 1).c_str(), nullptr, 16);
-            cmap[srcCode] = (wchar_t)dstCode;
+            std::string hexDst = s.substr(v1 + 1, v2 - v1 - 1);
+            cmap[srcCode] = parseHexToWString(hexDst);
 
             cur = v2 + 1;
         }
@@ -551,9 +574,10 @@ std::map<uint32_t, wchar_t> PdfParser::ParseToUnicodeCMap(const std::vector<uint
                 if (s[afterK4] == '<') {
                     size_t v2 = s.find('>', afterK4);
                     if (v2 != std::string::npos && v2 < endPos) {
-                        uint32_t dstCode = (uint32_t)strtoul(s.substr(afterK4 + 1, v2 - afterK4 - 1).c_str(), nullptr, 16);
+                        std::string hexDst = s.substr(afterK4 + 1, v2 - afterK4 - 1);
+                        uint32_t dstCode = (uint32_t)strtoul(hexDst.c_str(), nullptr, 16);
                         for (uint32_t code = startCode; code <= endCode && code <= startCode + 10000; ++code) {
-                            cmap[code] = (wchar_t)(dstCode + (code - startCode));
+                            cmap[code] = std::wstring(1, (wchar_t)(dstCode + (code - startCode)));
                         }
                         cur = v2 + 1;
                         continue;
@@ -568,8 +592,8 @@ std::map<uint32_t, wchar_t> PdfParser::ParseToUnicodeCMap(const std::vector<uint
                             if (h1 == std::string::npos || h1 >= bEnd) break;
                             size_t h2 = s.find('>', h1);
                             if (h2 == std::string::npos || h2 >= bEnd) break;
-                            uint32_t dstCode = (uint32_t)strtoul(s.substr(h1 + 1, h2 - h1 - 1).c_str(), nullptr, 16);
-                            cmap[code++] = (wchar_t)dstCode;
+                            std::string hexDst = s.substr(h1 + 1, h2 - h1 - 1);
+                            cmap[code++] = parseHexToWString(hexDst);
                             bCur = h2 + 1;
                         }
                         cur = bEnd + 1;
@@ -1081,7 +1105,15 @@ void PdfParser::ParseContentStream(
                 charCode = rawBytes[bIdx++];
             }
 
-            wchar_t wch = pFont ? pFont->DecodeChar(charCode) : ((charCode >= 32 && charCode <= 126) ? (wchar_t)charCode : L'?');
+            std::wstring decodedStr;
+            if (pFont) {
+                decodedStr = pFont->DecodeString(charCode);
+            } else if (charCode >= 32 && charCode <= 126) {
+                decodedStr = std::wstring(1, (wchar_t)charCode);
+            } else {
+                decodedStr = L"?";
+            }
+
             float charWidthUnits = pFont ? pFont->GetCharWidth(charCode) : 500.0f;
             if (charWidthUnits <= 0.0f) charWidthUnits = 500.0f;
 
@@ -1141,7 +1173,7 @@ void PdfParser::ParseContentStream(
             }
 
             float charAdv = (charWidthUnits / 1000.0f) * curFontSize * (curHScale / 100.0f) + curCharSpace;
-            if (wch == L' ') {
+            if (!decodedStr.empty() && decodedStr[0] == L' ') {
                 charAdv += curWordSpace;
             }
 
@@ -1151,12 +1183,15 @@ void PdfParser::ParseContentStream(
                 continue;
             }
 
-            PdfTextChar tc;
-            tc.ch = wch;
-            tc.rect = charRect;
+            for (size_t dIdx = 0; dIdx < decodedStr.size(); ++dIdx) {
+                wchar_t wch = decodedStr[dIdx];
+                PdfTextChar tc;
+                tc.ch = wch;
+                tc.rect = charRect;
 
-            outPage.fullText.push_back(wch);
-            outPage.chars.push_back(tc);
+                outPage.fullText.push_back(wch);
+                outPage.chars.push_back(tc);
+            }
 
             curX += charAdv;
         }
