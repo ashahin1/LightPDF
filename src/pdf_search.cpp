@@ -232,7 +232,7 @@ void PdfSearchEngine::SearchWorker(
                     if (curLineTop < -9000.0f) {
                         curLineTop = r.top;
                         curLine = r;
-                    } else if (std::abs(r.top - curLineTop) > 4.0f) {
+                    } else if (std::abs(r.top - curLineTop) > 6.0f) {
                         // Different line
                         if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
                             lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
