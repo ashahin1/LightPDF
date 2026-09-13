@@ -901,25 +901,77 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
         pageDict = m_bufferStr.substr(pageOffset, endObj - pageOffset);
     }
 
-    // 1. Extract MediaBox dimensions
-    float mediaW = 595.28f;
-    float mediaH = 841.89f;
-    size_t mbPos = pageDict.find("/MediaBox");
-    if (mbPos != std::string::npos) {
-        size_t b1 = pageDict.find('[', mbPos);
-        size_t b2 = pageDict.find(']', b1);
-        if (b1 != std::string::npos && b2 != std::string::npos) {
-            std::string mbStr = pageDict.substr(b1 + 1, b2 - b1 - 1);
-            std::stringstream ss(mbStr);
-            float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-            if (ss >> x0 >> y0 >> x1 >> y1) {
-                mediaW = std::abs(x1 - x0);
-                mediaH = std::abs(y1 - y0);
+    // 1. Extract CropBox or MediaBox dimensions and origin
+    float x0 = 0.0f, y0 = 0.0f, x1 = 595.28f, y1 = 841.89f;
+
+    auto parseBox = [](const std::string& dict, const std::string& key, float& rx0, float& ry0, float& rx1, float& ry1) -> bool {
+        size_t pos = dict.find(key);
+        if (pos != std::string::npos) {
+            size_t b1 = dict.find('[', pos);
+            size_t b2 = dict.find(']', b1);
+            if (b1 != std::string::npos && b2 != std::string::npos) {
+                std::string mbStr = dict.substr(b1 + 1, b2 - b1 - 1);
+                std::stringstream ss(mbStr);
+                float a = 0, b = 0, c = 0, d = 0;
+                if (ss >> a >> b >> c >> d) {
+                    rx0 = std::min(a, c);
+                    ry0 = std::min(b, d);
+                    rx1 = std::max(a, c);
+                    ry1 = std::max(b, d);
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    if (!parseBox(pageDict, "/CropBox", x0, y0, x1, y1)) {
+        if (!parseBox(pageDict, "/MediaBox", x0, y0, x1, y1)) {
+            uint32_t parentId = 0;
+            if (FindIndirectRef(pageDict, "/Parent", parentId)) {
+                std::string parentDict = GetObjectString(parentId);
+                if (!parseBox(parentDict, "/CropBox", x0, y0, x1, y1)) {
+                    parseBox(parentDict, "/MediaBox", x0, y0, x1, y1);
+                }
             }
         }
     }
-    outPage.pageWidth = mediaW;
-    outPage.pageHeight = mediaH;
+
+    float cropW = std::max(1.0f, x1 - x0);
+    float cropH = std::max(1.0f, y1 - y0);
+
+    // Check Rotate attribute
+    int rotate = 0;
+    auto parseRotate = [](const std::string& dict, int& rotOut) -> bool {
+        size_t pos = dict.find("/Rotate");
+        if (pos != std::string::npos) {
+            size_t valPos = pos + 7;
+            while (valPos < dict.size() && (dict[valPos] == ' ' || dict[valPos] == '\t' || dict[valPos] == '\r' || dict[valPos] == '\n')) valPos++;
+            if (valPos < dict.size()) {
+                rotOut = (int)strtol(dict.c_str() + valPos, nullptr, 10);
+                rotOut = ((rotOut % 360) + 360) % 360;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!parseRotate(pageDict, rotate)) {
+        uint32_t parentId = 0;
+        if (FindIndirectRef(pageDict, "/Parent", parentId)) {
+            std::string parentDict = GetObjectString(parentId);
+            parseRotate(parentDict, rotate);
+        }
+    }
+
+    outPage.rotation = rotate;
+    float dispW = cropW * PDF_POINT_TO_DIP;
+    float dispH = cropH * PDF_POINT_TO_DIP;
+    if (rotate == 90 || rotate == 270) {
+        std::swap(dispW, dispH);
+    }
+    outPage.pageWidth = dispW;
+    outPage.pageHeight = dispH;
 
     // 2. Discover Font Resources & Metrics
     auto fonts = ExtractPageFonts(pageDict);
@@ -956,7 +1008,7 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     for (uint32_t cId : contentObjs) {
         std::vector<uint8_t> streamBytes;
         if (GetObjectStreamData(cId, streamBytes) && !streamBytes.empty()) {
-            ParseContentStream(streamBytes, mediaH, fonts, outPage, xobjects);
+            ParseContentStream(streamBytes, x0, y0, cropW, cropH, rotate, fonts, outPage, xobjects);
         }
     }
 
@@ -966,7 +1018,11 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
 
 void PdfParser::ParseContentStream(
     const std::vector<uint8_t>& streamBytes,
-    float pageHeight,
+    float cropX0,
+    float cropY0,
+    float cropW,
+    float cropH,
+    int rotate,
     const std::map<std::string, PdfFontInfo>& fonts,
     PdfPageText& outPage,
     const std::map<std::string, uint32_t>& xobjects,
@@ -1035,9 +1091,54 @@ void PdfParser::ParseContentStream(
             float userX = 0.0f, userY = 0.0f;
             ctm.Transform(curX, curY, userX, userY);
 
-            float baselineY = pageHeight - userY;
-            float top = baselineY - glyphH * 0.88f;
-            float bottom = baselineY + glyphH * 0.22f;
+            // 1. Position relative to CropBox / MediaBox origin (in points)
+            float relX = userX - cropX0;
+            float relY = userY - cropY0;
+            float yDownwards = cropH - relY;
+
+            // 2. Convert from PDF points (72 DPI) to Direct2D DIPs (96 DPI)
+            float dipX = relX * PDF_POINT_TO_DIP;
+            float baselineY = yDownwards * PDF_POINT_TO_DIP;
+            float dipW = glyphW * PDF_POINT_TO_DIP;
+            float dipH = glyphH * PDF_POINT_TO_DIP;
+
+            float top = baselineY - dipH * 0.88f;
+            float bottom = baselineY + dipH * 0.22f;
+            float left = dipX;
+            float right = dipX + dipW;
+
+            // 3. Handle Page Rotation if page is rotated
+            D2D1_RECT_F charRect;
+            float unrotW = cropW * PDF_POINT_TO_DIP;
+            float unrotH = cropH * PDF_POINT_TO_DIP;
+
+            if (rotate == 90) {
+                // Clockwise 90 degrees
+                charRect = D2D1::RectF(
+                    unrotH - bottom,
+                    left,
+                    unrotH - top,
+                    right
+                );
+            } else if (rotate == 180) {
+                // 180 degrees
+                charRect = D2D1::RectF(
+                    unrotW - right,
+                    unrotH - bottom,
+                    unrotW - left,
+                    unrotH - top
+                );
+            } else if (rotate == 270) {
+                // Clockwise 270 degrees
+                charRect = D2D1::RectF(
+                    top,
+                    unrotW - right,
+                    bottom,
+                    unrotW - left
+                );
+            } else {
+                charRect = D2D1::RectF(left, top, right, bottom);
+            }
 
             float charAdv = (charWidthUnits / 1000.0f) * curFontSize * (curHScale / 100.0f) + curCharSpace;
             if (wch == L' ') {
@@ -1052,7 +1153,7 @@ void PdfParser::ParseContentStream(
 
             PdfTextChar tc;
             tc.ch = wch;
-            tc.rect = D2D1::RectF(userX, top, userX + glyphW, bottom);
+            tc.rect = charRect;
 
             outPage.fullText.push_back(wch);
             outPage.chars.push_back(tc);
@@ -1193,7 +1294,7 @@ void PdfParser::ParseContentStream(
 
                         std::vector<uint8_t> formStream;
                         if (GetObjectStreamData(xObjId, formStream) && !formStream.empty()) {
-                            ParseContentStream(formStream, pageHeight, formFonts, outPage, childXObjects, formCtm, recursionDepth + 1, formBBox);
+                            ParseContentStream(formStream, cropX0, cropY0, cropW, cropH, rotate, formFonts, outPage, childXObjects, formCtm, recursionDepth + 1, formBBox);
                         }
                     }
                 }

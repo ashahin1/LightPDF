@@ -11,6 +11,8 @@
 #include <map>
 #include <cstdint>
 
+constexpr float PDF_POINT_TO_DIP = 96.0f / 72.0f;
+
 struct PdfTextChar {
     wchar_t ch = 0;
     D2D1_RECT_F rect = { 0, 0, 0, 0 }; // Page coordinate space in DIPs (origin top-left)
@@ -18,8 +20,9 @@ struct PdfTextChar {
 
 struct PdfPageText {
     uint32_t pageIndex = 0;
-    float pageWidth = 0.0f;
-    float pageHeight = 0.0f;
+    float pageWidth = 0.0f;  // Display width in DIPs (accounting for rotation)
+    float pageHeight = 0.0f; // Display height in DIPs (accounting for rotation)
+    int rotation = 0;        // Clockwise rotation degrees (0, 90, 180, 270)
     std::wstring fullText;
     std::vector<PdfTextChar> chars;
     bool hasDigitalText = false;
@@ -99,7 +102,11 @@ private:
     // Parse stream content text operators (BT...ET, Tj, TJ, Tm, Td, cm, Do, etc.)
     void ParseContentStream(
         const std::vector<uint8_t>& streamBytes,
-        float pageHeight,
+        float cropX0,
+        float cropY0,
+        float cropW,
+        float cropH,
+        int rotate,
         const std::map<std::string, PdfFontInfo>& fonts,
         PdfPageText& outPage,
         const std::map<std::string, uint32_t>& xobjects = {},
