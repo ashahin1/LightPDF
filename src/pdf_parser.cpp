@@ -1200,77 +1200,98 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
 
         // If Type0, parse /DescendantFonts
         if (fontInfo.subtype == "Type0" || fontDef.find("/DescendantFonts") != std::string::npos) {
-            size_t dfPos = fontDef.find("/DescendantFonts");
-            if (dfPos != std::string::npos) {
-                size_t b1 = fontDef.find('[', dfPos);
-                size_t b2 = fontDef.find(']', b1);
+            uint32_t descArrayObj = 0;
+            std::string descArrayStr;
+            if (FindIndirectRef(fontDef, "/DescendantFonts", descArrayObj)) {
+                descArrayStr = GetObjectString(descArrayObj);
+            } else {
+                size_t dfPos = fontDef.find("/DescendantFonts");
+                if (dfPos != std::string::npos) {
+                    size_t b1 = fontDef.find('[', dfPos);
+                    size_t b2 = fontDef.find(']', b1);
+                    if (b1 != std::string::npos && b2 != std::string::npos) {
+                        descArrayStr = fontDef.substr(b1, b2 - b1 + 1);
+                    }
+                }
+            }
+
+            uint32_t descObj = 0;
+            std::string descDef;
+            if (!descArrayStr.empty()) {
+                size_t b1 = descArrayStr.find('[');
+                size_t b2 = descArrayStr.find(']', b1);
                 if (b1 != std::string::npos && b2 != std::string::npos) {
-                    uint32_t descObj = 0;
-                    std::string descStr = fontDef.substr(b1 + 1, b2 - b1 - 1);
-                    std::stringstream dss(descStr);
+                    std::string descInner = descArrayStr.substr(b1 + 1, b2 - b1 - 1);
+                    std::stringstream dss(descInner);
                     if (dss >> descObj) {
-                        std::string descDef = GetObjectString(descObj);
-                        size_t dwPos = descDef.find("/DW");
-                        if (dwPos != std::string::npos) {
-                            fontInfo.defaultWidth = (float)strtod(descDef.c_str() + dwPos + 3, nullptr);
-                            if (fontInfo.defaultWidth <= 0.0f) fontInfo.defaultWidth = 1000.0f;
+                        descDef = GetObjectString(descObj);
+                    }
+                } else if (descArrayStr.find("/CIDFont") != std::string::npos || descArrayStr.find("/DW") != std::string::npos || descArrayStr.find("/W") != std::string::npos) {
+                    descDef = descArrayStr;
+                }
+            }
+
+            if (!descDef.empty()) {
+                fontInfo.defaultWidth = 1000.0f;
+                size_t dwPos = descDef.find("/DW");
+                if (dwPos != std::string::npos) {
+                    fontInfo.defaultWidth = (float)strtod(descDef.c_str() + dwPos + 3, nullptr);
+                    if (fontInfo.defaultWidth <= 0.0f) fontInfo.defaultWidth = 1000.0f;
+                }
+                uint32_t cidWObj = 0;
+                std::string cidWStr;
+                if (FindIndirectRef(descDef, "/W", cidWObj)) {
+                    cidWStr = GetObjectString(cidWObj);
+                } else {
+                    size_t wPos = descDef.find("/W");
+                    if (wPos != std::string::npos) {
+                        size_t wb1 = descDef.find('[', wPos);
+                        size_t wb2 = descDef.find(']', wb1);
+                        if (wb1 != std::string::npos && wb2 != std::string::npos) {
+                            cidWStr = descDef.substr(wb1, wb2 - wb1 + 1);
                         }
-                        uint32_t cidWObj = 0;
-                        std::string cidWStr;
-                        if (FindIndirectRef(descDef, "/W", cidWObj)) {
-                            cidWStr = GetObjectString(cidWObj);
-                        } else {
-                            size_t wPos = descDef.find("/W");
-                            if (wPos != std::string::npos) {
-                                size_t wb1 = descDef.find('[', wPos);
-                                size_t wb2 = descDef.find(']', wb1);
-                                if (wb1 != std::string::npos && wb2 != std::string::npos) {
-                                    cidWStr = descDef.substr(wb1, wb2 - wb1 + 1);
-                                }
-                            }
-                        }
-                        if (!cidWStr.empty()) {
-                            size_t k = cidWStr.find('[');
-                            size_t kEnd = cidWStr.rfind(']');
-                            if (k != std::string::npos && kEnd != std::string::npos) {
+                    }
+                }
+                if (!cidWStr.empty()) {
+                    size_t k = cidWStr.find('[');
+                    size_t kEnd = cidWStr.rfind(']');
+                    if (k != std::string::npos && kEnd != std::string::npos) {
+                        k++;
+                        while (k < kEnd) {
+                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                            if (k >= kEnd) break;
+                            if (cidWStr[k] == '[' || cidWStr[k] == ']') { k++; continue; }
+
+                            char* pEnd = nullptr;
+                            long c1 = strtol(cidWStr.c_str() + k, &pEnd, 10);
+                            if (pEnd == cidWStr.c_str() + k) { k++; continue; }
+                            k = pEnd - cidWStr.c_str();
+
+                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
+                            if (k >= kEnd) break;
+
+                            if (cidWStr[k] == '[') {
                                 k++;
-                                while (k < kEnd) {
+                                uint32_t curCid = (uint32_t)c1;
+                                while (k < kEnd && cidWStr[k] != ']') {
                                     while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
-                                    if (k >= kEnd) break;
-                                    if (cidWStr[k] == '[' || cidWStr[k] == ']') { k++; continue; }
-
-                                    char* pEnd = nullptr;
-                                    long c1 = strtol(cidWStr.c_str() + k, &pEnd, 10);
-                                    if (pEnd == cidWStr.c_str() + k) { k++; continue; }
+                                    if (k >= kEnd || cidWStr[k] == ']') break;
+                                    float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
+                                    if (pEnd == cidWStr.c_str() + k) { k++; break; }
+                                    fontInfo.cidWidths[curCid++] = w;
                                     k = pEnd - cidWStr.c_str();
-
+                                }
+                                if (k < kEnd && cidWStr[k] == ']') k++;
+                            } else {
+                                long c2 = strtol(cidWStr.c_str() + k, &pEnd, 10);
+                                if (pEnd != cidWStr.c_str() + k) {
+                                    k = pEnd - cidWStr.c_str();
                                     while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
-                                    if (k >= kEnd) break;
-
-                                    if (cidWStr[k] == '[') {
-                                        k++;
-                                        uint32_t curCid = (uint32_t)c1;
-                                        while (k < kEnd && cidWStr[k] != ']') {
-                                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
-                                            if (k >= kEnd || cidWStr[k] == ']') break;
-                                            float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
-                                            if (pEnd == cidWStr.c_str() + k) { k++; break; }
-                                            fontInfo.cidWidths[curCid++] = w;
-                                            k = pEnd - cidWStr.c_str();
-                                        }
-                                        if (k < kEnd && cidWStr[k] == ']') k++;
-                                    } else {
-                                        long c2 = strtol(cidWStr.c_str() + k, &pEnd, 10);
-                                        if (pEnd != cidWStr.c_str() + k) {
-                                            k = pEnd - cidWStr.c_str();
-                                            while (k < kEnd && (cidWStr[k] == ' ' || cidWStr[k] == '\t' || cidWStr[k] == '\r' || cidWStr[k] == '\n')) k++;
-                                            float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
-                                            if (pEnd != cidWStr.c_str() + k) {
-                                                k = pEnd - cidWStr.c_str();
-                                                for (uint32_t c = (uint32_t)c1; c <= (uint32_t)c2 && c <= (uint32_t)c1 + 10000; ++c) {
-                                                    fontInfo.cidWidths[c] = w;
-                                                }
-                                            }
+                                    float w = (float)strtod(cidWStr.c_str() + k, &pEnd);
+                                    if (pEnd != cidWStr.c_str() + k) {
+                                        k = pEnd - cidWStr.c_str();
+                                        for (uint32_t c = (uint32_t)c1; c <= (uint32_t)c2 && c <= (uint32_t)c1 + 10000; ++c) {
+                                            fontInfo.cidWidths[c] = w;
                                         }
                                     }
                                 }
