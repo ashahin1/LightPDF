@@ -199,6 +199,72 @@ bool PdfParser::InflateStream(const uint8_t* inData, size_t inSize, std::vector<
     return MiniZlib::Decompress(inData, inSize, outData);
 }
 
+static uint8_t PaethPredictor(int a, int b, int c) {
+    int p = a + b - c;
+    int pa = std::abs(p - a);
+    int pb = std::abs(p - b);
+    int pc = std::abs(p - c);
+    if (pa <= pb && pa <= pc) return (uint8_t)a;
+    if (pb <= pc) return (uint8_t)b;
+    return (uint8_t)c;
+}
+
+bool PdfParser::DecodePredictor(const std::vector<uint8_t>& inData, int predictor, int columns, int colors, int bpc, std::vector<uint8_t>& outData) {
+    if (predictor < 10) {
+        outData = inData;
+        return true;
+    }
+
+    size_t bpp = ((size_t)colors * bpc + 7) / 8;
+    if (bpp == 0) bpp = 1;
+    size_t rowBytes = ((size_t)columns * colors * bpc + 7) / 8;
+    if (rowBytes == 0) return false;
+    size_t stride = 1 + rowBytes;
+
+    size_t numRows = inData.size() / stride;
+    if (numRows == 0) return false;
+
+    outData.clear();
+    outData.resize(numRows * rowBytes);
+
+    for (size_t r = 0; r < numRows; ++r) {
+        size_t srcRow = r * stride;
+        uint8_t filter = inData[srcRow];
+        size_t dstRow = r * rowBytes;
+
+        for (size_t c = 0; c < rowBytes; ++c) {
+            uint8_t raw = inData[srcRow + 1 + c];
+            uint8_t left = (c >= bpp) ? outData[dstRow + c - bpp] : 0;
+            uint8_t up = (r > 0) ? outData[(r - 1) * rowBytes + c] : 0;
+            uint8_t upLeft = (r > 0 && c >= bpp) ? outData[(r - 1) * rowBytes + c - bpp] : 0;
+
+            uint8_t val = 0;
+            switch (filter) {
+            case 0: // None
+                val = raw;
+                break;
+            case 1: // Sub
+                val = (uint8_t)(raw + left);
+                break;
+            case 2: // Up
+                val = (uint8_t)(raw + up);
+                break;
+            case 3: // Average
+                val = (uint8_t)(raw + ((int)left + (int)up) / 2);
+                break;
+            case 4: // Paeth
+                val = (uint8_t)(raw + PaethPredictor(left, up, upLeft));
+                break;
+            default:
+                val = raw;
+                break;
+            }
+            outData[dstRow + c] = val;
+        }
+    }
+    return true;
+}
+
 static const uint16_t HELVETICA_WIDTHS[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 260, 0, 0, 0, 260, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -289,19 +355,105 @@ wchar_t PdfFontInfo::DecodeChar(uint32_t charCode) const {
     return (wchar_t)charCode;
 }
 
+void PdfParser::DecodeObjStream(uint32_t stmObjNum) const {
+    if (m_objStmCache.find(stmObjNum) != m_objStmCache.end()) return;
+
+    std::vector<uint8_t> stmData;
+    if (!GetObjectStreamData(stmObjNum, stmData) || stmData.empty()) {
+        m_objStmCache[stmObjNum] = {};
+        return;
+    }
+
+    auto it = m_xref.find(stmObjNum);
+    if (it == m_xref.end() || it->second.type != 1) {
+        m_objStmCache[stmObjNum] = {};
+        return;
+    }
+
+    size_t start = it->second.offsetOrStm;
+    size_t stStart = m_bufferStr.find("stream", start);
+    if (stStart == std::string::npos) {
+        m_objStmCache[stmObjNum] = {};
+        return;
+    }
+
+    std::string dictStr = m_bufferStr.substr(start, stStart - start);
+
+    size_t firstPos = dictStr.find("/First");
+    size_t nPos = dictStr.find("/N");
+    if (firstPos == std::string::npos || nPos == std::string::npos) {
+        m_objStmCache[stmObjNum] = {};
+        return;
+    }
+
+    size_t firstOffset = (size_t)strtoull(dictStr.c_str() + firstPos + 6, nullptr, 10);
+    uint32_t nObjs = (uint32_t)strtoul(dictStr.c_str() + nPos + 2, nullptr, 10);
+    if (firstOffset >= stmData.size() || nObjs == 0) {
+        m_objStmCache[stmObjNum] = {};
+        return;
+    }
+
+    std::string headerStr((const char*)stmData.data(), firstOffset);
+    std::stringstream ss(headerStr);
+    std::vector<std::pair<uint32_t, size_t>> objOffsets;
+    objOffsets.reserve(nObjs);
+    for (uint32_t i = 0; i < nObjs; ++i) {
+        uint32_t oNum = 0;
+        size_t oOff = 0;
+        if (ss >> oNum >> oOff) {
+            objOffsets.push_back({ oNum, oOff });
+        } else {
+            break;
+        }
+    }
+
+    const char* pBody = (const char*)stmData.data() + firstOffset;
+    size_t bodyLen = stmData.size() - firstOffset;
+
+    std::map<uint32_t, std::string> objs;
+    for (size_t i = 0; i < objOffsets.size(); ++i) {
+        uint32_t oNum = objOffsets[i].first;
+        size_t oStart = objOffsets[i].second;
+        if (oStart >= bodyLen) continue;
+        size_t oEnd = (i + 1 < objOffsets.size()) ? objOffsets[i + 1].second : bodyLen;
+        if (oEnd > bodyLen) oEnd = bodyLen;
+        if (oEnd >= oStart) {
+            objs[oNum] = std::string(pBody + oStart, oEnd - oStart);
+        }
+    }
+
+    m_objStmCache[stmObjNum] = std::move(objs);
+}
+
 std::string PdfParser::GetObjectString(uint32_t objNum) const {
-    auto it = m_objectOffsets.find(objNum);
-    if (it == m_objectOffsets.end() || m_bufferStr.empty()) return {};
-    size_t start = it->second;
-    size_t end = m_bufferStr.find("endobj", start);
-    if (end == std::string::npos) end = m_bufferStr.size();
-    return m_bufferStr.substr(start, end - start);
+    auto it = m_xref.find(objNum);
+    if (it == m_xref.end() || m_bufferStr.empty()) return {};
+
+    if (it->second.type == 1) {
+        size_t start = it->second.offsetOrStm;
+        if (start >= m_bufferStr.size()) return {};
+        size_t end = m_bufferStr.find("endobj", start);
+        if (end == std::string::npos) end = m_bufferStr.size();
+        return m_bufferStr.substr(start, end - start);
+    } else if (it->second.type == 2) {
+        uint32_t stmObjNum = it->second.offsetOrStm;
+        DecodeObjStream(stmObjNum);
+        auto sIt = m_objStmCache.find(stmObjNum);
+        if (sIt != m_objStmCache.end()) {
+            auto oIt = sIt->second.find(objNum);
+            if (oIt != sIt->second.end()) {
+                return oIt->second;
+            }
+        }
+    }
+    return {};
 }
 
 bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const {
-    auto it = m_objectOffsets.find(objNum);
-    if (it == m_objectOffsets.end()) return false;
-    size_t start = it->second;
+    auto it = m_xref.find(objNum);
+    if (it == m_xref.end() || it->second.type != 1) return false;
+    size_t start = it->second.offsetOrStm;
+    if (start >= m_bufferStr.size()) return false;
     size_t stStart = m_bufferStr.find("stream", start);
     if (stStart == std::string::npos) return false;
 
@@ -317,7 +469,32 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
     bool isFlate = (header.find("FlateDecode") != std::string::npos);
 
     if (isFlate) {
-        return InflateStream(m_buffer.data() + dStart, dEnd - dStart, outData);
+        std::vector<uint8_t> rawDecomp;
+        if (!InflateStream(m_buffer.data() + dStart, dEnd - dStart, rawDecomp)) {
+            return false;
+        }
+
+        size_t dpPos = header.find("/DecodeParms");
+        if (dpPos != std::string::npos) {
+            int predictor = 1, columns = 1, colors = 1, bpc = 8;
+            size_t prPos = header.find("/Predictor", dpPos);
+            if (prPos != std::string::npos) predictor = (int)strtol(header.c_str() + prPos + 10, nullptr, 10);
+            size_t colPos = header.find("/Columns", dpPos);
+            if (colPos != std::string::npos) columns = (int)strtol(header.c_str() + colPos + 8, nullptr, 10);
+            size_t clrPos = header.find("/Colors", dpPos);
+            if (clrPos != std::string::npos) colors = (int)strtol(header.c_str() + clrPos + 7, nullptr, 10);
+            size_t bpcPos = header.find("/BitsPerComponent", dpPos);
+            if (bpcPos != std::string::npos) bpc = (int)strtol(header.c_str() + bpcPos + 17, nullptr, 10);
+
+            if (predictor >= 10 && columns > 0) {
+                if (DecodePredictor(rawDecomp, predictor, columns, colors, bpc, outData)) {
+                    return true;
+                }
+            }
+        }
+
+        outData = std::move(rawDecomp);
+        return true;
     } else {
         outData.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
         return true;
@@ -384,6 +561,226 @@ std::string PdfParser::ResolveDict(const std::string& parentDict, const std::str
     return {};
 }
 
+bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
+    if (offset >= m_bufferStr.size()) return false;
+
+    size_t curOffset = offset;
+    std::vector<size_t> visitedOffsets;
+
+    while (curOffset < m_bufferStr.size()) {
+        if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
+        visitedOffsets.push_back(curOffset);
+
+        size_t stStart = m_bufferStr.find("stream", curOffset);
+        if (stStart == std::string::npos) break;
+
+        std::string dictStr = m_bufferStr.substr(curOffset, stStart - curOffset);
+        if (outTrailerDict.empty()) {
+            outTrailerDict = dictStr;
+        }
+
+        // Parse objNum of this xref stream so we can index it in m_xref
+        size_t objKw = m_bufferStr.find("obj", curOffset);
+        if (objKw != std::string::npos && objKw < stStart) {
+            uint32_t myObjNum = (uint32_t)strtoul(m_bufferStr.c_str() + curOffset, nullptr, 10);
+            if (myObjNum > 0 && m_xref.find(myObjNum) == m_xref.end()) {
+                m_xref[myObjNum] = { 1, (uint32_t)curOffset, 0 };
+            }
+        }
+
+        // Parse /Size
+        size_t sizePos = dictStr.find("/Size");
+        uint32_t sizeVal = 0;
+        if (sizePos != std::string::npos) {
+            sizeVal = (uint32_t)strtoul(dictStr.c_str() + sizePos + 5, nullptr, 10);
+        }
+
+        // Parse /W [w1 w2 w3]
+        size_t wPos = dictStr.find("/W");
+        if (wPos == std::string::npos) break;
+        size_t wb1 = dictStr.find('[', wPos);
+        size_t wb2 = dictStr.find(']', wb1);
+        if (wb1 == std::string::npos || wb2 == std::string::npos) break;
+
+        std::stringstream wss(dictStr.substr(wb1 + 1, wb2 - wb1 - 1));
+        int w1 = 0, w2 = 0, w3 = 0;
+        if (!(wss >> w1 >> w2 >> w3)) break;
+        int entryLen = w1 + w2 + w3;
+        if (entryLen <= 0) break;
+
+        // Parse /Index [first1 count1 first2 count2 ...]
+        std::vector<std::pair<uint32_t, uint32_t>> subsections;
+        size_t idxPos = dictStr.find("/Index");
+        if (idxPos != std::string::npos) {
+            size_t ib1 = dictStr.find('[', idxPos);
+            size_t ib2 = dictStr.find(']', ib1);
+            if (ib1 != std::string::npos && ib2 != std::string::npos) {
+                std::stringstream iss(dictStr.substr(ib1 + 1, ib2 - ib1 - 1));
+                uint32_t f = 0, c = 0;
+                while (iss >> f >> c) {
+                    subsections.push_back({ f, c });
+                }
+            }
+        }
+        if (subsections.empty()) {
+            subsections.push_back({ 0, sizeVal });
+        }
+
+        // Stream data extraction
+        size_t dStart = m_bufferStr.find('\n', stStart);
+        if (dStart == std::string::npos) break;
+        dStart++;
+        size_t dEnd = m_bufferStr.find("endstream", dStart);
+        if (dEnd == std::string::npos) break;
+        while (dEnd > dStart && (m_bufferStr[dEnd - 1] == '\r' || m_bufferStr[dEnd - 1] == '\n')) dEnd--;
+
+        std::vector<uint8_t> decomp;
+        if (!InflateStream(m_buffer.data() + dStart, dEnd - dStart, decomp)) {
+            break;
+        }
+
+        // Decode predictor if present
+        size_t dpPos = dictStr.find("/DecodeParms");
+        if (dpPos != std::string::npos) {
+            int predictor = 1, columns = 1, colors = 1, bpc = 8;
+            size_t prPos = dictStr.find("/Predictor", dpPos);
+            if (prPos != std::string::npos) predictor = (int)strtol(dictStr.c_str() + prPos + 10, nullptr, 10);
+            size_t colPos = dictStr.find("/Columns", dpPos);
+            if (colPos != std::string::npos) columns = (int)strtol(dictStr.c_str() + colPos + 8, nullptr, 10);
+            size_t clrPos = dictStr.find("/Colors", dpPos);
+            if (clrPos != std::string::npos) colors = (int)strtol(dictStr.c_str() + clrPos + 7, nullptr, 10);
+            size_t bpcPos = dictStr.find("/BitsPerComponent", dpPos);
+            if (bpcPos != std::string::npos) bpc = (int)strtol(dictStr.c_str() + bpcPos + 17, nullptr, 10);
+
+            if (predictor >= 10) {
+                std::vector<uint8_t> predOut;
+                if (DecodePredictor(decomp, predictor, columns > 0 ? columns : entryLen, colors, bpc, predOut)) {
+                    decomp = std::move(predOut);
+                }
+            }
+        }
+
+        // Parse entries
+        size_t curByte = 0;
+        for (const auto& sub : subsections) {
+            uint32_t startNum = sub.first;
+            uint32_t count = sub.second;
+            for (uint32_t i = 0; i < count; ++i) {
+                if (curByte + entryLen > decomp.size()) break;
+                const uint8_t* pEntry = decomp.data() + curByte;
+
+                int t = 1;
+                if (w1 > 0) {
+                    uint32_t v = 0;
+                    for (int k = 0; k < w1; ++k) v = (v << 8) | pEntry[k];
+                    t = (int)v;
+                }
+                uint32_t f2 = 0;
+                if (w2 > 0) {
+                    for (int k = 0; k < w2; ++k) f2 = (f2 << 8) | pEntry[w1 + k];
+                }
+                uint32_t f3 = 0;
+                if (w3 > 0) {
+                    for (int k = 0; k < w3; ++k) f3 = (f3 << 8) | pEntry[w1 + w2 + k];
+                }
+
+                uint32_t objNum = startNum + i;
+                if (m_xref.find(objNum) == m_xref.end()) {
+                    m_xref[objNum] = { t, f2, f3 };
+                }
+
+                curByte += entryLen;
+            }
+        }
+
+        // Check for /Prev
+        size_t prevPos = dictStr.find("/Prev");
+        if (prevPos != std::string::npos) {
+            curOffset = (size_t)strtoull(dictStr.c_str() + prevPos + 5, nullptr, 10);
+        } else {
+            break;
+        }
+    }
+
+    return !m_xref.empty();
+}
+
+bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
+    if (offset >= m_bufferStr.size()) return false;
+
+    size_t curOffset = offset;
+    std::vector<size_t> visitedOffsets;
+
+    while (curOffset < m_bufferStr.size()) {
+        if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
+        visitedOffsets.push_back(curOffset);
+
+        const char* p = m_bufferStr.c_str() + curOffset;
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+        if (strncmp(p, "xref", 4) != 0) break;
+        p += 4;
+
+        while (p < m_bufferStr.c_str() + m_bufferStr.size()) {
+            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+            if (*p < '0' || *p > '9') break;
+
+            char* nextPtr = nullptr;
+            uint32_t firstObj = (uint32_t)strtoul(p, &nextPtr, 10);
+            if (!nextPtr) break;
+            p = nextPtr;
+
+            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+            uint32_t count = (uint32_t)strtoul(p, &nextPtr, 10);
+            if (!nextPtr) break;
+            p = nextPtr;
+
+            for (uint32_t i = 0; i < count; ++i) {
+                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                uint32_t oOffset = (uint32_t)strtoul(p, &nextPtr, 10);
+                if (!nextPtr) break;
+                p = nextPtr;
+
+                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                uint32_t gen = (uint32_t)strtoul(p, &nextPtr, 10);
+                if (!nextPtr) break;
+                p = nextPtr;
+
+                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                char typeChar = *p;
+                if (*p) p++;
+
+                uint32_t objNum = firstObj + i;
+                if (typeChar == 'n' || typeChar == 'N') {
+                    if (m_xref.find(objNum) == m_xref.end()) {
+                        m_xref[objNum] = { 1, oOffset, gen };
+                    }
+                }
+            }
+        }
+
+        size_t pOffset = p - m_bufferStr.c_str();
+        size_t trPos = m_bufferStr.find("trailer", pOffset);
+        if (trPos == std::string::npos) break;
+
+        size_t dictStart = m_bufferStr.find("<<", trPos);
+        if (dictStart == std::string::npos) break;
+
+        std::string trDict = ResolveDict(m_bufferStr.substr(trPos), "<<");
+        if (outTrailerDict.empty()) {
+            outTrailerDict = trDict;
+        }
+
+        size_t prevPos = trDict.find("/Prev");
+        if (prevPos != std::string::npos) {
+            curOffset = (size_t)strtoull(trDict.c_str() + prevPos + 5, nullptr, 10);
+        } else {
+            break;
+        }
+    }
+
+    return !m_xref.empty();
+}
+
 bool PdfParser::Load(const std::wstring& filePath) {
     Close();
 
@@ -401,105 +798,131 @@ bool PdfParser::Load(const std::wstring& filePath) {
     if (!file) return false;
 
     m_bufferStr.assign((const char*)m_buffer.data(), fileSize);
-    const char* pData = m_bufferStr.data();
 
-    // 1. Index all indirect objects: "N 0 obj" -> offset
-    size_t pos = 0;
-    while (pos < fileSize) {
-        const char* pObj = (const char*)memchr(pData + pos, 'o', fileSize - pos);
-        if (!pObj) break;
+    // 1. Locate startxref from EOF
+    size_t sxPos = m_bufferStr.rfind("startxref");
+    std::string trailerDict;
 
-        pos = pObj - pData;
-        if (pos + 3 <= fileSize && pObj[1] == 'b' && pObj[2] == 'j') {
-            size_t back = pos;
-            while (back > 0 && (pData[back - 1] == ' ' || pData[back - 1] == '\t')) back--;
-            if (back > 0 && pData[back - 1] == '0') {
-                back--;
-                while (back > 0 && (pData[back - 1] == ' ' || pData[back - 1] == '\t')) back--;
-                size_t numEnd = back;
-                while (back > 0 && pData[back - 1] >= '0' && pData[back - 1] <= '9') back--;
-                if (numEnd > back) {
-                    uint32_t objNum = (uint32_t)strtoul(pData + back, nullptr, 10);
-                    if (objNum > 0) {
-                        m_objectOffsets[objNum] = back;
-                    }
+    if (sxPos != std::string::npos) {
+        size_t numPos = sxPos + 9;
+        while (numPos < fileSize && (m_bufferStr[numPos] == ' ' || m_bufferStr[numPos] == '\t' || m_bufferStr[numPos] == '\r' || m_bufferStr[numPos] == '\n')) numPos++;
+        if (numPos < fileSize && m_bufferStr[numPos] >= '0' && m_bufferStr[numPos] <= '9') {
+            size_t xrefOffset = (size_t)strtoull(m_bufferStr.c_str() + numPos, nullptr, 10);
+            if (xrefOffset < fileSize) {
+                size_t p = xrefOffset;
+                while (p < fileSize && (m_bufferStr[p] == ' ' || m_bufferStr[p] == '\t' || m_bufferStr[p] == '\r' || m_bufferStr[p] == '\n')) p++;
+                if (p + 4 <= fileSize && m_bufferStr.compare(p, 4, "xref") == 0) {
+                    ParseClassicXRef(p, trailerDict);
+                } else if (p < fileSize && m_bufferStr[p] >= '0' && m_bufferStr[p] <= '9') {
+                    ParseXRefStream(p, trailerDict);
                 }
             }
         }
-        pos += 3;
     }
 
-    // 2. Discover page objects in canonical tree order from /Root
-    size_t rootPos = m_bufferStr.find("/Root");
-    if (rootPos != std::string::npos) {
-        uint32_t rootObj = (uint32_t)strtoul(m_bufferStr.c_str() + rootPos + 5, nullptr, 10);
-        if (rootObj > 0) {
-            std::string rootStr = GetObjectString(rootObj);
-            uint32_t pagesObj = 0;
-            if (FindIndirectRef(rootStr, "/Pages", pagesObj)) {
-                std::function<void(uint32_t)> traversePages = [&](uint32_t objNum) {
-                    std::string objText = GetObjectString(objNum);
-                    if (objText.find("/Pages") != std::string::npos && objText.find("/Kids") != std::string::npos) {
-                        size_t kPos = objText.find("/Kids");
-                        size_t b1 = objText.find('[', kPos);
-                        size_t b2 = objText.find(']', b1);
-                        if (b1 != std::string::npos && b2 != std::string::npos) {
-                            std::string kStr = objText.substr(b1 + 1, b2 - b1 - 1);
-                            std::stringstream ss(kStr);
-                            uint32_t childObj = 0;
-                            std::string rTok;
-                            while (ss >> childObj >> rTok) {
-                                if (rTok == "0" || rTok == "R") {
-                                    if (rTok == "0") ss >> rTok;
-                                    traversePages(childObj);
-                                }
-                            }
-                        }
-                    } else if (objText.find("/Page") != std::string::npos) {
-                        if (m_objectOffsets.count(objNum)) {
-                            m_pageObjectOffsets.push_back(m_objectOffsets[objNum]);
+    // 2. Fallback: linear scanner for "N 0 obj" if xref parsing failed or found no entries
+    if (m_xref.empty()) {
+        const char* pData = m_bufferStr.data();
+        size_t pos = 0;
+        while (pos < fileSize) {
+            const char* pObj = (const char*)memchr(pData + pos, 'o', fileSize - pos);
+            if (!pObj) break;
+
+            pos = pObj - pData;
+            if (pos + 3 <= fileSize && pObj[1] == 'b' && pObj[2] == 'j') {
+                size_t back = pos;
+                while (back > 0 && (pData[back - 1] == ' ' || pData[back - 1] == '\t')) back--;
+                if (back > 0 && pData[back - 1] == '0') {
+                    back--;
+                    while (back > 0 && (pData[back - 1] == ' ' || pData[back - 1] == '\t')) back--;
+                    size_t numEnd = back;
+                    while (back > 0 && pData[back - 1] >= '0' && pData[back - 1] <= '9') back--;
+                    if (numEnd > back) {
+                        uint32_t objNum = (uint32_t)strtoul(pData + back, nullptr, 10);
+                        if (objNum > 0 && m_xref.find(objNum) == m_xref.end()) {
+                            m_xref[objNum] = { 1, (uint32_t)back, 0 };
                         }
                     }
-                };
-                traversePages(pagesObj);
+                }
             }
+            pos += 3;
+        }
+    }
+
+    // 3. Find /Root catalog object
+    uint32_t rootObj = 0;
+    if (!trailerDict.empty()) {
+        FindIndirectRef(trailerDict, "/Root", rootObj);
+    }
+    if (rootObj == 0) {
+        size_t rootPos = m_bufferStr.find("/Root");
+        if (rootPos != std::string::npos) {
+            size_t afterRoot = rootPos + 5;
+            while (afterRoot < m_bufferStr.size() && (m_bufferStr[afterRoot] == ' ' || m_bufferStr[afterRoot] == '\t' || m_bufferStr[afterRoot] == '\r' || m_bufferStr[afterRoot] == '\n')) afterRoot++;
+            rootObj = (uint32_t)strtoul(m_bufferStr.c_str() + afterRoot, nullptr, 10);
+        }
+    }
+
+    // 4. Discover page objects in canonical tree order from /Root
+    if (rootObj > 0) {
+        std::string rootStr = GetObjectString(rootObj);
+        uint32_t pagesObj = 0;
+        if (FindIndirectRef(rootStr, "/Pages", pagesObj)) {
+            std::vector<uint32_t> visited;
+            std::function<void(uint32_t)> traversePages = [&](uint32_t objNum) {
+                if (std::find(visited.begin(), visited.end(), objNum) != visited.end()) return;
+                visited.push_back(objNum);
+
+                std::string objText = GetObjectString(objNum);
+                if (objText.find("/Pages") != std::string::npos && objText.find("/Kids") != std::string::npos) {
+                    size_t kPos = objText.find("/Kids");
+                    size_t b1 = objText.find('[', kPos);
+                    size_t b2 = objText.find(']', b1);
+                    if (b1 != std::string::npos && b2 != std::string::npos) {
+                        std::string kStr = objText.substr(b1 + 1, b2 - b1 - 1);
+                        std::stringstream ss(kStr);
+                        uint32_t childObj = 0;
+                        std::string rTok;
+                        while (ss >> childObj >> rTok) {
+                            if (rTok == "0" || rTok == "R") {
+                                if (rTok == "0") ss >> rTok;
+                                traversePages(childObj);
+                            }
+                        }
+                    }
+                } else if (objText.find("/Page") != std::string::npos) {
+                    m_pageObjectNums.push_back(objNum);
+                }
+            };
+            traversePages(pagesObj);
         }
     }
 
     // Fallback: direct page scanning if tree traversal produced no pages
-    if (m_pageObjectOffsets.empty()) {
-        pos = 0;
-        while ((pos = m_bufferStr.find("/Type", pos)) != std::string::npos) {
-            size_t afterType = pos + 5;
-            while (afterType < m_bufferStr.size() && (m_bufferStr[afterType] == ' ' || m_bufferStr[afterType] == '\t' || m_bufferStr[afterType] == '\r' || m_bufferStr[afterType] == '\n')) {
-                afterType++;
-            }
-            if (afterType < m_bufferStr.size() && m_bufferStr[afterType] == '/') afterType++;
-
-            if (afterType + 4 <= m_bufferStr.size() && m_bufferStr.compare(afterType, 4, "Page") == 0) {
-                if (afterType + 4 >= m_bufferStr.size() || m_bufferStr[afterType + 4] != 's') {
-                    size_t objStart = m_bufferStr.rfind(" obj", pos);
-                    if (objStart != std::string::npos) {
-                        size_t lineStart = m_bufferStr.rfind('\n', objStart);
-                        size_t actualStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
-                        m_pageObjectOffsets.push_back(actualStart);
-                    }
+    if (m_pageObjectNums.empty()) {
+        for (const auto& entry : m_xref) {
+            std::string objText = GetObjectString(entry.first);
+            size_t tPos = objText.find("/Type");
+            if (tPos != std::string::npos) {
+                size_t pPos = objText.find("/Page", tPos);
+                if (pPos != std::string::npos && (pPos + 5 >= objText.size() || objText[pPos + 5] != 's')) {
+                    m_pageObjectNums.push_back(entry.first);
                 }
             }
-            pos += 5;
         }
-        std::sort(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end());
-        m_pageObjectOffsets.erase(std::unique(m_pageObjectOffsets.begin(), m_pageObjectOffsets.end()), m_pageObjectOffsets.end());
+        std::sort(m_pageObjectNums.begin(), m_pageObjectNums.end());
+        m_pageObjectNums.erase(std::unique(m_pageObjectNums.begin(), m_pageObjectNums.end()), m_pageObjectNums.end());
     }
 
-    return !m_pageObjectOffsets.empty();
+    return !m_pageObjectNums.empty();
 }
 
 void PdfParser::Close() {
     m_buffer.clear();
     m_bufferStr.clear();
-    m_pageObjectOffsets.clear();
-    m_objectOffsets.clear();
+    m_pageObjectNums.clear();
+    m_xref.clear();
+    m_objStmCache.clear();
 }
 
 std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) {
@@ -620,13 +1043,20 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
     } else {
         resDict = ResolveDict(pageDict, "/Resources");
         if (resDict.empty()) {
-            uint32_t parentObj = 0;
-            if (FindIndirectRef(pageDict, "/Parent", parentObj)) {
-                std::string parentStr = GetObjectString(parentObj);
-                if (FindIndirectRef(parentStr, "/Resources", resObj)) {
-                    resDict = GetObjectString(resObj);
-                } else {
-                    resDict = ResolveDict(parentStr, "/Resources");
+            uint32_t curParent = 0;
+            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
+                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
+                    std::string parentStr = GetObjectString(curParent);
+                    if (FindIndirectRef(parentStr, "/Resources", resObj)) {
+                        resDict = GetObjectString(resObj);
+                        break;
+                    } else {
+                        resDict = ResolveDict(parentStr, "/Resources");
+                        if (!resDict.empty()) break;
+                    }
+                    uint32_t nextParent = 0;
+                    if (!FindIndirectRef(parentStr, "/Parent", nextParent)) break;
+                    curParent = nextParent;
                 }
             }
         }
@@ -867,13 +1297,20 @@ std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string
     } else {
         resDict = ResolveDict(pageDict, "/Resources");
         if (resDict.empty()) {
-            uint32_t parentObj = 0;
-            if (FindIndirectRef(pageDict, "/Parent", parentObj)) {
-                std::string parentStr = GetObjectString(parentObj);
-                if (FindIndirectRef(parentStr, "/Resources", resObj)) {
-                    resDict = GetObjectString(resObj);
-                } else {
-                    resDict = ResolveDict(parentStr, "/Resources");
+            uint32_t curParent = 0;
+            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
+                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
+                    std::string parentStr = GetObjectString(curParent);
+                    if (FindIndirectRef(parentStr, "/Resources", resObj)) {
+                        resDict = GetObjectString(resObj);
+                        break;
+                    } else {
+                        resDict = ResolveDict(parentStr, "/Resources");
+                        if (!resDict.empty()) break;
+                    }
+                    uint32_t nextParent = 0;
+                    if (!FindIndirectRef(parentStr, "/Parent", nextParent)) break;
+                    curParent = nextParent;
                 }
             }
         }
@@ -911,19 +1348,15 @@ std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string
 }
 
 bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
-    if (pageIndex >= m_pageObjectOffsets.size() || m_buffer.empty()) return false;
+    if (pageIndex >= m_pageObjectNums.size() || m_buffer.empty()) return false;
 
     outPage.pageIndex = pageIndex;
     outPage.fullText.clear();
     outPage.chars.clear();
     outPage.hasDigitalText = false;
 
-    size_t pageOffset = m_pageObjectOffsets[pageIndex];
-    std::string pageDict = m_bufferStr.substr(pageOffset, 4096);
-    size_t endObj = m_bufferStr.find("endobj", pageOffset);
-    if (endObj != std::string::npos) {
-        pageDict = m_bufferStr.substr(pageOffset, endObj - pageOffset);
-    }
+    uint32_t pageObj = m_pageObjectNums[pageIndex];
+    std::string pageDict = GetObjectString(pageObj);
 
     // 1. Extract CropBox or MediaBox dimensions and origin
     float x0 = 0.0f, y0 = 0.0f, x1 = 595.28f, y1 = 841.89f;
@@ -951,11 +1384,16 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
 
     if (!parseBox(pageDict, "/CropBox", x0, y0, x1, y1)) {
         if (!parseBox(pageDict, "/MediaBox", x0, y0, x1, y1)) {
-            uint32_t parentId = 0;
-            if (FindIndirectRef(pageDict, "/Parent", parentId)) {
-                std::string parentDict = GetObjectString(parentId);
-                if (!parseBox(parentDict, "/CropBox", x0, y0, x1, y1)) {
-                    parseBox(parentDict, "/MediaBox", x0, y0, x1, y1);
+            uint32_t curParent = 0;
+            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
+                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
+                    std::string parentDict = GetObjectString(curParent);
+                    if (parseBox(parentDict, "/CropBox", x0, y0, x1, y1) || parseBox(parentDict, "/MediaBox", x0, y0, x1, y1)) {
+                        break;
+                    }
+                    uint32_t nextParent = 0;
+                    if (!FindIndirectRef(parentDict, "/Parent", nextParent)) break;
+                    curParent = nextParent;
                 }
             }
         }
@@ -981,10 +1419,15 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     };
 
     if (!parseRotate(pageDict, rotate)) {
-        uint32_t parentId = 0;
-        if (FindIndirectRef(pageDict, "/Parent", parentId)) {
-            std::string parentDict = GetObjectString(parentId);
-            parseRotate(parentDict, rotate);
+        uint32_t curParent = 0;
+        if (FindIndirectRef(pageDict, "/Parent", curParent)) {
+            for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
+                std::string parentDict = GetObjectString(curParent);
+                if (parseRotate(parentDict, rotate)) break;
+                uint32_t nextParent = 0;
+                if (!FindIndirectRef(parentDict, "/Parent", nextParent)) break;
+                curParent = nextParent;
+            }
         }
     }
 

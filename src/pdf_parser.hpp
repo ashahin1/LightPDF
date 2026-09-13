@@ -70,6 +70,12 @@ struct Matrix2D {
     }
 };
 
+struct PdfXRefEntry {
+    int type = 0;             // 0 = free, 1 = uncompressed in file, 2 = compressed in ObjStm
+    uint32_t offsetOrStm = 0; // type 1: file byte offset; type 2: container ObjStm object number
+    uint32_t genOrIndex = 0;  // type 1: generation; type 2: index within ObjStm
+};
+
 class PdfParser {
 public:
     PdfParser() = default;
@@ -80,14 +86,20 @@ public:
     void Close();
 
     bool IsLoaded() const { return !m_buffer.empty(); }
-    uint32_t GetPageCount() const { return (uint32_t)m_pageObjectOffsets.size(); }
+    uint32_t GetPageCount() const { return (uint32_t)m_pageObjectNums.size(); }
 
     // Extract text for a specific page (0-based)
     bool ExtractPageText(uint32_t pageIndex, PdfPageText& outPage);
 
 private:
-    // Flate / zlib decompressor
+    // Flate / zlib decompressor & predictor decoding
     static bool InflateStream(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
+    static bool DecodePredictor(const std::vector<uint8_t>& inData, int predictor, int columns, int colors, int bpc, std::vector<uint8_t>& outData);
+
+    // Cross reference and object stream parsing
+    bool ParseXRefStream(size_t offset, std::string& outTrailerDict);
+    bool ParseClassicXRef(size_t offset, std::string& outTrailerDict);
+    void DecodeObjStream(uint32_t stmObjNum) const;
 
     // Helpers to resolve indirect objects
     std::string GetObjectString(uint32_t objNum) const;
@@ -118,6 +130,7 @@ private:
 
     std::vector<uint8_t> m_buffer;
     std::string m_bufferStr;
-    std::vector<size_t> m_pageObjectOffsets;
-    std::map<uint32_t, size_t> m_objectOffsets; // Object number -> file offset
+    std::vector<uint32_t> m_pageObjectNums;
+    std::map<uint32_t, PdfXRefEntry> m_xref;
+    mutable std::map<uint32_t, std::map<uint32_t, std::string>> m_objStmCache;
 };
