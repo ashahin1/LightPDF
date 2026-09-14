@@ -70,6 +70,7 @@ private:
     void ToggleContinuousScroll();
     void ScrollContinuous(float deltaY);
     float GetTotalDocumentHeight(const DocumentTab* pTab) const;
+    float GetPageYOffset(const DocumentTab* pTab, uint32_t pageIndex) const;
     uint32_t GetPageAtScrollOffset(const DocumentTab* pTab) const;
 
     void ToggleFullscreen();
