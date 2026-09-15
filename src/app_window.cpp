@@ -200,6 +200,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_MOUSEWHEEL: {
+        if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
 
@@ -346,15 +347,19 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         // 4. Scrollbar interaction (Left button only)
         if (msg == WM_LBUTTONDOWN) {
             bool outThumb = false;
-            if (HitTestScrollbar(pt, outThumb)) {
-                m_isDraggingScrollbar = true;
-                SetCapture(m_hwnd);
-                ScrollbarRenderInfo sInfo = GetScrollbarInfo();
+            ScrollbarRenderInfo sInfo;
+            if (HitTestScrollbar(pt, outThumb, &sInfo)) {
                 if (outThumb) {
                     m_scrollbarDragThumbOffsetY = dipY - sInfo.thumbY;
                     m_scrollbarDragThumbY = sInfo.thumbY;
                 } else {
                     m_scrollbarDragThumbOffsetY = sInfo.thumbH * 0.5f;
+                    float usableH = sInfo.trackH - sInfo.thumbH;
+                    m_scrollbarDragThumbY = std::clamp(dipY - m_scrollbarDragThumbOffsetY, sInfo.trackY, sInfo.trackY + usableH);
+                }
+                m_isDraggingScrollbar = true;
+                SetCapture(m_hwnd);
+                if (!outThumb) {
                     HandleScrollbarDrag(dipY);
                 }
                 ShowScrollbar();
@@ -487,6 +492,19 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_CAPTURECHANGED: {
+        if (m_isDraggingScrollbar) {
+            m_isDraggingScrollbar = false;
+            ShowScrollbar();
+            Render();
+        }
+        if (m_isPanning) {
+            m_isPanning = false;
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        }
+        return 0;
+    }
+
     case WM_LBUTTONDBLCLK: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float topOffset = GetTopOffset();
@@ -587,6 +605,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_KEYDOWN: {
+        if (m_isDraggingScrollbar) return 0;
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
@@ -804,6 +823,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     pTab->offsetY -= 40.0f;
                     pTab->zoomMode = ZoomMode::Custom;
+                    ShowScrollbar();
                     Render();
                 }
             }
@@ -817,6 +837,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 } else {
                     pTab->offsetY += 40.0f;
                     pTab->zoomMode = ZoomMode::Custom;
+                    ShowScrollbar();
                     Render();
                 }
             }
@@ -828,6 +849,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 pTab->scrollY = 0.0f;
                 pTab->currentPage = 0;
                 UpdateTitle();
+                ShowScrollbar();
                 Render();
             } else {
                 GoToPage(0);
@@ -843,6 +865,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     pTab->scrollY = std::max(0.0f, totalH - dipH);
                     pTab->currentPage = pTab->document.GetPageCount() - 1;
                     UpdateTitle();
+                    ShowScrollbar();
                     Render();
                 } else {
                     GoToPage(pTab->document.GetPageCount() - 1);
@@ -1803,6 +1826,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
                 float scrollFraction = pTab->scrollY / (totalDocH - viewportH);
                 scrollFraction = std::clamp(scrollFraction, 0.0f, 1.0f);
                 info.thumbY = info.trackY + scrollFraction * (info.trackH - info.thumbH);
+                const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
             }
             info.hoverPage = pTab->currentPage;
         }
@@ -1812,6 +1836,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
             info.thumbH = info.trackH;
             info.thumbY = info.trackY;
             info.hoverPage = 0;
+            const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
         } else {
             info.thumbH = std::max(24.0f, info.trackH / (float)totalPages);
             if (m_isDraggingScrollbar) {
@@ -1819,6 +1844,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
             } else {
                 float step = (info.trackH - info.thumbH) / (float)(totalPages - 1);
                 info.thumbY = info.trackY + step * (float)pTab->currentPage;
+                const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
             }
             info.hoverPage = pTab->currentPage;
         }
@@ -1827,7 +1853,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
     return info;
 }
 
-bool AppWindow::HitTestScrollbar(POINT pt, bool& outThumb) const {
+bool AppWindow::HitTestScrollbar(POINT pt, bool& outThumb, ScrollbarRenderInfo* outInfo) const {
     outThumb = false;
     const auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
@@ -1844,6 +1870,9 @@ bool AppWindow::HitTestScrollbar(POINT pt, bool& outThumb) const {
     if (dipX >= dipW - 24.0f && dipX <= dipW && dipY >= info.trackY && dipY <= info.trackY + info.trackH) {
         if (dipY >= info.thumbY && dipY <= info.thumbY + info.thumbH) {
             outThumb = true;
+        }
+        if (outInfo) {
+            *outInfo = info;
         }
         return true;
     }
