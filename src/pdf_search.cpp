@@ -146,6 +146,18 @@ bool ContainsArabic(const std::wstring& str) {
     return false;
 }
 
+bool HasArabicLetters(const std::wstring& str) {
+    for (wchar_t ch : str) {
+        if ((ch >= 0x0621 && ch <= 0x064A) ||
+            (ch >= 0x0671 && ch <= 0x06D3) ||
+            (ch >= 0xFB50 && ch <= 0xFDFF) ||
+            (ch >= 0xFE70 && ch <= 0xFEFF)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap) {
     std::wstring out;
     out.reserve(in.size());
@@ -162,7 +174,16 @@ std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCha
             continue;
         }
 
-        // 2. Map Presentation Forms-B (0xFE70 - 0xFEFF) and Forms-A (0xFB50 - 0xFDFF)
+        // 2. Normalize Arabic-Indic digits (0x0660 - 0x0669) to ASCII '0' - '9'
+        if (ch >= 0x0660 && ch <= 0x0669) {
+            ch = L'0' + (ch - 0x0660);
+        }
+        // Eastern Arabic-Indic digits (0x06F0 - 0x06F9) to ASCII '0' - '9'
+        else if (ch >= 0x06F0 && ch <= 0x06F9) {
+            ch = L'0' + (ch - 0x06F0);
+        }
+
+        // 3. Map Presentation Forms-B (0xFE70 - 0xFEFF) and Forms-A (0xFB50 - 0xFDFF)
         if (ch == 0xFE80) ch = 0x0621;
         else if (ch == 0xFE81 || ch == 0xFE82) ch = 0x0622;
         else if (ch == 0xFE83 || ch == 0xFE84) ch = 0x0623;
@@ -251,11 +272,32 @@ void PdfSearchEngine::SearchWorker(
 
     std::wstring needle = matchCase ? query : ToUpperStr(query);
 
-    bool isArabic = ContainsArabic(query);
-    std::wstring qFwd = isArabic ? NormalizeArabic(query) : needle;
+    bool isQueryArabic = ContainsArabic(query);
+    std::wstring qFwd = NormalizeArabic(needle);
     std::wstring qRev = qFwd;
-    if (isArabic) {
+    std::wstring qWordRev;
+    bool canReverse = HasArabicLetters(query);
+    if (canReverse) {
         std::reverse(qRev.begin(), qRev.end());
+        size_t start = 0;
+        while (start < qFwd.size()) {
+            while (start < qFwd.size() && iswspace(qFwd[start])) {
+                qWordRev.push_back(qFwd[start]);
+                start++;
+            }
+            size_t end = start;
+            while (end < qFwd.size() && !iswspace(qFwd[end])) {
+                end++;
+            }
+            if (start < end) {
+                std::wstring token = qFwd.substr(start, end - start);
+                if (HasArabicLetters(token)) {
+                    std::reverse(token.begin(), token.end());
+                }
+                qWordRev += token;
+                start = end;
+            }
+        }
     }
 
     for (uint32_t p = 0; p < totalPages && !m_cancelToken; ++p) {
@@ -270,7 +312,7 @@ void PdfSearchEngine::SearchWorker(
             if (ocrEnabled && doc) {
                 try {
                     winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
-                    if (isArabic) {
+                    if (isQueryArabic) {
                         auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
                         if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
                             ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
@@ -328,9 +370,12 @@ void PdfSearchEngine::SearchWorker(
         if (!pageText.fullText.empty() && !pageText.chars.empty()) {
             std::vector<SearchMatch> pageMatches;
 
-            if (isArabic) {
+            bool isPageArabic = isQueryArabic || ContainsArabic(pageText.fullText);
+
+            if (isPageArabic) {
                 std::vector<size_t> charMap;
-                std::wstring normHay = NormalizeArabic(pageText.fullText, &charMap);
+                std::wstring textToNorm = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
+                std::wstring normHay = NormalizeArabic(textToNorm, &charMap);
 
                 struct QueryVariant {
                     std::wstring q;
@@ -338,7 +383,8 @@ void PdfSearchEngine::SearchWorker(
                 };
                 std::vector<QueryVariant> variants;
                 if (!qFwd.empty()) variants.push_back({ qFwd, false });
-                if (!qRev.empty() && qRev != qFwd) variants.push_back({ qRev, true });
+                if (canReverse && !qRev.empty() && qRev != qFwd) variants.push_back({ qRev, true });
+                if (canReverse && !qWordRev.empty() && qWordRev != qFwd && qWordRev != qRev) variants.push_back({ qWordRev, true });
 
                 for (const auto& variant : variants) {
                     if (m_cancelToken) break;
