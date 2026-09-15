@@ -80,7 +80,7 @@ private:
     std::vector<TabRenderInfo> GetTabRenderInfos() const;
 
     ScrollbarRenderInfo GetScrollbarInfo() const;
-    bool HitTestScrollbar(POINT pt, bool& outThumb) const;
+    bool HitTestScrollbar(POINT pt, bool& outThumb, ScrollbarRenderInfo* outInfo = nullptr) const;
     bool HitTestHud(POINT pt) const;
     void ShowScrollbar();
     void HandleScrollbarDrag(float mouseY);
