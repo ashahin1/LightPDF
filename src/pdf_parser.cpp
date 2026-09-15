@@ -867,6 +867,18 @@ bool PdfParser::Load(const std::wstring& filePath) {
 
     m_bufferStr.assign((const char*)m_buffer.data(), fileSize);
 
+    // 0. Extract PDF version from header (e.g. "%PDF-1.5")
+    m_pdfVersion = "1.4";
+    if (m_bufferStr.size() >= 8 && m_bufferStr.compare(0, 5, "%PDF-") == 0) {
+        size_t eol = m_bufferStr.find_first_of("\r\n", 5);
+        if (eol != std::string::npos && eol > 5) {
+            m_pdfVersion = m_bufferStr.substr(5, eol - 5);
+            while (!m_pdfVersion.empty() && (m_pdfVersion.back() == ' ' || m_pdfVersion.back() == '\t')) {
+                m_pdfVersion.pop_back();
+            }
+        }
+    }
+
     // 1. Locate startxref from EOF
     size_t sxPos = m_bufferStr.rfind("startxref");
     std::string trailerDict;
@@ -917,10 +929,12 @@ bool PdfParser::Load(const std::wstring& filePath) {
         }
     }
 
-    // 3. Find /Root catalog object
+    // 3. Find /Root catalog object and /Info dictionary
     uint32_t rootObj = 0;
+    m_infoObjNum = 0;
     if (!trailerDict.empty()) {
         FindIndirectRef(trailerDict, "/Root", rootObj);
+        FindIndirectRef(trailerDict, "/Info", m_infoObjNum);
     }
     if (rootObj == 0) {
         size_t rootPos = m_bufferStr.find("/Root");
@@ -928,6 +942,14 @@ bool PdfParser::Load(const std::wstring& filePath) {
             size_t afterRoot = rootPos + 5;
             while (afterRoot < m_bufferStr.size() && (m_bufferStr[afterRoot] == ' ' || m_bufferStr[afterRoot] == '\t' || m_bufferStr[afterRoot] == '\r' || m_bufferStr[afterRoot] == '\n')) afterRoot++;
             rootObj = (uint32_t)strtoul(m_bufferStr.c_str() + afterRoot, nullptr, 10);
+        }
+    }
+    if (m_infoObjNum == 0) {
+        size_t infoPos = m_bufferStr.rfind("/Info");
+        if (infoPos != std::string::npos) {
+            size_t afterInfo = infoPos + 5;
+            while (afterInfo < m_bufferStr.size() && (m_bufferStr[afterInfo] == ' ' || m_bufferStr[afterInfo] == '\t' || m_bufferStr[afterInfo] == '\r' || m_bufferStr[afterInfo] == '\n')) afterInfo++;
+            m_infoObjNum = (uint32_t)strtoul(m_bufferStr.c_str() + afterInfo, nullptr, 10);
         }
     }
 
@@ -988,9 +1010,240 @@ bool PdfParser::Load(const std::wstring& filePath) {
 void PdfParser::Close() {
     m_buffer.clear();
     m_bufferStr.clear();
+    m_pdfVersion = "1.4";
+    m_infoObjNum = 0;
     m_pageObjectNums.clear();
     m_xref.clear();
     m_objStmCache.clear();
+}
+
+static std::wstring DecodePdfMetadataString(const std::string& raw) {
+    if (raw.empty()) return L"—";
+
+    // Check if hex string <...>
+    if (raw.front() == '<' && raw.back() == '>') {
+        std::vector<uint8_t> bytes;
+        for (size_t i = 1; i + 1 < raw.size(); i += 2) {
+            char hexByte[3] = { raw[i], raw[i + 1], 0 };
+            bytes.push_back((uint8_t)strtoul(hexByte, nullptr, 16));
+        }
+        if (bytes.size() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+            std::wstring res;
+            for (size_t i = 2; i + 1 < bytes.size(); i += 2) {
+                res.push_back((wchar_t)((bytes[i] << 8) | bytes[i + 1]));
+            }
+            return res.empty() ? L"—" : res;
+        }
+        std::string s((const char*)bytes.data(), bytes.size());
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+        if (wlen > 0) {
+            std::wstring res(wlen, 0);
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &res[0], wlen);
+            return res;
+        }
+        std::wstring res;
+        for (uint8_t b : bytes) res.push_back((wchar_t)b);
+        return res.empty() ? L"—" : res;
+    }
+
+    // Literal string (...)
+    std::string s = raw;
+    if (s.front() == '(' && s.back() == ')') {
+        s = s.substr(1, s.size() - 2);
+    }
+
+    // Unescape \n, \r, \t, \(, \), \\, \ddd
+    std::vector<uint8_t> unescaped;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            char c = s[++i];
+            if (c == 'n') unescaped.push_back('\n');
+            else if (c == 'r') unescaped.push_back('\r');
+            else if (c == 't') unescaped.push_back('\t');
+            else if (c == 'b') unescaped.push_back('\b');
+            else if (c == 'f') unescaped.push_back('\f');
+            else if (c == '(' || c == ')' || c == '\\') unescaped.push_back(c);
+            else if (c >= '0' && c <= '7') {
+                int oct = c - '0';
+                if (i + 1 < s.size() && s[i + 1] >= '0' && s[i + 1] <= '7') {
+                    oct = (oct << 3) + (s[++i] - '0');
+                    if (i + 1 < s.size() && s[i + 1] >= '0' && s[i + 1] <= '7') {
+                        oct = (oct << 3) + (s[++i] - '0');
+                    }
+                }
+                unescaped.push_back((uint8_t)oct);
+            } else {
+                unescaped.push_back(c);
+            }
+        } else {
+            unescaped.push_back((uint8_t)s[i]);
+        }
+    }
+
+    // Check UTF-16BE BOM
+    if (unescaped.size() >= 2 && unescaped[0] == 0xFE && unescaped[1] == 0xFF) {
+        std::wstring res;
+        for (size_t i = 2; i + 1 < unescaped.size(); i += 2) {
+            res.push_back((wchar_t)((unescaped[i] << 8) | unescaped[i + 1]));
+        }
+        return res.empty() ? L"—" : res;
+    }
+
+    // Try UTF-8
+    std::string strData((const char*)unescaped.data(), unescaped.size());
+    int wlen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, strData.c_str(), (int)strData.size(), nullptr, 0);
+    if (wlen > 0) {
+        std::wstring res(wlen, 0);
+        MultiByteToWideChar(CP_UTF8, 0, strData.c_str(), (int)strData.size(), &res[0], wlen);
+        return res;
+    }
+
+    // Fallback: Windows-1252 / PDFDocEncoding
+    wlen = MultiByteToWideChar(1252, 0, strData.c_str(), (int)strData.size(), nullptr, 0);
+    if (wlen > 0) {
+        std::wstring res(wlen, 0);
+        MultiByteToWideChar(1252, 0, strData.c_str(), (int)strData.size(), &res[0], wlen);
+        return res;
+    }
+
+    std::wstring res;
+    for (uint8_t b : unescaped) res.push_back((wchar_t)b);
+    return res.empty() ? L"—" : res;
+}
+
+static std::string ExtractDictRawValue(const std::string& dict, const std::string& key) {
+    size_t pos = 0;
+    while ((pos = dict.find(key, pos)) != std::string::npos) {
+        if (pos > 0 && isalnum((unsigned char)dict[pos - 1])) {
+            pos += key.size();
+            continue;
+        }
+        size_t afterKey = pos + key.size();
+        if (afterKey < dict.size() && isalnum((unsigned char)dict[afterKey])) {
+            pos += key.size();
+            continue;
+        }
+
+        while (afterKey < dict.size() && (dict[afterKey] == ' ' || dict[afterKey] == '\t' || dict[afterKey] == '\r' || dict[afterKey] == '\n')) {
+            afterKey++;
+        }
+        if (afterKey >= dict.size()) return "";
+
+        if (dict[afterKey] == '(') {
+            size_t endPos = afterKey + 1;
+            int depth = 1;
+            bool escape = false;
+            while (endPos < dict.size() && depth > 0) {
+                if (escape) {
+                    escape = false;
+                } else if (dict[endPos] == '\\') {
+                    escape = true;
+                } else if (dict[endPos] == '(') {
+                    depth++;
+                } else if (dict[endPos] == ')') {
+                    depth--;
+                }
+                endPos++;
+            }
+            return dict.substr(afterKey, endPos - afterKey);
+        } else if (dict[afterKey] == '<' && afterKey + 1 < dict.size() && dict[afterKey + 1] != '<') {
+            size_t endPos = dict.find('>', afterKey);
+            if (endPos != std::string::npos) {
+                return dict.substr(afterKey, endPos - afterKey + 1);
+            }
+        }
+        pos += key.size();
+    }
+    return "";
+}
+
+static std::wstring FormatPdfDateWithSystemSettings(const std::wstring& pdfDate) {
+    if (pdfDate.empty() || pdfDate == L"—") return L"—";
+
+    std::wstring s = pdfDate;
+    if (s.rfind(L"D:", 0) == 0) {
+        s = s.substr(2);
+    }
+
+    if (s.size() < 4) return pdfDate;
+
+    SYSTEMTIME st = { 0 };
+    try {
+        st.wYear = (WORD)std::stoi(s.substr(0, 4));
+        if (s.size() >= 6) st.wMonth = (WORD)std::stoi(s.substr(4, 2));
+        else st.wMonth = 1;
+
+        if (s.size() >= 8) st.wDay = (WORD)std::stoi(s.substr(6, 2));
+        else st.wDay = 1;
+
+        if (s.size() >= 10) st.wHour = (WORD)std::stoi(s.substr(8, 2));
+        if (s.size() >= 12) st.wMinute = (WORD)std::stoi(s.substr(10, 2));
+        if (s.size() >= 14) st.wSecond = (WORD)std::stoi(s.substr(12, 2));
+    } catch (...) {
+        return pdfDate;
+    }
+
+    wchar_t dateBuf[128] = { 0 };
+    wchar_t timeBuf[128] = { 0 };
+
+    int dLen = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &st, nullptr, dateBuf, 128, nullptr);
+    int tLen = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &st, nullptr, timeBuf, 128);
+
+    if (dLen > 0 && tLen > 0) {
+        return std::wstring(dateBuf) + L" " + std::wstring(timeBuf);
+    } else if (dLen > 0) {
+        return std::wstring(dateBuf);
+    }
+    return pdfDate;
+}
+
+bool PdfParser::ExtractMetadata(PdfMetadata& outMetadata) const {
+    outMetadata.pdfFormat = L"PDF " + std::wstring(m_pdfVersion.begin(), m_pdfVersion.end());
+
+    std::string infoDict;
+    if (m_infoObjNum > 0) {
+        infoDict = GetObjectString(m_infoObjNum);
+    }
+
+    if (infoDict.empty()) {
+        size_t pos = m_bufferStr.rfind("/Info");
+        if (pos != std::string::npos) {
+            size_t b1 = m_bufferStr.find("<<", pos);
+            size_t b2 = m_bufferStr.find(">>", b1);
+            if (b1 != std::string::npos && b2 != std::string::npos && b2 > b1 && (b2 - b1) < 4096) {
+                infoDict = m_bufferStr.substr(b1, b2 - b1 + 2);
+            }
+        }
+    }
+
+    if (!infoDict.empty()) {
+        std::string rawTitle = ExtractDictRawValue(infoDict, "/Title");
+        std::string rawAuthor = ExtractDictRawValue(infoDict, "/Author");
+        std::string rawSubject = ExtractDictRawValue(infoDict, "/Subject");
+        std::string rawKeywords = ExtractDictRawValue(infoDict, "/Keywords");
+        std::string rawCreator = ExtractDictRawValue(infoDict, "/Creator");
+        std::string rawProducer = ExtractDictRawValue(infoDict, "/Producer");
+        std::string rawCreationDate = ExtractDictRawValue(infoDict, "/CreationDate");
+        std::string rawModDate = ExtractDictRawValue(infoDict, "/ModDate");
+
+        if (!rawTitle.empty()) outMetadata.title = DecodePdfMetadataString(rawTitle);
+        if (!rawAuthor.empty()) outMetadata.author = DecodePdfMetadataString(rawAuthor);
+        if (!rawSubject.empty()) outMetadata.subject = DecodePdfMetadataString(rawSubject);
+        if (!rawKeywords.empty()) outMetadata.keywords = DecodePdfMetadataString(rawKeywords);
+        if (!rawCreator.empty()) outMetadata.creator = DecodePdfMetadataString(rawCreator);
+        if (!rawProducer.empty()) outMetadata.producer = DecodePdfMetadataString(rawProducer);
+
+        if (!rawCreationDate.empty()) {
+            std::wstring decDate = DecodePdfMetadataString(rawCreationDate);
+            outMetadata.creationDate = FormatPdfDateWithSystemSettings(decDate);
+        }
+        if (!rawModDate.empty()) {
+            std::wstring decDate = DecodePdfMetadataString(rawModDate);
+            outMetadata.modDate = FormatPdfDateWithSystemSettings(decDate);
+        }
+    }
+
+    return true;
 }
 
 std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) {
