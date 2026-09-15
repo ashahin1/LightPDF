@@ -1,4 +1,5 @@
 #include "app_window.hpp"
+#include "pdf_parser.hpp"
 #include <windowsx.h>
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -200,6 +201,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_MOUSEWHEEL: {
+        if (m_showProperties) return 0;
         if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
@@ -260,6 +262,19 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipX = (float)pt.x * dipScale;
         float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
+
+        // 0. If Document Properties is open, handle clicks
+        if (m_showProperties) {
+            int propHit = m_renderer.HitTestDocumentProperties(pt);
+            if (propHit == 1 || propHit == 3 || propHit == -1) {
+                CloseDocumentProperties();
+                return 0;
+            } else if (propHit == 2) {
+                CopyPropertiesToClipboard();
+                return 0;
+            }
+            return 0;
+        }
 
         // 1. If Go to Page overlay is open, click outside closes it
         if (m_showGoToPage) {
@@ -395,6 +410,22 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipW = (float)m_renderer.GetWidth() * dipScale;
         float topOffset = GetTopOffset();
 
+        // 0. Document Properties hover detection
+        if (m_showProperties) {
+            int hit = m_renderer.HitTestDocumentProperties(pt);
+            int newBtn = (hit > 0) ? hit : 0;
+            if (newBtn != m_propsHoveredBtn) {
+                m_propsHoveredBtn = newBtn;
+                Render();
+            }
+            if (hit > 0) {
+                SetCursor(LoadCursor(nullptr, IDC_HAND));
+            } else {
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            }
+            return 0;
+        }
+
         // 1. Handle Scrollbar Dragging
         if (m_isDraggingScrollbar) {
             ShowScrollbar();
@@ -506,6 +537,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_LBUTTONDBLCLK: {
+        if (m_showProperties) return 0;
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float topOffset = GetTopOffset();
         float dipScale = 96.0f / m_renderer.GetDpi();
@@ -609,6 +641,20 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
+        if (m_showProperties) {
+            if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
+                CloseDocumentProperties();
+                return 0;
+            } else if (wParam == 'D' && isCtrlDown) {
+                CloseDocumentProperties();
+                return 0;
+            } else if (wParam == 'C' && isCtrlDown) {
+                CopyPropertiesToClipboard();
+                return 0;
+            }
+            return 0;
+        }
+
         if (m_showGoToPage) {
             if (wParam >= '0' && wParam <= '9') {
                 if (m_goToPageBuffer.size() < 6) {
@@ -688,6 +734,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                     CloseClipboard();
                 }
+                return 0;
+            }
+            break;
+        case 'D':
+            if (isCtrlDown) {
+                if (m_showProperties) CloseDocumentProperties();
+                else ShowDocumentProperties();
                 return 0;
             }
             break;
@@ -933,6 +986,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             ToggleFullscreen();
             return 0;
         case VK_ESCAPE:
+            if (m_showProperties) {
+                CloseDocumentProperties();
+                return 0;
+            }
             if (m_showHelp) {
                 m_showHelp = false;
                 Render();
@@ -958,6 +1015,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_CHAR:
+        if (m_showProperties) {
+            return 0;
+        }
         if (m_showGoToPage) {
             return 0;
         }
@@ -1050,6 +1110,7 @@ void AppWindow::CloseTab(size_t index) {
     if (m_tabs.empty()) {
         m_activeTab = 0;
         CloseSearch();
+        CloseDocumentProperties();
         UpdateTitle();
         Render();
         return;
@@ -1061,6 +1122,9 @@ void AppWindow::CloseTab(size_t index) {
         m_activeTab--;
     }
 
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
     if (m_showSearch && !m_searchQuery.empty()) {
         TriggerSearch();
     }
@@ -1072,6 +1136,9 @@ void AppWindow::CloseTab(size_t index) {
 void AppWindow::SelectTab(size_t index) {
     if (index >= m_tabs.size() || index == m_activeTab) return;
     m_activeTab = index;
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
     if (m_showSearch && !m_searchQuery.empty()) {
         TriggerSearch();
     }
@@ -1083,6 +1150,9 @@ void AppWindow::SelectTab(size_t index) {
 void AppWindow::NextTab() {
     if (m_tabs.size() <= 1) return;
     m_activeTab = (m_activeTab + 1) % m_tabs.size();
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
     if (m_showSearch && !m_searchQuery.empty()) {
         TriggerSearch();
     }
@@ -1094,6 +1164,9 @@ void AppWindow::NextTab() {
 void AppWindow::PrevTab() {
     if (m_tabs.size() <= 1) return;
     m_activeTab = (m_activeTab == 0) ? (m_tabs.size() - 1) : (m_activeTab - 1);
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
     if (m_showSearch && !m_searchQuery.empty()) {
         TriggerSearch();
     }
@@ -1689,6 +1762,10 @@ void AppWindow::Render() {
     auto* pTab = GetActiveTab();
     auto tabInfos = GetTabRenderInfos();
 
+    m_docPropsInfo.visible = m_showProperties;
+    m_docPropsInfo.hoveredBtn = m_propsHoveredBtn;
+    m_docPropsInfo.copyFeedback = (m_propsCopiedFeedbackTime > 0 && (GetTickCount64() - m_propsCopiedFeedbackTime < 2000));
+
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
         if (pTab->zoomMode == ZoomMode::FitPage) modeStr = L"Fit Page";
@@ -1742,7 +1819,8 @@ void AppWindow::Render() {
                 m_showGoToPage,
                 m_goToPageBuffer,
                 GetSearchBarInfo(),
-                GetSearchHighlights()
+                GetSearchHighlights(),
+                m_docPropsInfo
             );
             return;
         }
@@ -1767,7 +1845,8 @@ void AppWindow::Render() {
                 m_showGoToPage,
                 m_goToPageBuffer,
                 GetSearchBarInfo(),
-                GetSearchHighlights()
+                GetSearchHighlights(),
+                m_docPropsInfo
             );
             return;
         }
@@ -1780,7 +1859,8 @@ void AppWindow::Render() {
         m_hoveredAdd,
         m_showGoToPage,
         m_goToPageBuffer,
-        GetSearchBarInfo()
+        GetSearchBarInfo(),
+        m_docPropsInfo
     );
 }
 
@@ -2107,3 +2187,130 @@ void AppWindow::ScheduleSearchDebounce() {
     SetTimer(m_hwnd, 2, 350, nullptr);
     Render();
 }
+
+void AppWindow::ShowDocumentProperties() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+        return;
+    }
+
+    m_docPropsInfo = DocumentPropertiesRenderInfo();
+    m_docPropsInfo.visible = true;
+    m_propsHoveredBtn = 0;
+    m_propsCopiedFeedbackTime = 0;
+
+    std::wstring filePath = pTab->document.GetFilePath();
+
+    // 1. Extract PDF metadata
+    PdfMetadata meta;
+    PdfParser parser;
+    if (parser.Load(filePath)) {
+        parser.ExtractMetadata(meta);
+    }
+
+    m_docPropsInfo.title = meta.title.empty() ? L"—" : meta.title;
+    m_docPropsInfo.author = meta.author.empty() ? L"—" : meta.author;
+    m_docPropsInfo.subject = meta.subject.empty() ? L"—" : meta.subject;
+    m_docPropsInfo.keywords = meta.keywords.empty() ? L"—" : meta.keywords;
+    m_docPropsInfo.creator = meta.creator.empty() ? L"—" : meta.creator;
+    m_docPropsInfo.producer = meta.producer.empty() ? L"—" : meta.producer;
+    m_docPropsInfo.pdfFormat = meta.pdfFormat.empty() ? L"—" : meta.pdfFormat;
+    m_docPropsInfo.created = meta.creationDate.empty() ? L"—" : meta.creationDate;
+    m_docPropsInfo.modified = meta.modDate.empty() ? L"—" : meta.modDate;
+
+    // 2. Total pages
+    uint32_t totalPages = pTab->document.GetPageCount();
+    m_docPropsInfo.totalPages = std::to_wstring(totalPages);
+
+    // 3. Current page size
+    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    float widthIn = pSize.width / 72.0f;
+    float heightIn = pSize.height / 72.0f;
+    float widthMm = widthIn * 25.4f;
+    float heightMm = heightIn * 25.4f;
+
+    wchar_t sizeBuf[128];
+    swprintf_s(sizeBuf, L"%.2f × %.2f in (%.1f × %.1f pt / %.1f × %.1f mm)",
+        widthIn, heightIn, pSize.width, pSize.height, widthMm, heightMm);
+    m_docPropsInfo.pageSize = sizeBuf;
+
+    // 4. File size on disk
+    WIN32_FILE_ATTRIBUTE_DATA fileAttrData;
+    if (GetFileAttributesExW(filePath.c_str(), GetFileExInfoStandard, &fileAttrData)) {
+        ULARGE_INTEGER fileSize;
+        fileSize.HighPart = fileAttrData.nFileSizeHigh;
+        fileSize.LowPart = fileAttrData.nFileSizeLow;
+        uint64_t bytes = fileSize.QuadPart;
+
+        wchar_t fSizeBuf[64];
+        if (bytes >= 1024 * 1024) {
+            double mb = (double)bytes / (1024.0 * 1024.0);
+            swprintf_s(fSizeBuf, L"%.2f MB (%llu bytes)", mb, bytes);
+        } else if (bytes >= 1024) {
+            double kb = (double)bytes / 1024.0;
+            swprintf_s(fSizeBuf, L"%.1f KB (%llu bytes)", kb, bytes);
+        } else {
+            swprintf_s(fSizeBuf, L"%llu bytes", bytes);
+        }
+        m_docPropsInfo.fileSize = fSizeBuf;
+    } else {
+        m_docPropsInfo.fileSize = L"—";
+    }
+
+    m_showProperties = true;
+    m_showHelp = false;
+    m_showGoToPage = false;
+    m_showSearch = false;
+
+    Render();
+}
+
+void AppWindow::CloseDocumentProperties() {
+    if (m_showProperties) {
+        m_showProperties = false;
+        m_docPropsInfo.visible = false;
+        m_propsHoveredBtn = 0;
+        Render();
+    }
+}
+
+void AppWindow::CopyPropertiesToClipboard() {
+    std::wstring text;
+    text += L"Document Properties\r\n";
+    text += L"===================\r\n\r\n";
+    text += L"Document Information:\r\n";
+    text += L"  Title:     " + m_docPropsInfo.title + L"\r\n";
+    text += L"  Author:    " + m_docPropsInfo.author + L"\r\n";
+    text += L"  Subject:   " + m_docPropsInfo.subject + L"\r\n";
+    text += L"  Keywords:  " + m_docPropsInfo.keywords + L"\r\n";
+    text += L"  Creator:   " + m_docPropsInfo.creator + L"\r\n";
+    text += L"  Producer:  " + m_docPropsInfo.producer + L"\r\n\r\n";
+    text += L"File & Page Details:\r\n";
+    text += L"  Total Pages: " + m_docPropsInfo.totalPages + L"\r\n";
+    text += L"  File Size:   " + m_docPropsInfo.fileSize + L"\r\n";
+    text += L"  PDF Format:  " + m_docPropsInfo.pdfFormat + L"\r\n";
+    text += L"  Page Size:   " + m_docPropsInfo.pageSize + L"\r\n";
+    text += L"  Created:     " + m_docPropsInfo.created + L"\r\n";
+    text += L"  Modified:    " + m_docPropsInfo.modified + L"\r\n";
+
+    if (OpenClipboard(m_hwnd)) {
+        EmptyClipboard();
+        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (hMem) {
+            void* pMem = GlobalLock(hMem);
+            if (pMem) {
+                memcpy(pMem, text.c_str(), bytes);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            } else {
+                GlobalFree(hMem);
+            }
+        }
+        CloseClipboard();
+    }
+
+    m_propsCopiedFeedbackTime = GetTickCount64();
+    Render();
+}
+

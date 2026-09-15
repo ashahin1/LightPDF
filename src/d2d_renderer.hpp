@@ -111,6 +111,52 @@ struct SearchHighlight {
     bool isActive = false;
 };
 
+struct DocumentPropertiesRenderInfo {
+    bool visible = false;
+    // Document Information
+    std::wstring title = L"—";
+    std::wstring author = L"—";
+    std::wstring subject = L"—";
+    std::wstring keywords = L"—";
+    std::wstring creator = L"—";
+    std::wstring producer = L"—";
+
+    // File & Page Details
+    std::wstring totalPages = L"—";
+    std::wstring fileSize = L"—";
+    std::wstring pdfFormat = L"—";
+    std::wstring pageSize = L"—";
+    std::wstring created = L"—";
+    std::wstring modified = L"—";
+
+    // UI state
+    int hoveredBtn = 0; // 0=none, 1=close, 2=copy, 3=ok
+    bool copyFeedback = false;
+};
+
+struct DocumentPropertiesLayout {
+    static constexpr float WIDTH = 540.0f;
+    static constexpr float HEIGHT = 552.0f;
+
+    static inline D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight) {
+        float left = std::max(10.0f, (dipWidth - WIDTH) * 0.5f);
+        float top = std::max(10.0f, (dipHeight - HEIGHT) * 0.5f);
+        return D2D1::RectF(left, top, left + WIDTH, top + HEIGHT);
+    }
+
+    static inline D2D1_RECT_F GetCloseBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 38.0f, card.top + 14.0f, card.right - 14.0f, card.top + 38.0f);
+    }
+
+    static inline D2D1_RECT_F GetCopyBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 170.0f, card.top + 504.0f, card.right - 86.0f, card.top + 536.0f);
+    }
+
+    static inline D2D1_RECT_F GetOkBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 76.0f, card.top + 504.0f, card.right - 24.0f, card.top + 536.0f);
+    }
+};
+
 class D2DRenderer {
 public:
     D2DRenderer();
@@ -127,7 +173,8 @@ public:
         bool isAddHovered = false,
         bool showGoToPage = false,
         const std::wstring& goToPageBuffer = L"",
-        const SearchBarRenderInfo& searchBar = {}
+        const SearchBarRenderInfo& searchBar = {},
+        const DocumentPropertiesRenderInfo& docProps = {}
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -145,7 +192,8 @@ public:
         bool showGoToPage = false,
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
-        const std::vector<SearchHighlight>& highlights = {}
+        const std::vector<SearchHighlight>& highlights = {},
+        const DocumentPropertiesRenderInfo& docProps = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -161,8 +209,11 @@ public:
         bool showGoToPage = false,
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
-        const std::vector<SearchHighlight>& highlights = {}
+        const std::vector<SearchHighlight>& highlights = {},
+        const DocumentPropertiesRenderInfo& docProps = {}
     );
+
+    int HitTestDocumentProperties(POINT pt) const;
 
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -186,6 +237,7 @@ private:
     void DrawScrollbar(const ScrollbarRenderInfo& scrollbar);
     void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
     void DrawSearchBar(const SearchBarRenderInfo& searchBar);
+    void DrawDocumentProperties(const DocumentPropertiesRenderInfo& props);
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;
@@ -261,6 +313,16 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushSearchActiveBorder;
     ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnBg;
     ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnActive;
+
+    // Document Properties Formats & Brushes
+    ComPtr<IDWriteTextFormat> m_textFormatPropsLabel;
+    ComPtr<IDWriteTextFormat> m_textFormatPropsSection;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsAccent;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsBtn;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsBtnHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsSecBtn;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsSecBtnHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushPropsSuccess;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;

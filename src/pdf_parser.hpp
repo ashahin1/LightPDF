@@ -76,6 +76,18 @@ struct PdfXRefEntry {
     uint32_t genOrIndex = 0;  // type 1: generation; type 2: index within ObjStm
 };
 
+struct PdfMetadata {
+    std::wstring title = L"—";
+    std::wstring author = L"—";
+    std::wstring subject = L"—";
+    std::wstring keywords = L"—";
+    std::wstring creator = L"—";
+    std::wstring producer = L"—";
+    std::wstring creationDate = L"—";
+    std::wstring modDate = L"—";
+    std::wstring pdfFormat = L"—";
+};
+
 class PdfParser {
 public:
     PdfParser() = default;
@@ -90,6 +102,10 @@ public:
 
     // Extract text for a specific page (0-based)
     bool ExtractPageText(uint32_t pageIndex, PdfPageText& outPage);
+
+    // Extract document metadata from /Info and header
+    bool ExtractMetadata(PdfMetadata& outMetadata) const;
+    std::string GetPdfVersion() const { return m_pdfVersion; }
 
 private:
     // Stream decompressors & predictor decoding
@@ -131,6 +147,8 @@ private:
 
     std::vector<uint8_t> m_buffer;
     std::string m_bufferStr;
+    std::string m_pdfVersion = "1.4";
+    uint32_t m_infoObjNum = 0;
     std::vector<uint32_t> m_pageObjectNums;
     std::map<uint32_t, PdfXRefEntry> m_xref;
     mutable std::map<uint32_t, std::map<uint32_t, std::string>> m_objStmCache;

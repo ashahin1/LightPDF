@@ -93,6 +93,10 @@ private:
     void CloseSearch();
     void ScheduleSearchDebounce();
 
+    void ShowDocumentProperties();
+    void CloseDocumentProperties();
+    void CopyPropertiesToClipboard();
+
     DocumentTab* GetActiveTab() {
         if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
         return &m_tabs[m_activeTab];
@@ -140,6 +144,12 @@ private:
     PdfSearchEngine m_searchEngine;
     int m_searchHoveredBtn = 0; // 0=body/none, 1=prev, 2=next, 3=case, 4=ocr, 5=close
     int m_lastJumpedMatch = -1;
+
+    // Document Properties state
+    bool m_showProperties = false;
+    int m_propsHoveredBtn = 0; // 0=body/none, 1=close, 2=copy, 3=ok
+    uint64_t m_propsCopiedFeedbackTime = 0;
+    DocumentPropertiesRenderInfo m_docPropsInfo;
 
     // Scrollbar state
     bool m_isDraggingScrollbar = false;

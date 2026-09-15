@@ -291,6 +291,36 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatSearchBtn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormatSearchBtn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Document Properties Label Format: Segoe UI, 12pt, Semi-Bold, Right-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.0f,
+        L"en-us",
+        &m_textFormatPropsLabel
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatPropsLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+    m_textFormatPropsLabel->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Document Properties Section Format: Segoe UI, 13pt, Semi-Bold, Left-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        13.0f,
+        L"en-us",
+        &m_textFormatPropsSection
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatPropsSection->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatPropsSection->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     return true;
 }
 
@@ -377,6 +407,14 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.75f, 1.0f, 0.95f), &m_brushSearchActiveBorder);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.09f), &m_brushSearchBtnBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.40f), &m_brushSearchBtnActive);
+
+    // Document Properties Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.74f, 0.97f, 1.0f), &m_brushPropsAccent);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.145f, 0.388f, 0.922f, 1.0f), &m_brushPropsBtn);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.114f, 0.306f, 0.847f, 1.0f), &m_brushPropsBtnHover);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.153f, 0.153f, 0.165f, 0.95f), &m_brushPropsSecBtn);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.247f, 0.247f, 0.275f, 1.0f), &m_brushPropsSecBtnHover);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.133f, 0.773f, 0.369f, 1.0f), &m_brushPropsSuccess);
 
     return true;
 }
@@ -488,6 +526,12 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushSearchActiveBorder = nullptr;
     m_brushSearchBtnBg = nullptr;
     m_brushSearchBtnActive = nullptr;
+    m_brushPropsAccent = nullptr;
+    m_brushPropsBtn = nullptr;
+    m_brushPropsBtnHover = nullptr;
+    m_brushPropsSecBtn = nullptr;
+    m_brushPropsSecBtnHover = nullptr;
+    m_brushPropsSuccess = nullptr;
     m_pdfRenderer = nullptr;
     m_d2dContext = nullptr;
     m_d2dDevice = nullptr;
@@ -503,7 +547,8 @@ void D2DRenderer::RenderBlank(
     bool isAddHovered,
     bool showGoToPage,
     const std::wstring& goToPageBuffer,
-    const SearchBarRenderInfo& searchBar
+    const SearchBarRenderInfo& searchBar,
+    const DocumentPropertiesRenderInfo& docProps
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -544,6 +589,10 @@ void D2DRenderer::RenderBlank(
         DrawHelpOverlay();
     }
 
+    if (docProps.visible) {
+        DrawDocumentProperties(docProps);
+    }
+
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         DiscardDeviceResources();
@@ -570,7 +619,8 @@ void D2DRenderer::RenderPage(
     bool showGoToPage,
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
-    const std::vector<SearchHighlight>& highlights
+    const std::vector<SearchHighlight>& highlights,
+    const DocumentPropertiesRenderInfo& docProps
 ) {
     if (!m_d2dContext || !m_swapChain || !page) return;
 
@@ -709,6 +759,11 @@ void D2DRenderer::RenderPage(
         DrawHelpOverlay();
     }
 
+    // 10. Draw Document Properties Overlay if active
+    if (docProps.visible) {
+        DrawDocumentProperties(docProps);
+    }
+
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         DiscardDeviceResources();
@@ -733,7 +788,8 @@ void D2DRenderer::RenderContinuous(
     bool showGoToPage,
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
-    const std::vector<SearchHighlight>& highlights
+    const std::vector<SearchHighlight>& highlights,
+    const DocumentPropertiesRenderInfo& docProps
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -875,6 +931,11 @@ void D2DRenderer::RenderContinuous(
     // 10. Draw Help Overlay if toggled
     if (showHelp) {
         DrawHelpOverlay();
+    }
+
+    // 11. Draw Document Properties Overlay if active
+    if (docProps.visible) {
+        DrawDocumentProperties(docProps);
     }
 
     HRESULT hr = m_d2dContext->EndDraw();
@@ -1367,6 +1428,7 @@ void D2DRenderer::DrawHelpOverlay() {
         { L"Ctrl + 1",              L"Actual size (100% zoom)" },
         { L"Ctrl + 2",              L"Fit page width to window" },
         { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
+        { L"Ctrl + D",              L"Document properties (Information)" },
         { L"Double Click",          L"Fit Page / Fit Width (or Open file if empty)" },
         { L"F11",                   L"Toggle borderless fullscreen" },
         { L"F1 / Esc",              L"Toggle / dismiss this help overlay" },
@@ -1388,6 +1450,178 @@ void D2DRenderer::DrawHelpOverlay() {
         m_d2dContext->DrawText(items[i].key, (UINT32)wcslen(items[i].key), m_textFormatHelpKey.Get(), keyRect, m_brushHelpKeyText.Get());
         m_d2dContext->DrawText(items[i].desc, (UINT32)wcslen(items[i].desc), m_textFormatHelpDesc.Get(), descRect, m_brushHelpDescText.Get());
     }
+}
+
+int D2DRenderer::HitTestDocumentProperties(POINT pt) const {
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+
+    float px = (float)pt.x * dipScale;
+    float py = (float)pt.y * dipScale;
+
+    D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
+    D2D1_RECT_F closeRect = DocumentPropertiesLayout::GetCloseBtnRect(card);
+    D2D1_RECT_F copyRect = DocumentPropertiesLayout::GetCopyBtnRect(card);
+    D2D1_RECT_F okRect = DocumentPropertiesLayout::GetOkBtnRect(card);
+
+    if (px >= closeRect.left && px <= closeRect.right && py >= closeRect.top && py <= closeRect.bottom) {
+        return 1; // Close button
+    }
+    if (px >= copyRect.left && px <= copyRect.right && py >= copyRect.top && py <= copyRect.bottom) {
+        return 2; // Copy All button
+    }
+    if (px >= okRect.left && px <= okRect.right && py >= okRect.top && py <= okRect.bottom) {
+        return 3; // OK button
+    }
+
+    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
+        return 0; // Inside card body
+    }
+
+    return -1; // Backdrop click (outside card)
+}
+
+void D2DRenderer::DrawDocumentProperties(const DocumentPropertiesRenderInfo& props) {
+    if (!m_d2dContext) return;
+
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+
+    // 1. Semi-transparent backdrop
+    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
+    m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
+
+    // 2. Card container & drop shadow
+    D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
+    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
+
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), m_brushHelpCardBg.Get());
+    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), m_brushHelpCardBorder.Get(), 1.5f);
+
+    // 3. Header
+    D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 16.0f, card.right - 50.0f, card.top + 42.0f);
+    const wchar_t* titleText = L"Document Properties";
+    m_d2dContext->DrawText(titleText, (UINT32)wcslen(titleText), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
+
+    // Close button [×]
+    D2D1_RECT_F closeRect = DocumentPropertiesLayout::GetCloseBtnRect(card);
+    if (props.hoveredBtn == 1) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushPropsSecBtnHover.Get());
+    }
+    const wchar_t* closeGlyph = L"\x00D7";
+    m_d2dContext->DrawText(closeGlyph, 1, m_textFormatTabClose.Get(), closeRect, (props.hoveredBtn == 1) ? m_brushHudText.Get() : m_brushHelpSubText.Get());
+
+    // Header divider line
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.top + 48.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 48.0f),
+        m_brushHelpCardBorder.Get(),
+        1.0f
+    );
+
+    // 4. Section 1: Document Information
+    D2D1_RECT_F sec1Rect = D2D1::RectF(card.left + 24.0f, card.top + 56.0f, card.right - 24.0f, card.top + 78.0f);
+    const wchar_t* sec1Title = L"Document Information";
+    m_d2dContext->DrawText(sec1Title, (UINT32)wcslen(sec1Title), m_textFormatPropsSection.Get(), sec1Rect, m_brushPropsAccent.Get());
+
+    struct FieldPair {
+        const wchar_t* label;
+        const std::wstring& value;
+    };
+
+    FieldPair sec1Fields[] = {
+        { L"Title:",    props.title },
+        { L"Author:",   props.author },
+        { L"Subject:",  props.subject },
+        { L"Keywords:", props.keywords },
+        { L"Creator:",  props.creator },
+        { L"Producer:", props.producer }
+    };
+
+    float y0 = card.top + 84.0f;
+    float rowH = 28.0f;
+    float labelW = 96.0f;
+    float gap = 14.0f;
+
+    for (int i = 0; i < 6; ++i) {
+        float rowY = y0 + i * rowH;
+        D2D1_RECT_F lRect = D2D1::RectF(card.left + 24.0f, rowY, card.left + 24.0f + labelW, rowY + rowH);
+        D2D1_RECT_F vRect = D2D1::RectF(card.left + 24.0f + labelW + gap, rowY, card.right - 24.0f, rowY + rowH);
+
+        m_d2dContext->DrawText(sec1Fields[i].label, (UINT32)wcslen(sec1Fields[i].label), m_textFormatPropsLabel.Get(), lRect, m_brushHelpSubText.Get());
+        
+        ID2D1SolidColorBrush* valBrush = (sec1Fields[i].value == L"—") ? m_brushHelpSubText.Get() : m_brushHudText.Get();
+        m_d2dContext->DrawText(sec1Fields[i].value.c_str(), (UINT32)sec1Fields[i].value.size(), m_textFormatTab.Get(), vRect, valBrush);
+    }
+
+    // Divider between sections
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.top + 262.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 262.0f),
+        m_brushHelpCardBorder.Get(),
+        1.0f
+    );
+
+    // 5. Section 2: File & Page Details
+    D2D1_RECT_F sec2Rect = D2D1::RectF(card.left + 24.0f, card.top + 270.0f, card.right - 24.0f, card.top + 292.0f);
+    const wchar_t* sec2Title = L"File & Page Details";
+    m_d2dContext->DrawText(sec2Title, (UINT32)wcslen(sec2Title), m_textFormatPropsSection.Get(), sec2Rect, m_brushPropsAccent.Get());
+
+    FieldPair sec2Fields[] = {
+        { L"Total Pages:", props.totalPages },
+        { L"File Size:",   props.fileSize },
+        { L"PDF Format:",  props.pdfFormat },
+        { L"Page Size:",   props.pageSize },
+        { L"Created:",     props.created },
+        { L"Modified:",    props.modified }
+    };
+
+    float y1 = card.top + 298.0f;
+    for (int i = 0; i < 6; ++i) {
+        float rowY = y1 + i * rowH;
+        D2D1_RECT_F lRect = D2D1::RectF(card.left + 24.0f, rowY, card.left + 24.0f + labelW, rowY + rowH);
+        D2D1_RECT_F vRect = D2D1::RectF(card.left + 24.0f + labelW + gap, rowY, card.right - 24.0f, rowY + rowH);
+
+        m_d2dContext->DrawText(sec2Fields[i].label, (UINT32)wcslen(sec2Fields[i].label), m_textFormatPropsLabel.Get(), lRect, m_brushHelpSubText.Get());
+
+        ID2D1SolidColorBrush* valBrush = (sec2Fields[i].value == L"—") ? m_brushHelpSubText.Get() : m_brushHudText.Get();
+        m_d2dContext->DrawText(sec2Fields[i].value.c_str(), (UINT32)sec2Fields[i].value.size(), m_textFormatTab.Get(), vRect, valBrush);
+    }
+
+    // Footer divider line
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.top + 480.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 480.0f),
+        m_brushHelpCardBorder.Get(),
+        1.0f
+    );
+
+    // 6. Buttons
+    D2D1_RECT_F copyRect = DocumentPropertiesLayout::GetCopyBtnRect(card);
+    D2D1_RECT_F okRect = DocumentPropertiesLayout::GetOkBtnRect(card);
+
+    // Copy All button
+    ID2D1SolidColorBrush* copyBg = (props.hoveredBtn == 2) ? m_brushPropsSecBtnHover.Get() : m_brushPropsSecBtn.Get();
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(copyRect, 6.0f, 6.0f), copyBg);
+    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(copyRect, 6.0f, 6.0f), m_brushHelpCardBorder.Get(), 1.0f);
+
+    if (props.copyFeedback) {
+        const wchar_t* copiedText = L"Copied!";
+        m_d2dContext->DrawText(copiedText, (UINT32)wcslen(copiedText), m_textFormatTabClose.Get(), copyRect, m_brushPropsSuccess.Get());
+    } else {
+        const wchar_t* copyText = L"Copy All";
+        m_d2dContext->DrawText(copyText, (UINT32)wcslen(copyText), m_textFormatTabClose.Get(), copyRect, m_brushHudText.Get());
+    }
+
+    // OK button
+    ID2D1SolidColorBrush* okBg = (props.hoveredBtn == 3) ? m_brushPropsBtnHover.Get() : m_brushPropsBtn.Get();
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(okRect, 6.0f, 6.0f), okBg);
+
+    const wchar_t* okText = L"OK";
+    m_d2dContext->DrawText(okText, (UINT32)wcslen(okText), m_textFormatTabClose.Get(), okRect, m_brushPageBg.Get());
 }
 
 bool D2DRenderer::PrintPageToHdc(
