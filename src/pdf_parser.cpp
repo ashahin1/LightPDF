@@ -2245,9 +2245,13 @@ void PdfParser::ParseContentStream(
                 charAdv += curWordSpace;
             }
 
+            float advX = charAdv * tm.a;
+            float advY = charAdv * tm.b;
+
             // Skip characters clipped out by Form XObject BBox or too microscopic (< 2 DIPs)
             if (curX < localClip.left || curX > localClip.right || curY < localClip.top || curY > localClip.bottom || glyphH < 2.0f || glyphW <= 0.0f) {
-                curX += charAdv;
+                curX += advX;
+                curY += advY;
                 continue;
             }
 
@@ -2261,7 +2265,8 @@ void PdfParser::ParseContentStream(
                 outPage.chars.push_back(tc);
             }
 
-            curX += charAdv;
+            curX += advX;
+            curY += advY;
         }
     };
 
@@ -2677,7 +2682,9 @@ void PdfParser::ParseContentStream(
                             char* pEnd = nullptr;
                             float kern = (float)strtod(pStream + k, &pEnd);
                             if (pEnd && pEnd != pStream + k) {
-                                curX -= (kern / 1000.0f) * curFontSize * (curHScale / 100.0f);
+                                float kAdv = -(kern / 1000.0f) * curFontSize * (curHScale / 100.0f);
+                                curX += kAdv * tm.a;
+                                curY += kAdv * tm.b;
                                 if (kern < -250.0f && !outPage.fullText.empty() && outPage.fullText.back() != L' ') {
                                     outPage.fullText.push_back(L' ');
                                     outPage.chars.push_back({ L' ', D2D1::RectF(curX, 0, curX, 0) });
