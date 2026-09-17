@@ -138,6 +138,18 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_APP_PAGE_SIZES_READY: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->document.IsLoaded()) {
+            pTab->lastOffsetsZoom = -1.0f; // Invalidate cached continuous scroll offsets
+            if (pTab->zoomMode != ZoomMode::Custom) {
+                RecalculateLayout();
+            }
+            Render();
+        }
+        return 0;
+    }
+
     case WM_TIMER: {
         if (wParam == 1) {
             float targetAlpha = 0.0f;
@@ -1078,7 +1090,7 @@ void AppWindow::OpenTab(const std::wstring& path) {
 
     // If we have a single tab that failed to load or is blank, reuse it
     if (m_tabs.size() == 1 && !m_tabs[0].document.IsLoaded()) {
-        if (m_tabs[0].document.Open(resolvedPath)) {
+        if (m_tabs[0].document.Open(resolvedPath, m_hwnd)) {
             m_tabs[0].currentPage = 0;
             m_tabs[0].zoomMode = ZoomMode::FitPage;
             m_tabs[0].continuousScroll = false;
@@ -1098,7 +1110,7 @@ void AppWindow::OpenTab(const std::wstring& path) {
     }
 
     DocumentTab newTab;
-    if (newTab.document.Open(resolvedPath)) {
+    if (newTab.document.Open(resolvedPath, m_hwnd)) {
         newTab.currentPage = 0;
         newTab.zoomMode = ZoomMode::FitPage;
         newTab.continuousScroll = false;

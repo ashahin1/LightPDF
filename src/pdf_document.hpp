@@ -11,14 +11,25 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <atomic>
+#include <thread>
 #include <d2d1.h>
+
+#define WM_APP_PAGE_SIZES_READY (WM_APP + 3)
+
+struct PageSizesData {
+    std::mutex mutex;
+    std::vector<D2D1_SIZE_F> sizes;
+    std::atomic<bool> cancel{ false };
+};
 
 class PdfDocumentWrapper {
 public:
     PdfDocumentWrapper();
     ~PdfDocumentWrapper();
 
-    bool Open(const std::wstring& filePath);
+    bool Open(const std::wstring& filePath, HWND hwndNotify = nullptr);
     void Close();
 
     bool IsLoaded() const { return m_loaded; }
@@ -38,5 +49,6 @@ private:
     bool m_loaded = false;
 
     // Cache of page dimensions to avoid querying pages on every paint
-    mutable std::vector<D2D1_SIZE_F> m_pageSizes;
+    std::shared_ptr<PageSizesData> m_sizesData;
 };
+

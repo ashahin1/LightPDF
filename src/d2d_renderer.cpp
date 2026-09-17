@@ -533,6 +533,7 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushPropsSecBtnHover = nullptr;
     m_brushPropsSuccess = nullptr;
     m_pageCache = PageBitmapCache();
+    m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
     m_printStagingTexture = nullptr;
     m_printTargetBitmap = nullptr;
@@ -818,6 +819,84 @@ void D2DRenderer::RenderContinuous(
 
     std::lock_guard<std::mutex> lock(m_renderMutex);
 
+    // Pre-pass: Rasterize any uncached visible pages to offscreen bitmaps before beginning main swapchain draw
+    for (const auto& vp : visiblePages) {
+        if (!vp.page) continue;
+
+        float destW = vp.pageSize.width * zoom;
+        float destH = vp.pageSize.height * zoom;
+        UINT32 renderW = (UINT32)std::max(1.0f, std::round(destW));
+        UINT32 renderH = (UINT32)std::max(1.0f, std::round(destH));
+
+        bool found = false;
+        for (auto& entry : m_continuousPageCache) {
+            if (entry.pageIndex == vp.pageIndex &&
+                std::abs(entry.zoom - zoom) < 0.0001f &&
+                entry.pixelW == renderW &&
+                entry.pixelH == renderH &&
+                entry.bitmap) {
+                entry.lastUsedTime = ++m_continuousCacheClock;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found && m_pdfRenderer && renderW > 0 && renderH > 0) {
+            D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                D2D1_BITMAP_OPTIONS_TARGET,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                m_dpi, m_dpi
+            );
+            D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
+
+            ComPtr<ID2D1Bitmap1> pageBitmap;
+            HRESULT hrBmp = m_d2dContext->CreateBitmap(pixelSize, nullptr, 0, &bp, &pageBitmap);
+            if (SUCCEEDED(hrBmp) && pageBitmap) {
+                m_d2dContext->SetTarget(pageBitmap.Get());
+                m_d2dContext->BeginDraw();
+                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+                m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+
+                PDF_RENDER_PARAMS params = {};
+                params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+                params.DestinationWidth = renderW;
+                params.DestinationHeight = renderH;
+                params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+                params.IgnoreHighContrast = FALSE;
+
+                m_pdfRenderer->RenderPageToDeviceContext(
+                    (IUnknown*)winrt::get_abi(vp.page),
+                    m_d2dContext.Get(),
+                    &params
+                );
+                m_d2dContext->EndDraw();
+
+                PageBitmapCache entry;
+                entry.pageIndex = vp.pageIndex;
+                entry.zoom = zoom;
+                entry.pixelW = renderW;
+                entry.pixelH = renderH;
+                entry.lastUsedTime = ++m_continuousCacheClock;
+                entry.bitmap = pageBitmap;
+
+                if (m_continuousPageCache.size() >= MAX_CONTINUOUS_CACHED_PAGES) {
+                    auto oldest = std::min_element(m_continuousPageCache.begin(), m_continuousPageCache.end(),
+                        [](const PageBitmapCache& a, const PageBitmapCache& b) {
+                            return a.lastUsedTime < b.lastUsedTime;
+                        });
+                    if (oldest != m_continuousPageCache.end()) {
+                        *oldest = std::move(entry);
+                    }
+                } else {
+                    m_continuousPageCache.push_back(std::move(entry));
+                }
+
+                // Restore main swapchain target
+                m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+            }
+        }
+    }
+
     m_d2dContext->BeginDraw();
     m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
     m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
@@ -853,8 +932,20 @@ void D2DRenderer::RenderContinuous(
         );
         m_d2dContext->FillRectangle(pageRect, m_brushPageBg.Get());
 
-        // 3. Render PDF Content via Hardware Renderer
-        if (m_pdfRenderer) {
+        // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
+        ID2D1Bitmap1* pCachedBmp = nullptr;
+        for (const auto& entry : m_continuousPageCache) {
+            if (entry.pageIndex == vp.pageIndex &&
+                std::abs(entry.zoom - zoom) < 0.0001f &&
+                entry.bitmap) {
+                pCachedBmp = entry.bitmap.Get();
+                break;
+            }
+        }
+
+        if (pCachedBmp) {
+            m_d2dContext->DrawBitmap(pCachedBmp, pageRect);
+        } else if (m_pdfRenderer) {
             PDF_RENDER_PARAMS params = {};
             params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
             params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
