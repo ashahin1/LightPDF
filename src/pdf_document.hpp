@@ -23,11 +23,11 @@ public:
 
     bool IsLoaded() const { return m_loaded; }
     uint32_t GetPageCount() const { return m_pageCount; }
-    std::wstring GetFilePath() const { return m_filePath; }
-    std::wstring GetFileName() const { return m_fileName; }
+    const std::wstring& GetFilePath() const { return m_filePath; }
+    const std::wstring& GetFileName() const { return m_fileName; }
 
     winrt::Windows::Data::Pdf::PdfPage GetPage(uint32_t pageIndex);
-    D2D1_SIZE_F GetPageSize(uint32_t pageIndex);
+    D2D1_SIZE_F GetPageSize(uint32_t pageIndex) const;
     winrt::Windows::Data::Pdf::PdfDocument GetDoc() const { return m_doc; }
 
 private:
@@ -38,5 +38,5 @@ private:
     bool m_loaded = false;
 
     // Cache of page dimensions to avoid querying pages on every paint
-    std::vector<D2D1_SIZE_F> m_pageSizes;
+    mutable std::vector<D2D1_SIZE_F> m_pageSizes;
 };

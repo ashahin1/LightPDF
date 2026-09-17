@@ -16,13 +16,25 @@ namespace MiniZlib {
 
         BitStream(const uint8_t* data, size_t len) : in(data), in_len(len), in_pos(0), bit_buf(0), bit_cnt(0) {}
 
-        uint32_t get_bits(int n) {
-            while (bit_cnt < n) {
-                if (in_pos < in_len) {
-                    bit_buf |= ((uint32_t)in[in_pos++]) << bit_cnt;
-                }
+        inline void fill_bits(int n) {
+            while (bit_cnt < n && in_pos < in_len) {
+                bit_buf |= ((uint32_t)in[in_pos++]) << bit_cnt;
                 bit_cnt += 8;
             }
+        }
+
+        inline uint32_t peek_bits(int n) {
+            fill_bits(n);
+            return bit_buf & ((1U << n) - 1);
+        }
+
+        inline void consume_bits(int n) {
+            bit_buf >>= n;
+            bit_cnt -= n;
+        }
+
+        inline uint32_t get_bits(int n) {
+            fill_bits(n);
             uint32_t val = bit_buf & ((1U << n) - 1);
             bit_buf >>= n;
             bit_cnt -= n;
@@ -31,8 +43,11 @@ namespace MiniZlib {
     };
 
     struct Huffman {
+        static constexpr int FAST_BITS = 9;
+        static constexpr size_t FAST_SIZE = 1U << FAST_BITS;
         uint16_t count[16];
         uint16_t symbol[288];
+        uint16_t fast_lut[FAST_SIZE];
 
         bool build(const uint8_t* lengths, int num) {
             memset(count, 0, sizeof(count));
@@ -48,10 +63,50 @@ namespace MiniZlib {
                     symbol[offs[lengths[i]]++] = (uint16_t)i;
                 }
             }
+
+            // Populate 9-bit fast lookup table
+            // entry = (symbol << 4) | length, or 0xFFFF if length > FAST_BITS
+            memset(fast_lut, 0xFF, sizeof(fast_lut));
+
+            uint16_t code = 0;
+            uint16_t sym_index = 0;
+            for (int len = 1; len <= 15; ++len) {
+                uint16_t cnt = count[len];
+                if (len <= FAST_BITS) {
+                    for (uint16_t s = 0; s < cnt; ++s) {
+                        uint16_t sym = symbol[sym_index + s];
+                        uint16_t curCode = code + s;
+                        // Reverse curCode bits because bitstream delivers LSB first
+                        uint16_t rev = 0;
+                        for (int b = 0; b < len; ++b) {
+                            if ((curCode >> (len - 1 - b)) & 1) {
+                                rev |= (1U << b);
+                            }
+                        }
+                        uint16_t entry = (uint16_t)((sym << 4) | len);
+                        int step = 1 << len;
+                        for (size_t idx = rev; idx < FAST_SIZE; idx += step) {
+                            fast_lut[idx] = entry;
+                        }
+                    }
+                }
+                sym_index += cnt;
+                code = (code + cnt) << 1;
+            }
+
             return true;
         }
 
-        int decode(BitStream& bs) {
+        inline int decode(BitStream& bs) {
+            uint32_t peek = bs.peek_bits(FAST_BITS);
+            uint16_t entry = fast_lut[peek];
+            if (entry != 0xFFFF) {
+                int len = entry & 0x0F;
+                bs.consume_bits(len);
+                return entry >> 4;
+            }
+
+            // Fallback for codes > 9 bits (rare in DEFLATE)
             uint16_t code = 0;
             uint16_t first = 0;
             uint16_t index = 0;
@@ -429,23 +484,23 @@ void PdfParser::DecodeObjStream(uint32_t stmObjNum) const {
     }
 
     size_t start = it->second.offsetOrStm;
-    size_t stStart = m_bufferStr.find("stream", start);
-    if (stStart == std::string::npos) {
+    size_t stStart = m_bufferView.find("stream", start);
+    if (stStart == std::string_view::npos) {
         m_objStmCache[stmObjNum] = {};
         return;
     }
 
-    std::string dictStr = m_bufferStr.substr(start, stStart - start);
+    std::string_view dictStr = m_bufferView.substr(start, stStart - start);
 
     size_t firstPos = dictStr.find("/First");
     size_t nPos = dictStr.find("/N");
-    if (firstPos == std::string::npos || nPos == std::string::npos) {
+    if (firstPos == std::string_view::npos || nPos == std::string_view::npos) {
         m_objStmCache[stmObjNum] = {};
         return;
     }
 
-    size_t firstOffset = (size_t)strtoull(dictStr.c_str() + firstPos + 6, nullptr, 10);
-    uint32_t nObjs = (uint32_t)strtoul(dictStr.c_str() + nPos + 2, nullptr, 10);
+    size_t firstOffset = (size_t)strtoull(dictStr.data() + firstPos + 6, nullptr, 10);
+    uint32_t nObjs = (uint32_t)strtoul(dictStr.data() + nPos + 2, nullptr, 10);
     if (firstOffset >= stmData.size() || nObjs == 0) {
         m_objStmCache[stmObjNum] = {};
         return;
@@ -483,16 +538,16 @@ void PdfParser::DecodeObjStream(uint32_t stmObjNum) const {
     m_objStmCache[stmObjNum] = std::move(objs);
 }
 
-std::string PdfParser::GetObjectString(uint32_t objNum) const {
+std::string_view PdfParser::GetObjectView(uint32_t objNum) const {
     auto it = m_xref.find(objNum);
-    if (it == m_xref.end() || m_bufferStr.empty()) return {};
+    if (it == m_xref.end() || m_bufferView.empty()) return {};
 
     if (it->second.type == 1) {
         size_t start = it->second.offsetOrStm;
-        if (start >= m_bufferStr.size()) return {};
-        size_t end = m_bufferStr.find("endobj", start);
-        if (end == std::string::npos) end = m_bufferStr.size();
-        return m_bufferStr.substr(start, end - start);
+        if (start >= m_bufferView.size()) return {};
+        size_t end = m_bufferView.find("endobj", start);
+        if (end == std::string_view::npos) end = m_bufferView.size();
+        return m_bufferView.substr(start, end - start);
     } else if (it->second.type == 2) {
         uint32_t stmObjNum = it->second.offsetOrStm;
         DecodeObjStream(stmObjNum);
@@ -507,33 +562,39 @@ std::string PdfParser::GetObjectString(uint32_t objNum) const {
     return {};
 }
 
+std::string PdfParser::GetObjectString(uint32_t objNum) const {
+    std::string_view v = GetObjectView(objNum);
+    return std::string(v);
+}
+
 bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const {
     auto it = m_xref.find(objNum);
     if (it == m_xref.end() || it->second.type != 1) return false;
     size_t start = it->second.offsetOrStm;
-    if (start >= m_bufferStr.size()) return false;
-    size_t stStart = m_bufferStr.find("stream", start);
-    if (stStart == std::string::npos) return false;
+    if (start >= m_bufferView.size()) return false;
+    size_t stStart = m_bufferView.find("stream", start);
+    if (stStart == std::string_view::npos) return false;
 
-    size_t dStart = m_bufferStr.find('\n', stStart);
-    if (dStart == std::string::npos) return false;
+    size_t dStart = m_bufferView.find('\n', stStart);
+    if (dStart == std::string_view::npos) return false;
     dStart++;
-    size_t dEnd = m_bufferStr.find("endstream", dStart);
-    if (dEnd == std::string::npos) return false;
+    size_t dEnd = m_bufferView.find("endstream", dStart);
+    if (dEnd == std::string_view::npos) return false;
 
-    while (dEnd > dStart && (m_bufferStr[dEnd - 1] == '\r' || m_bufferStr[dEnd - 1] == '\n')) dEnd--;
+    while (dEnd > dStart && (m_bufferView[dEnd - 1] == '\r' || m_bufferView[dEnd - 1] == '\n')) dEnd--;
 
-    std::string header = m_bufferStr.substr(start, stStart - start);
-    bool hasA85 = (header.find("ASCII85Decode") != std::string::npos || header.find("/A85") != std::string::npos);
-    bool hasFlate = (header.find("FlateDecode") != std::string::npos || header.find("/Fl") != std::string::npos);
+    std::string_view header = m_bufferView.substr(start, stStart - start);
+    bool hasA85 = (header.find("ASCII85Decode") != std::string_view::npos || header.find("/A85") != std::string_view::npos);
+    bool hasFlate = (header.find("FlateDecode") != std::string_view::npos || header.find("/Fl") != std::string_view::npos);
 
     std::vector<uint8_t> curData;
+    const uint8_t* pRawBuf = reinterpret_cast<const uint8_t*>(m_bufferView.data());
     if (hasA85) {
-        if (!DecodeASCII85(m_buffer.data() + dStart, dEnd - dStart, curData)) {
+        if (!DecodeASCII85(pRawBuf + dStart, dEnd - dStart, curData)) {
             return false;
         }
     } else {
-        curData.assign(m_buffer.begin() + dStart, m_buffer.begin() + dEnd);
+        curData.assign(pRawBuf + dStart, pRawBuf + dEnd);
     }
 
     if (hasFlate) {
@@ -546,13 +607,13 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
         if (dpPos != std::string::npos) {
             int predictor = 1, columns = 1, colors = 1, bpc = 8;
             size_t prPos = header.find("/Predictor", dpPos);
-            if (prPos != std::string::npos) predictor = (int)strtol(header.c_str() + prPos + 10, nullptr, 10);
+            if (prPos != std::string_view::npos) predictor = (int)strtol(header.data() + prPos + 10, nullptr, 10);
             size_t colPos = header.find("/Columns", dpPos);
-            if (colPos != std::string::npos) columns = (int)strtol(header.c_str() + colPos + 8, nullptr, 10);
+            if (colPos != std::string_view::npos) columns = (int)strtol(header.data() + colPos + 8, nullptr, 10);
             size_t clrPos = header.find("/Colors", dpPos);
-            if (clrPos != std::string::npos) colors = (int)strtol(header.c_str() + clrPos + 7, nullptr, 10);
+            if (clrPos != std::string_view::npos) colors = (int)strtol(header.data() + clrPos + 7, nullptr, 10);
             size_t bpcPos = header.find("/BitsPerComponent", dpPos);
-            if (bpcPos != std::string::npos) bpc = (int)strtol(header.c_str() + bpcPos + 17, nullptr, 10);
+            if (bpcPos != std::string_view::npos) bpc = (int)strtol(header.data() + bpcPos + 17, nullptr, 10);
 
             if (predictor >= 10 && columns > 0) {
                 if (DecodePredictor(rawDecomp, predictor, columns, colors, bpc, outData)) {
@@ -630,27 +691,27 @@ std::string PdfParser::ResolveDict(const std::string& parentDict, const std::str
 }
 
 bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
-    if (offset >= m_bufferStr.size()) return false;
+    if (offset >= m_bufferView.size()) return false;
 
     size_t curOffset = offset;
     std::vector<size_t> visitedOffsets;
 
-    while (curOffset < m_bufferStr.size()) {
+    while (curOffset < m_bufferView.size()) {
         if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
         visitedOffsets.push_back(curOffset);
 
-        size_t stStart = m_bufferStr.find("stream", curOffset);
-        if (stStart == std::string::npos) break;
+        size_t stStart = m_bufferView.find("stream", curOffset);
+        if (stStart == std::string_view::npos) break;
 
-        std::string dictStr = m_bufferStr.substr(curOffset, stStart - curOffset);
+        std::string dictStr = std::string(m_bufferView.substr(curOffset, stStart - curOffset));
         if (outTrailerDict.empty()) {
             outTrailerDict = dictStr;
         }
 
         // Parse objNum of this xref stream so we can index it in m_xref
-        size_t objKw = m_bufferStr.find("obj", curOffset);
-        if (objKw != std::string::npos && objKw < stStart) {
-            uint32_t myObjNum = (uint32_t)strtoul(m_bufferStr.c_str() + curOffset, nullptr, 10);
+        size_t objKw = m_bufferView.find("obj", curOffset);
+        if (objKw != std::string_view::npos && objKw < stStart) {
+            uint32_t myObjNum = (uint32_t)strtoul(m_bufferView.data() + curOffset, nullptr, 10);
             if (myObjNum > 0 && m_xref.find(myObjNum) == m_xref.end()) {
                 m_xref[myObjNum] = { 1, (uint32_t)curOffset, 0 };
             }
@@ -695,15 +756,16 @@ bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
         }
 
         // Stream data extraction
-        size_t dStart = m_bufferStr.find('\n', stStart);
-        if (dStart == std::string::npos) break;
+        size_t dStart = m_bufferView.find('\n', stStart);
+        if (dStart == std::string_view::npos) break;
         dStart++;
-        size_t dEnd = m_bufferStr.find("endstream", dStart);
-        if (dEnd == std::string::npos) break;
-        while (dEnd > dStart && (m_bufferStr[dEnd - 1] == '\r' || m_bufferStr[dEnd - 1] == '\n')) dEnd--;
+        size_t dEnd = m_bufferView.find("endstream", dStart);
+        if (dEnd == std::string_view::npos) break;
+        while (dEnd > dStart && (m_bufferView[dEnd - 1] == '\r' || m_bufferView[dEnd - 1] == '\n')) dEnd--;
 
         std::vector<uint8_t> decomp;
-        if (!InflateStream(m_buffer.data() + dStart, dEnd - dStart, decomp)) {
+        const uint8_t* pRawBuf = reinterpret_cast<const uint8_t*>(m_bufferView.data());
+        if (!InflateStream(pRawBuf + dStart, dEnd - dStart, decomp)) {
             break;
         }
 
@@ -774,21 +836,21 @@ bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
 }
 
 bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
-    if (offset >= m_bufferStr.size()) return false;
+    if (offset >= m_bufferView.size()) return false;
 
     size_t curOffset = offset;
     std::vector<size_t> visitedOffsets;
 
-    while (curOffset < m_bufferStr.size()) {
+    while (curOffset < m_bufferView.size()) {
         if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
         visitedOffsets.push_back(curOffset);
 
-        const char* p = m_bufferStr.c_str() + curOffset;
+        const char* p = m_bufferView.data() + curOffset;
         while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
         if (strncmp(p, "xref", 4) != 0) break;
         p += 4;
 
-        while (p < m_bufferStr.c_str() + m_bufferStr.size()) {
+        while (p < m_bufferView.data() + m_bufferView.size()) {
             while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
             if (*p < '0' || *p > '9') break;
 
@@ -826,14 +888,14 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
             }
         }
 
-        size_t pOffset = p - m_bufferStr.c_str();
-        size_t trPos = m_bufferStr.find("trailer", pOffset);
-        if (trPos == std::string::npos) break;
+        size_t pOffset = p - m_bufferView.data();
+        size_t trPos = m_bufferView.find("trailer", pOffset);
+        if (trPos == std::string_view::npos) break;
 
-        size_t dictStart = m_bufferStr.find("<<", trPos);
-        if (dictStart == std::string::npos) break;
+        size_t dictStart = m_bufferView.find("<<", trPos);
+        if (dictStart == std::string_view::npos) break;
 
-        std::string trDict = ResolveDict(m_bufferStr.substr(trPos), "<<");
+        std::string trDict = ResolveDict(std::string(m_bufferView.substr(trPos)), "<<");
         if (outTrailerDict.empty()) {
             outTrailerDict = trDict;
         }
@@ -852,27 +914,45 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
 bool PdfParser::Load(const std::wstring& filePath) {
     Close();
 
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file.is_open()) return false;
+    m_hFile = CreateFileW(
+        filePath.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    if (m_hFile == INVALID_HANDLE_VALUE) return false;
 
-    file.seekg(0, std::ios::end);
-    size_t fileSize = (size_t)file.tellg();
-    file.seekg(0, std::ios::beg);
+    LARGE_INTEGER liSize;
+    if (!GetFileSizeEx(m_hFile, &liSize) || liSize.QuadPart < 32) {
+        Close();
+        return false;
+    }
+    m_fileSize = (size_t)liSize.QuadPart;
 
-    if (fileSize < 32) return false;
+    m_hMapping = CreateFileMappingW(m_hFile, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (!m_hMapping) {
+        Close();
+        return false;
+    }
 
-    m_buffer.resize(fileSize);
-    file.read((char*)m_buffer.data(), fileSize);
-    if (!file) return false;
+    m_mappedData = (const char*)MapViewOfFile(m_hMapping, FILE_MAP_READ, 0, 0, 0);
+    if (!m_mappedData) {
+        Close();
+        return false;
+    }
 
-    m_bufferStr.assign((const char*)m_buffer.data(), fileSize);
+    m_bufferView = std::string_view(m_mappedData, m_fileSize);
+    size_t fileSize = m_fileSize;
 
     // 0. Extract PDF version from header (e.g. "%PDF-1.5")
     m_pdfVersion = "1.4";
-    if (m_bufferStr.size() >= 8 && m_bufferStr.compare(0, 5, "%PDF-") == 0) {
-        size_t eol = m_bufferStr.find_first_of("\r\n", 5);
-        if (eol != std::string::npos && eol > 5) {
-            m_pdfVersion = m_bufferStr.substr(5, eol - 5);
+    if (m_bufferView.size() >= 8 && m_bufferView.compare(0, 5, "%PDF-") == 0) {
+        size_t eol = m_bufferView.find_first_of("\r\n", 5);
+        if (eol != std::string_view::npos && eol > 5) {
+            m_pdfVersion = std::string(m_bufferView.substr(5, eol - 5));
             while (!m_pdfVersion.empty() && (m_pdfVersion.back() == ' ' || m_pdfVersion.back() == '\t')) {
                 m_pdfVersion.pop_back();
             }
@@ -880,20 +960,20 @@ bool PdfParser::Load(const std::wstring& filePath) {
     }
 
     // 1. Locate startxref from EOF
-    size_t sxPos = m_bufferStr.rfind("startxref");
+    size_t sxPos = m_bufferView.rfind("startxref");
     std::string trailerDict;
 
-    if (sxPos != std::string::npos) {
+    if (sxPos != std::string_view::npos) {
         size_t numPos = sxPos + 9;
-        while (numPos < fileSize && (m_bufferStr[numPos] == ' ' || m_bufferStr[numPos] == '\t' || m_bufferStr[numPos] == '\r' || m_bufferStr[numPos] == '\n')) numPos++;
-        if (numPos < fileSize && m_bufferStr[numPos] >= '0' && m_bufferStr[numPos] <= '9') {
-            size_t xrefOffset = (size_t)strtoull(m_bufferStr.c_str() + numPos, nullptr, 10);
+        while (numPos < fileSize && (m_bufferView[numPos] == ' ' || m_bufferView[numPos] == '\t' || m_bufferView[numPos] == '\r' || m_bufferView[numPos] == '\n')) numPos++;
+        if (numPos < fileSize && m_bufferView[numPos] >= '0' && m_bufferView[numPos] <= '9') {
+            size_t xrefOffset = (size_t)strtoull(m_bufferView.data() + numPos, nullptr, 10);
             if (xrefOffset < fileSize) {
                 size_t p = xrefOffset;
-                while (p < fileSize && (m_bufferStr[p] == ' ' || m_bufferStr[p] == '\t' || m_bufferStr[p] == '\r' || m_bufferStr[p] == '\n')) p++;
-                if (p + 4 <= fileSize && m_bufferStr.compare(p, 4, "xref") == 0) {
+                while (p < fileSize && (m_bufferView[p] == ' ' || m_bufferView[p] == '\t' || m_bufferView[p] == '\r' || m_bufferView[p] == '\n')) p++;
+                if (p + 4 <= fileSize && m_bufferView.compare(p, 4, "xref") == 0) {
                     ParseClassicXRef(p, trailerDict);
-                } else if (p < fileSize && m_bufferStr[p] >= '0' && m_bufferStr[p] <= '9') {
+                } else if (p < fileSize && m_bufferView[p] >= '0' && m_bufferView[p] <= '9') {
                     ParseXRefStream(p, trailerDict);
                 }
             }
@@ -902,7 +982,7 @@ bool PdfParser::Load(const std::wstring& filePath) {
 
     // 2. Fallback: linear scanner for "N 0 obj" if xref parsing failed or found no entries
     if (m_xref.empty()) {
-        const char* pData = m_bufferStr.data();
+        const char* pData = m_bufferView.data();
         size_t pos = 0;
         while (pos < fileSize) {
             const char* pObj = (const char*)memchr(pData + pos, 'o', fileSize - pos);
@@ -937,19 +1017,19 @@ bool PdfParser::Load(const std::wstring& filePath) {
         FindIndirectRef(trailerDict, "/Info", m_infoObjNum);
     }
     if (rootObj == 0) {
-        size_t rootPos = m_bufferStr.find("/Root");
-        if (rootPos != std::string::npos) {
+        size_t rootPos = m_bufferView.find("/Root");
+        if (rootPos != std::string_view::npos) {
             size_t afterRoot = rootPos + 5;
-            while (afterRoot < m_bufferStr.size() && (m_bufferStr[afterRoot] == ' ' || m_bufferStr[afterRoot] == '\t' || m_bufferStr[afterRoot] == '\r' || m_bufferStr[afterRoot] == '\n')) afterRoot++;
-            rootObj = (uint32_t)strtoul(m_bufferStr.c_str() + afterRoot, nullptr, 10);
+            while (afterRoot < m_bufferView.size() && (m_bufferView[afterRoot] == ' ' || m_bufferView[afterRoot] == '\t' || m_bufferView[afterRoot] == '\r' || m_bufferView[afterRoot] == '\n')) afterRoot++;
+            rootObj = (uint32_t)strtoul(m_bufferView.data() + afterRoot, nullptr, 10);
         }
     }
     if (m_infoObjNum == 0) {
-        size_t infoPos = m_bufferStr.rfind("/Info");
-        if (infoPos != std::string::npos) {
+        size_t infoPos = m_bufferView.rfind("/Info");
+        if (infoPos != std::string_view::npos) {
             size_t afterInfo = infoPos + 5;
-            while (afterInfo < m_bufferStr.size() && (m_bufferStr[afterInfo] == ' ' || m_bufferStr[afterInfo] == '\t' || m_bufferStr[afterInfo] == '\r' || m_bufferStr[afterInfo] == '\n')) afterInfo++;
-            m_infoObjNum = (uint32_t)strtoul(m_bufferStr.c_str() + afterInfo, nullptr, 10);
+            while (afterInfo < m_bufferView.size() && (m_bufferView[afterInfo] == ' ' || m_bufferView[afterInfo] == '\t' || m_bufferView[afterInfo] == '\r' || m_bufferView[afterInfo] == '\n')) afterInfo++;
+            m_infoObjNum = (uint32_t)strtoul(m_bufferView.data() + afterInfo, nullptr, 10);
         }
     }
 
@@ -1008,8 +1088,20 @@ bool PdfParser::Load(const std::wstring& filePath) {
 }
 
 void PdfParser::Close() {
-    m_buffer.clear();
-    m_bufferStr.clear();
+    if (m_mappedData) {
+        UnmapViewOfFile(m_mappedData);
+        m_mappedData = nullptr;
+    }
+    if (m_hMapping) {
+        CloseHandle(m_hMapping);
+        m_hMapping = nullptr;
+    }
+    if (m_hFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(m_hFile);
+        m_hFile = INVALID_HANDLE_VALUE;
+    }
+    m_fileSize = 0;
+    m_bufferView = {};
     m_pdfVersion = "1.4";
     m_infoObjNum = 0;
     m_pageObjectNums.clear();
@@ -1206,12 +1298,12 @@ bool PdfParser::ExtractMetadata(PdfMetadata& outMetadata) const {
     }
 
     if (infoDict.empty()) {
-        size_t pos = m_bufferStr.rfind("/Info");
-        if (pos != std::string::npos) {
-            size_t b1 = m_bufferStr.find("<<", pos);
-            size_t b2 = m_bufferStr.find(">>", b1);
-            if (b1 != std::string::npos && b2 != std::string::npos && b2 > b1 && (b2 - b1) < 4096) {
-                infoDict = m_bufferStr.substr(b1, b2 - b1 + 2);
+        size_t pos = m_bufferView.rfind("/Info");
+        if (pos != std::string_view::npos) {
+            size_t b1 = m_bufferView.find("<<", pos);
+            size_t b2 = m_bufferView.find(">>", b1);
+            if (b1 != std::string_view::npos && b2 != std::string_view::npos && b2 > b1 && (b2 - b1) < 4096) {
+                infoDict = std::string(m_bufferView.substr(b1, b2 - b1 + 2));
             }
         }
     }
@@ -1703,7 +1795,7 @@ std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string
 }
 
 bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
-    if (pageIndex >= m_pageObjectNums.size() || m_buffer.empty()) return false;
+    if (pageIndex >= m_pageObjectNums.size() || m_bufferView.empty()) return false;
 
     outPage.pageIndex = pageIndex;
     outPage.fullText.clear();
@@ -1840,12 +1932,14 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
 
 // Helper to extract up to maxCount numeric operands immediately preceding an operator at opIndex.
 // Operands in PDF precede the operator (e.g. "1 0 0 1 72 720 cm" or "-23.036 40.751 Td").
-static std::vector<float> GetPrecedingNumericTokens(const char* pStream, size_t opIndex, size_t maxCount) {
-    std::vector<float> result;
+static NumericTokens GetPrecedingNumericTokens(const char* pStream, size_t opIndex, size_t maxCount) {
+    NumericTokens result;
+    if (maxCount > 6) maxCount = 6;
     size_t pos = opIndex;
-    std::vector<std::pair<size_t, size_t>> tokenRanges;
+    std::pair<size_t, size_t> tokenRanges[6];
+    size_t numRanges = 0;
 
-    while (pos > 0 && tokenRanges.size() < maxCount) {
+    while (pos > 0 && numRanges < maxCount) {
         // 1. Skip trailing whitespace backwards
         while (pos > 0 && (pStream[pos - 1] == ' ' || pStream[pos - 1] == '\t' || 
                            pStream[pos - 1] == '\r' || pStream[pos - 1] == '\n')) {
@@ -1883,20 +1977,20 @@ static std::vector<float> GetPrecedingNumericTokens(const char* pStream, size_t 
             break;
         }
 
-        tokenRanges.push_back({ tokStart, tokEnd });
+        tokenRanges[numRanges++] = { tokStart, tokEnd };
     }
 
     // Tokens were collected right-to-left; reverse to restore left-to-right operand order
-    std::reverse(tokenRanges.begin(), tokenRanges.end());
-    for (const auto& r : tokenRanges) {
+    std::reverse(tokenRanges, tokenRanges + numRanges);
+    for (size_t i = 0; i < numRanges; ++i) {
         char buf[64];
-        size_t tLen = r.second - r.first;
+        size_t tLen = tokenRanges[i].second - tokenRanges[i].first;
         if (tLen < sizeof(buf)) {
-            memcpy(buf, pStream + r.first, tLen);
+            memcpy(buf, pStream + tokenRanges[i].first, tLen);
             buf[tLen] = '\0';
             char* endPtr = nullptr;
             float val = (float)strtod(buf, &endPtr);
-            result.push_back(val);
+            result.values[result.count++] = val;
         }
     }
     return result;
@@ -1925,6 +2019,8 @@ void PdfParser::ParseContentStream(
     bool inText = false;
     float curFontSize = 12.0f;
     std::string curFontName = "";
+    const PdfFontInfo* curFont = nullptr;
+    bool curFontIs2Byte = false;
     float curCharSpace = 0.0f;
     float curWordSpace = 0.0f;
     float curHScale = 100.0f;
@@ -1940,13 +2036,8 @@ void PdfParser::ParseContentStream(
     auto EmitBytes = [&](const std::vector<uint8_t>& rawBytes, bool isHex) {
         if (rawBytes.empty()) return;
 
-        const PdfFontInfo* pFont = fonts.count(curFontName) ? &fonts.at(curFontName) : nullptr;
-        bool is2Byte = false;
-        if (pFont) {
-            if (pFont->subtype == "Type0" || !pFont->cidWidths.empty() || pFont->baseFont.find("Identity") != std::string::npos) {
-                is2Byte = true;
-            }
-        }
+        const PdfFontInfo* pFont = curFont;
+        bool is2Byte = curFontIs2Byte;
 
         float fontScaleX = curFontSize * (curHScale / 100.0f) * std::hypot(tm.a, tm.b) * std::hypot(ctm.a, ctm.b);
         float fontScaleY = curFontSize * std::hypot(tm.d, tm.c) * std::hypot(ctm.d, ctm.c);
@@ -2083,14 +2174,14 @@ void PdfParser::ParseContentStream(
         // Matrix concatenation 'cm'
         if (i + 2 <= len && pStream[i] == 'c' && pStream[i + 1] == 'm' && (i + 2 >= len || pStream[i + 2] == ' ' || pStream[i + 2] == '\t' || pStream[i + 2] == '\r' || pStream[i + 2] == '\n')) {
             auto vals = GetPrecedingNumericTokens(pStream, i, 6);
-            if (vals.size() >= 6) {
+            if (vals.count >= 6) {
                 Matrix2D m{
-                    vals[vals.size() - 6],
-                    vals[vals.size() - 5],
-                    vals[vals.size() - 4],
-                    vals[vals.size() - 3],
-                    vals[vals.size() - 2],
-                    vals[vals.size() - 1]
+                    vals.values[vals.count - 6],
+                    vals.values[vals.count - 5],
+                    vals.values[vals.count - 4],
+                    vals.values[vals.count - 3],
+                    vals.values[vals.count - 2],
+                    vals.values[vals.count - 1]
                 };
                 ctm = m.Multiply(ctm);
             }
@@ -2210,6 +2301,9 @@ void PdfParser::ParseContentStream(
                     while (opPos < len && (pStream[opPos] == ' ' || pStream[opPos] == '\t' || pStream[opPos] == '\r' || pStream[opPos] == '\n')) opPos++;
                     if (opPos + 2 <= len && pStream[opPos] == 'T' && pStream[opPos + 1] == 'f') {
                         curFontName = fName;
+                        auto itF = fonts.find(curFontName);
+                        curFont = (itF != fonts.end()) ? &itF->second : nullptr;
+                        curFontIs2Byte = curFont && (curFont->subtype == "Type0" || !curFont->cidWidths.empty() || curFont->baseFont.find("Identity") != std::string::npos);
                         if (fSize > 0.1f) curFontSize = fSize;
                         i = opPos + 2;
                         continue;
@@ -2220,13 +2314,13 @@ void PdfParser::ParseContentStream(
             // Text matrix: "a b c d e f Tm"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'm') {
                 auto vals = GetPrecedingNumericTokens(pStream, i, 6);
-                if (vals.size() >= 6) {
-                    tm.a = vals[vals.size() - 6];
-                    tm.b = vals[vals.size() - 5];
-                    tm.c = vals[vals.size() - 4];
-                    tm.d = vals[vals.size() - 3];
-                    tm.e = vals[vals.size() - 2];
-                    tm.f = vals[vals.size() - 1];
+                if (vals.count >= 6) {
+                    tm.a = vals.values[vals.count - 6];
+                    tm.b = vals.values[vals.count - 5];
+                    tm.c = vals.values[vals.count - 4];
+                    tm.d = vals.values[vals.count - 3];
+                    tm.e = vals.values[vals.count - 2];
+                    tm.f = vals.values[vals.count - 1];
                     tlm = tm;
                     curX = tm.e;
                     curY = tm.f;
@@ -2239,9 +2333,9 @@ void PdfParser::ParseContentStream(
             if (i + 2 <= len && pStream[i] == 'T' && (pStream[i + 1] == 'd' || pStream[i + 1] == 'D')) {
                 bool isTD = (pStream[i + 1] == 'D');
                 auto vals = GetPrecedingNumericTokens(pStream, i, 2);
-                if (vals.size() >= 2) {
-                    float tx = vals[vals.size() - 2];
-                    float ty = vals[vals.size() - 1];
+                if (vals.count >= 2) {
+                    float tx = vals.values[vals.count - 2];
+                    float ty = vals.values[vals.count - 1];
                     if (isTD) curLeading = -ty;
 
                     float newE = tx * tlm.a + ty * tlm.c + tlm.e;
@@ -2272,7 +2366,7 @@ void PdfParser::ParseContentStream(
             // Character spacing: "charSpace Tc"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'c') {
                 auto vals = GetPrecedingNumericTokens(pStream, i, 1);
-                if (!vals.empty()) curCharSpace = vals.back();
+                if (vals.count > 0) curCharSpace = vals.values[vals.count - 1];
                 i += 2;
                 continue;
             }
@@ -2280,7 +2374,7 @@ void PdfParser::ParseContentStream(
             // Word spacing: "wordSpace Tw"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'w') {
                 auto vals = GetPrecedingNumericTokens(pStream, i, 1);
-                if (!vals.empty()) curWordSpace = vals.back();
+                if (vals.count > 0) curWordSpace = vals.values[vals.count - 1];
                 i += 2;
                 continue;
             }
@@ -2288,7 +2382,7 @@ void PdfParser::ParseContentStream(
             // Horizontal scaling: "scale Tz"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'z') {
                 auto vals = GetPrecedingNumericTokens(pStream, i, 1);
-                if (!vals.empty()) curHScale = vals.back();
+                if (vals.count > 0) curHScale = vals.values[vals.count - 1];
                 i += 2;
                 continue;
             }
@@ -2296,7 +2390,7 @@ void PdfParser::ParseContentStream(
             // Text leading: "leading TL"
             if (i + 2 <= len && pStream[i] == 'T' && pStream[i + 1] == 'L') {
                 auto vals = GetPrecedingNumericTokens(pStream, i, 1);
-                if (!vals.empty()) curLeading = vals.back();
+                if (vals.count > 0) curLeading = vals.values[vals.count - 1];
                 i += 2;
                 continue;
             }

@@ -28,6 +28,11 @@ bool ContainsArabic(const std::wstring& str);
 bool HasArabicLetters(const std::wstring& str);
 std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap = nullptr);
 
+struct PageTextCache {
+    std::mutex mutex;
+    std::vector<std::shared_ptr<PdfPageText>> pages;
+};
+
 class PdfSearchEngine {
 public:
     PdfSearchEngine();
@@ -40,10 +45,12 @@ public:
         const std::wstring& query,
         bool matchCase,
         bool ocrEnabled,
-        winrt::Windows::Data::Pdf::PdfDocument doc = nullptr
+        winrt::Windows::Data::Pdf::PdfDocument doc = nullptr,
+        std::shared_ptr<PageTextCache> textCache = nullptr
     );
 
     void Cancel();
+    void CancelAsync() { m_cancelToken = true; }
     void Clear();
 
     bool IsSearching() const { return m_isSearching.load(); }
@@ -67,7 +74,8 @@ private:
         std::wstring query,
         bool matchCase,
         bool ocrEnabled,
-        winrt::Windows::Data::Pdf::PdfDocument doc
+        winrt::Windows::Data::Pdf::PdfDocument doc,
+        std::shared_ptr<PageTextCache> textCache
     );
 
     mutable std::mutex m_mutex;

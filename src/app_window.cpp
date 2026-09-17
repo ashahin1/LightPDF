@@ -16,6 +16,9 @@ AppWindow::~AppWindow() {
     if (m_printThread.joinable()) {
         m_printThread.join();
     }
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
     }
@@ -24,11 +27,16 @@ AppWindow::~AppWindow() {
 bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile) {
     m_hInstance = hInstance;
 
+    m_cursorArrow = LoadCursor(nullptr, IDC_ARROW);
+    m_cursorHand = LoadCursor(nullptr, IDC_HAND);
+    m_cursorIBeam = LoadCursor(nullptr, IDC_IBEAM);
+    m_cursorSizeAll = LoadCursor(nullptr, IDC_SIZEALL);
+
     WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = AppWindow::WndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wc.hCursor = m_cursorArrow;
     wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED);
     wc.hbrBackground = nullptr;
@@ -120,6 +128,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_APP_SEARCH_UPDATE: {
+        InvalidateSearchHighlights();
         int activeIdx = m_searchEngine.GetActiveMatchIndex();
         if (activeIdx >= 0 && activeIdx != m_lastJumpedMatch) {
             m_lastJumpedMatch = activeIdx;
@@ -397,7 +406,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_isPanning = true;
             m_lastMousePos = pt;
             SetCapture(m_hwnd);
-            SetCursor(LoadCursor(nullptr, IDC_SIZEALL));
+            SetCursor(m_cursorSizeAll);
         }
         return 0;
     }
@@ -419,9 +428,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
             }
             if (hit > 0) {
-                SetCursor(LoadCursor(nullptr, IDC_HAND));
+                SetCursor(m_cursorHand);
             } else {
-                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                SetCursor(m_cursorArrow);
             }
             return 0;
         }
@@ -452,9 +461,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
             }
             if (hit > 0) {
-                SetCursor(LoadCursor(nullptr, IDC_HAND));
+                SetCursor(m_cursorHand);
             } else if (hit == 0) {
-                SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+                SetCursor(m_cursorIBeam);
             }
         } else if (m_searchHoveredBtn != 0) {
             m_searchHoveredBtn = 0;
@@ -474,7 +483,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (changed) {
                 Render();
             }
-            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            SetCursor(m_cursorArrow);
         } else {
             if (m_hoveredTab != -1 || m_hoveredClose || m_hoveredAdd) {
                 m_hoveredTab = -1;
@@ -518,7 +527,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (m_isPanning) {
             m_isPanning = false;
             ReleaseCapture();
-            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            SetCursor(m_cursorArrow);
         }
         return 0;
     }
@@ -531,7 +540,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         if (m_isPanning) {
             m_isPanning = false;
-            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            SetCursor(m_cursorArrow);
         }
         return 0;
     }
@@ -1074,6 +1083,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
             m_tabs[0].zoomMode = ZoomMode::FitPage;
             m_tabs[0].continuousScroll = false;
             m_tabs[0].scrollY = 0.0f;
+            m_tabs[0].textCache = std::make_shared<PageTextCache>();
+            m_tabs[0].textCache->pages.resize(m_tabs[0].document.GetPageCount());
+            m_renderer.InvalidatePageCache();
             m_activeTab = 0;
             if (m_showSearch && !m_searchQuery.empty()) {
                 TriggerSearch();
@@ -1091,6 +1103,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
         newTab.zoomMode = ZoomMode::FitPage;
         newTab.continuousScroll = false;
         newTab.scrollY = 0.0f;
+        newTab.textCache = std::make_shared<PageTextCache>();
+        newTab.textCache->pages.resize(newTab.document.GetPageCount());
+        m_renderer.InvalidatePageCache();
         m_tabs.push_back(std::move(newTab));
         m_activeTab = m_tabs.size() - 1;
         if (m_showSearch && !m_searchQuery.empty()) {
@@ -1105,6 +1120,7 @@ void AppWindow::OpenTab(const std::wstring& path) {
 void AppWindow::CloseTab(size_t index) {
     if (index >= m_tabs.size()) return;
 
+    m_renderer.InvalidatePageCache();
     m_tabs.erase(m_tabs.begin() + index);
 
     if (m_tabs.empty()) {
@@ -1135,6 +1151,7 @@ void AppWindow::CloseTab(size_t index) {
 
 void AppWindow::SelectTab(size_t index) {
     if (index >= m_tabs.size() || index == m_activeTab) return;
+    m_renderer.InvalidatePageCache();
     m_activeTab = index;
     if (m_showProperties) {
         ShowDocumentProperties();
@@ -1149,6 +1166,7 @@ void AppWindow::SelectTab(size_t index) {
 
 void AppWindow::NextTab() {
     if (m_tabs.size() <= 1) return;
+    m_renderer.InvalidatePageCache();
     m_activeTab = (m_activeTab + 1) % m_tabs.size();
     if (m_showProperties) {
         ShowDocumentProperties();
@@ -1163,6 +1181,7 @@ void AppWindow::NextTab() {
 
 void AppWindow::PrevTab() {
     if (m_tabs.size() <= 1) return;
+    m_renderer.InvalidatePageCache();
     m_activeTab = (m_activeTab == 0) ? (m_tabs.size() - 1) : (m_activeTab - 1);
     if (m_showProperties) {
         ShowDocumentProperties();
@@ -1233,8 +1252,12 @@ void AppWindow::PromptOpenFile() {
         return;
     }
 
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
+
     HWND hwnd = m_hwnd;
-    std::thread([this, hwnd]() {
+    m_dialogThread = std::thread([this, hwnd]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
         ComPtr<IFileOpenDialog> pFileOpen;
@@ -1288,7 +1311,7 @@ void AppWindow::PromptOpenFile() {
         }
 
         m_isDialogOpen = false;
-    }).detach();
+    });
 }
 
 void AppWindow::PromptPrint() {
@@ -1679,33 +1702,49 @@ void AppWindow::ScrollContinuous(float deltaY) {
     Render();
 }
 
-float AppWindow::GetTotalDocumentHeight(const DocumentTab* pTab) const {
-    if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
+void AppWindow::UpdateContinuousOffsets(DocumentTab* pTab) {
+    if (!pTab || !pTab->document.IsLoaded()) return;
     uint32_t count = pTab->document.GetPageCount();
-    if (count == 0) return 0.0f;
-
+    if (count == 0) {
+        pTab->pageOffsets.clear();
+        pTab->totalDocHeight = 0.0f;
+        pTab->lastOffsetsZoom = pTab->zoom;
+        return;
+    }
+    if (pTab->pageOffsets.size() == count && pTab->lastOffsetsZoom == pTab->zoom) {
+        return;
+    }
+    pTab->pageOffsets.resize(count);
+    float y = 24.0f; // top margin
     float gap = 12.0f;
-    float totalH = 24.0f; // top margin
     for (uint32_t i = 0; i < count; ++i) {
-        D2D1_SIZE_F pSize = const_cast<DocumentTab*>(pTab)->document.GetPageSize(i);
-        totalH += pSize.height * pTab->zoom;
+        pTab->pageOffsets[i] = y;
+        y += pTab->document.GetPageSize(i).height * pTab->zoom;
         if (i + 1 < count) {
-            totalH += gap;
+            y += gap;
         }
     }
-    totalH += 24.0f; // bottom margin
-    return totalH;
+    pTab->totalDocHeight = y + 24.0f; // bottom margin
+    pTab->lastOffsetsZoom = pTab->zoom;
+}
+
+float AppWindow::GetTotalDocumentHeight(const DocumentTab* pTab) const {
+    if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
+    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
+        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
+    }
+    return pTab->totalDocHeight;
 }
 
 float AppWindow::GetPageYOffset(const DocumentTab* pTab, uint32_t pageIndex) const {
     if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
-    float y = 24.0f;
-    float gap = 12.0f;
-    uint32_t count = std::min(pageIndex, pTab->document.GetPageCount());
-    for (uint32_t i = 0; i < count; ++i) {
-        y += const_cast<DocumentTab*>(pTab)->document.GetPageSize(i).height * pTab->zoom + gap;
+    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
+        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
     }
-    return y;
+    if (pageIndex < pTab->pageOffsets.size()) {
+        return pTab->pageOffsets[pageIndex];
+    }
+    return pTab->totalDocHeight;
 }
 
 uint32_t AppWindow::GetPageAtScrollOffset(const DocumentTab* pTab) const {
@@ -1713,20 +1752,17 @@ uint32_t AppWindow::GetPageAtScrollOffset(const DocumentTab* pTab) const {
     uint32_t count = pTab->document.GetPageCount();
     if (count <= 1) return 0;
 
+    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != count) {
+        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
+    }
+
     float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
     float targetY = pTab->scrollY + dipH * 0.45f;
-    float curY = 24.0f;
-    float gap = 12.0f;
 
-    for (uint32_t i = 0; i < count; ++i) {
-        D2D1_SIZE_F pSize = const_cast<DocumentTab*>(pTab)->document.GetPageSize(i);
-        float pageH = pSize.height * pTab->zoom;
-        if (targetY < curY + pageH || i == count - 1) {
-            return i;
-        }
-        curY += pageH + gap;
-    }
-    return count - 1;
+    auto it = std::upper_bound(pTab->pageOffsets.begin(), pTab->pageOffsets.end(), targetY);
+    if (it == pTab->pageOffsets.begin()) return 0;
+    size_t idx = std::distance(pTab->pageOffsets.begin(), it) - 1;
+    return (uint32_t)std::min(idx, (size_t)(count - 1));
 }
 
 void AppWindow::ToggleFullscreen() {
@@ -1776,12 +1812,21 @@ void AppWindow::Render() {
             float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
             float viewTop = pTab->scrollY;
             float viewBot = pTab->scrollY + dipH;
-            float gap = 12.0f;
-            float curY = 24.0f; // top margin
             uint32_t count = pTab->document.GetPageCount();
 
+            UpdateContinuousOffsets(pTab);
+            const auto& offsets = pTab->pageOffsets;
+
+            // Binary search for the first page that could be visible
+            auto it = std::upper_bound(offsets.begin(), offsets.end(), viewTop);
+            uint32_t startIdx = 0;
+            if (it != offsets.begin()) {
+                startIdx = static_cast<uint32_t>(std::distance(offsets.begin(), it) - 1);
+            }
+
             std::vector<ContinuousPageInfo> visiblePages;
-            for (uint32_t i = 0; i < count; ++i) {
+            for (uint32_t i = startIdx; i < count; ++i) {
+                float curY = offsets[i];
                 D2D1_SIZE_F pSize = pTab->document.GetPageSize(i);
                 float pageH = pSize.height * pTab->zoom;
                 float pageW = pSize.width * pTab->zoom;
@@ -1801,8 +1846,6 @@ void AppWindow::Render() {
                 } else if (curY > viewBot) {
                     break;
                 }
-
-                curY += pageH + gap;
             }
 
             m_renderer.RenderContinuous(
@@ -1906,7 +1949,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
                 float scrollFraction = pTab->scrollY / (totalDocH - viewportH);
                 scrollFraction = std::clamp(scrollFraction, 0.0f, 1.0f);
                 info.thumbY = info.trackY + scrollFraction * (info.trackH - info.thumbH);
-                const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
+                m_scrollbarDragThumbY = info.thumbY;
             }
             info.hoverPage = pTab->currentPage;
         }
@@ -1916,7 +1959,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
             info.thumbH = info.trackH;
             info.thumbY = info.trackY;
             info.hoverPage = 0;
-            const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
+            m_scrollbarDragThumbY = info.thumbY;
         } else {
             info.thumbH = std::max(24.0f, info.trackH / (float)totalPages);
             if (m_isDraggingScrollbar) {
@@ -1924,7 +1967,7 @@ ScrollbarRenderInfo AppWindow::GetScrollbarInfo() const {
             } else {
                 float step = (info.trackH - info.thumbH) / (float)(totalPages - 1);
                 info.thumbY = info.trackY + step * (float)pTab->currentPage;
-                const_cast<AppWindow*>(this)->m_scrollbarDragThumbY = info.thumbY;
+                m_scrollbarDragThumbY = info.thumbY;
             }
             info.hoverPage = pTab->currentPage;
         }
@@ -2047,23 +2090,31 @@ SearchBarRenderInfo AppWindow::GetSearchBarInfo() const {
     return info;
 }
 
-std::vector<SearchHighlight> AppWindow::GetSearchHighlights() const {
-    std::vector<SearchHighlight> highlights;
-    if (!m_showSearch || m_searchQuery.empty()) return highlights;
-
-    auto matches = m_searchEngine.GetAllMatches();
-    int activeIdx = m_searchEngine.GetActiveMatchIndex();
-
-    highlights.reserve(matches.size());
-    for (size_t i = 0; i < matches.size(); ++i) {
-        SearchHighlight hl;
-        hl.pageIndex = matches[i].pageIndex;
-        hl.pageRect = matches[i].pageRect;
-        hl.rects = matches[i].rects;
-        hl.isActive = ((int)i == activeIdx);
-        highlights.push_back(hl);
+const std::vector<SearchHighlight>& AppWindow::GetSearchHighlights() const {
+    if (!m_showSearch || m_searchQuery.empty()) {
+        m_cachedHighlights.clear();
+        m_highlightsDirty = false;
+        return m_cachedHighlights;
     }
-    return highlights;
+
+    if (m_highlightsDirty) {
+        auto matches = m_searchEngine.GetAllMatches();
+        int activeIdx = m_searchEngine.GetActiveMatchIndex();
+
+        m_cachedHighlights.clear();
+        m_cachedHighlights.reserve(matches.size());
+        for (size_t i = 0; i < matches.size(); ++i) {
+            SearchHighlight hl;
+            hl.pageIndex = matches[i].pageIndex;
+            hl.pageRect = matches[i].pageRect;
+            hl.rects = matches[i].rects;
+            hl.isActive = ((int)i == activeIdx);
+            m_cachedHighlights.push_back(std::move(hl));
+        }
+        m_highlightsDirty = false;
+    }
+
+    return m_cachedHighlights;
 }
 
 int AppWindow::HitTestSearchBar(POINT pt) const {
@@ -2102,10 +2153,12 @@ void AppWindow::TriggerSearch() {
         m_searchEngine.Cancel();
         m_searchEngine.Clear();
         m_lastJumpedMatch = -1;
+        InvalidateSearchHighlights();
         return;
     }
 
     m_lastJumpedMatch = -1;
+    InvalidateSearchHighlights();
     m_searchEngine.StartSearch(
         m_hwnd,
         pTab->document.GetFilePath(),
@@ -2113,13 +2166,16 @@ void AppWindow::TriggerSearch() {
         m_searchQuery,
         m_searchMatchCase,
         m_searchOcrEnabled,
-        pTab->document.GetDoc()
+        pTab->document.GetDoc(),
+        pTab->textCache
     );
 }
 
 void AppWindow::JumpToActiveMatch() {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded()) return;
+
+    InvalidateSearchHighlights();
 
     SearchMatch match = m_searchEngine.GetActiveMatch();
     if (match.pageIndex >= pTab->document.GetPageCount()) return;
@@ -2168,14 +2224,16 @@ void AppWindow::CloseSearch() {
     m_searchEngine.Cancel();
     m_searchEngine.Clear();
     m_lastJumpedMatch = -1;
+    InvalidateSearchHighlights();
 }
 
 void AppWindow::ScheduleSearchDebounce() {
     KillTimer(m_hwnd, 2);
     m_searchDebouncePending = true;
-    m_searchEngine.Cancel();
+    m_searchEngine.CancelAsync();
     m_searchEngine.Clear();
     m_lastJumpedMatch = -1;
+    InvalidateSearchHighlights();
 
     if (m_searchQuery.empty()) {
         m_searchDebouncePending = false;
@@ -2201,12 +2259,15 @@ void AppWindow::ShowDocumentProperties() {
 
     std::wstring filePath = pTab->document.GetFilePath();
 
-    // 1. Extract PDF metadata
-    PdfMetadata meta;
-    PdfParser parser;
-    if (parser.Load(filePath)) {
-        parser.ExtractMetadata(meta);
+    // 1. Extract PDF metadata (cached per tab)
+    if (!pTab->metadataLoaded) {
+        PdfParser parser;
+        if (parser.Load(filePath)) {
+            parser.ExtractMetadata(pTab->metadata);
+            pTab->metadataLoaded = true;
+        }
     }
+    const auto& meta = pTab->metadata;
 
     m_docPropsInfo.title = meta.title.empty() ? L"—" : meta.title;
     m_docPropsInfo.author = meta.author.empty() ? L"—" : meta.author;

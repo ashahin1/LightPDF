@@ -76,7 +76,7 @@ winrt::Windows::Data::Pdf::PdfPage PdfDocumentWrapper::GetPage(uint32_t pageInde
     }
 }
 
-D2D1_SIZE_F PdfDocumentWrapper::GetPageSize(uint32_t pageIndex) {
+D2D1_SIZE_F PdfDocumentWrapper::GetPageSize(uint32_t pageIndex) const {
     if (!m_loaded || pageIndex >= m_pageCount) {
         return D2D1::SizeF(0.0f, 0.0f);
     }

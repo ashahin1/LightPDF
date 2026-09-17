@@ -1,6 +1,7 @@
 #include "pdf_search.hpp"
 #include <cwctype>
 #include <algorithm>
+#include <chrono>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -91,7 +92,8 @@ void PdfSearchEngine::StartSearch(
     const std::wstring& query,
     bool matchCase,
     bool ocrEnabled,
-    winrt::Windows::Data::Pdf::PdfDocument doc
+    winrt::Windows::Data::Pdf::PdfDocument doc,
+    std::shared_ptr<PageTextCache> textCache
 ) {
     Cancel();
 
@@ -121,7 +123,8 @@ void PdfSearchEngine::StartSearch(
         query,
         matchCase,
         ocrEnabled,
-        doc
+        doc,
+        textCache
     );
 }
 
@@ -259,7 +262,8 @@ void PdfSearchEngine::SearchWorker(
     std::wstring query,
     bool matchCase,
     bool ocrEnabled,
-    winrt::Windows::Data::Pdf::PdfDocument doc
+    winrt::Windows::Data::Pdf::PdfDocument doc,
+    std::shared_ptr<PageTextCache> textCache
 ) {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 
@@ -300,34 +304,55 @@ void PdfSearchEngine::SearchWorker(
         }
     }
 
+    winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+    if (ocrEnabled && doc) {
+        try {
+            if (isQueryArabic) {
+                auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+                }
+                if (!ocrEngine) {
+                    auto arGen = winrt::Windows::Globalization::Language(L"ar");
+                    if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+                    }
+                }
+            }
+            if (!ocrEngine) {
+                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+            }
+        } catch (...) {}
+    }
+
+    auto lastNotifyTime = std::chrono::steady_clock::now();
+    bool hasFirstMatchNotified = false;
+
+    PdfPageText pageText;
     for (uint32_t p = 0; p < totalPages && !m_cancelToken; ++p) {
-        PdfPageText pageText;
-        parser.ExtractPageText(p, pageText);
+        std::shared_ptr<PdfPageText> cachedPage;
+        if (textCache) {
+            std::lock_guard<std::mutex> lock(textCache->mutex);
+            if (p < textCache->pages.size() && textCache->pages[p]) {
+                cachedPage = textCache->pages[p];
+            }
+        }
 
-        // Check if page has digital text
-        if (!pageText.hasDigitalText) {
-            m_hasScannedPages = true;
+        if (cachedPage && (!cachedPage->chars.empty() || !ocrEnabled || cachedPage->hasDigitalText)) {
+            pageText = *cachedPage;
+        } else {
+            pageText.fullText.clear();
+            pageText.chars.clear();
+            pageText.hasDigitalText = false;
+            parser.ExtractPageText(p, pageText);
 
-            // OCR fallback if enabled by user
-            if (ocrEnabled && doc) {
-                try {
-                    winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
-                    if (isQueryArabic) {
-                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
-                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
-                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
-                        }
-                        if (!ocrEngine) {
-                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
-                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
-                            }
-                        }
-                    }
-                    if (!ocrEngine) {
-                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
-                    }
-                    if (ocrEngine) {
+            // Check if page has digital text
+            if (!pageText.hasDigitalText) {
+                m_hasScannedPages = true;
+
+                // OCR fallback if enabled by user
+                if (ocrEnabled && doc && ocrEngine) {
+                    try {
                         auto page = doc.GetPage(p);
                         if (page) {
                             winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
@@ -361,8 +386,15 @@ void PdfSearchEngine::SearchWorker(
                             }
                             pageText.hasDigitalText = !pageText.chars.empty();
                         }
-                    }
-                } catch (...) {}
+                    } catch (...) {}
+                }
+            }
+
+            if (textCache) {
+                std::lock_guard<std::mutex> lock(textCache->mutex);
+                if (p < textCache->pages.size()) {
+                    textCache->pages[p] = std::make_shared<PdfPageText>(pageText);
+                }
             }
         }
 
@@ -531,15 +563,33 @@ void PdfSearchEngine::SearchWorker(
             }
 
             if (!pageMatches.empty() && !m_cancelToken) {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                bool wasEmpty = m_matches.empty();
-                for (auto& m : pageMatches) {
-                    m_matches.push_back(std::move(m));
+                bool shouldNotify = false;
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    bool wasEmpty = m_matches.empty();
+                    for (auto& m : pageMatches) {
+                        m_matches.push_back(std::move(m));
+                    }
+                    if (wasEmpty && !m_matches.empty() && m_activeMatchIndex == -1) {
+                        m_activeMatchIndex = 0;
+                    }
+
+                    auto now = std::chrono::steady_clock::now();
+                    if (!hasFirstMatchNotified) {
+                        hasFirstMatchNotified = true;
+                        shouldNotify = true;
+                        lastNotifyTime = now;
+                    } else {
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastNotifyTime).count();
+                        if (elapsed >= 60) {
+                            shouldNotify = true;
+                            lastNotifyTime = now;
+                        }
+                    }
                 }
-                if (wasEmpty && !m_matches.empty() && m_activeMatchIndex == -1) {
-                    m_activeMatchIndex = 0;
+                if (shouldNotify) {
+                    PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
                 }
-                PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
             }
         }
     }

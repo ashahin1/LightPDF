@@ -36,6 +36,9 @@ Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Gree
 $clArgs = @(
     "/nologo",
     "/O2",
+    "/Ob3",
+    "/fp:fast",
+    "/GF",
     "/MT",
     "/std:c++20",
     "/GL",
