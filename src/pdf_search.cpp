@@ -281,31 +281,6 @@ void PdfSearchEngine::SearchWorker(
 
     bool isQueryArabic = ContainsArabic(query);
     std::wstring qFwd = NormalizeArabic(needle);
-    std::wstring qRev = qFwd;
-    std::wstring qWordRev;
-    bool canReverse = HasArabicLetters(query);
-    if (canReverse) {
-        std::reverse(qRev.begin(), qRev.end());
-        size_t start = 0;
-        while (start < qFwd.size()) {
-            while (start < qFwd.size() && iswspace(qFwd[start])) {
-                qWordRev.push_back(qFwd[start]);
-                start++;
-            }
-            size_t end = start;
-            while (end < qFwd.size() && !iswspace(qFwd[end])) {
-                end++;
-            }
-            if (start < end) {
-                std::wstring token = qFwd.substr(start, end - start);
-                if (HasArabicLetters(token)) {
-                    std::reverse(token.begin(), token.end());
-                }
-                qWordRev += token;
-                start = end;
-            }
-        }
-    }
 
     auto lastNotifyTime = std::chrono::steady_clock::now();
     bool hasFirstMatchNotified = false;
@@ -434,21 +409,11 @@ void PdfSearchEngine::SearchWorker(
                         std::wstring textToNorm = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
                         std::wstring normHay = NormalizeArabic(textToNorm, &charMap);
 
-                        struct QueryVariant {
-                            std::wstring q;
-                            bool isReversed;
-                        };
-                        std::vector<QueryVariant> variants;
-                        if (!qFwd.empty()) variants.push_back({ qFwd, false });
-                        if (canReverse && !qRev.empty() && qRev != qFwd) variants.push_back({ qRev, true });
-                        if (canReverse && !qWordRev.empty() && qWordRev != qFwd && qWordRev != qRev) variants.push_back({ qWordRev, true });
-
-                        for (const auto& variant : variants) {
-                            if (m_cancelToken) break;
+                        if (!qFwd.empty()) {
                             size_t pos = 0;
-                            while ((pos = normHay.find(variant.q, pos)) != std::wstring::npos) {
+                            while ((pos = normHay.find(qFwd, pos)) != std::wstring::npos) {
                                 if (m_cancelToken) break;
-                                size_t matchLen = variant.q.size();
+                                size_t matchLen = qFwd.size();
                                 if (pos >= charMap.size() || pos + matchLen - 1 >= charMap.size()) {
                                     pos += std::max(1ULL, (unsigned long long)matchLen);
                                     continue;
@@ -504,26 +469,7 @@ void PdfSearchEngine::SearchWorker(
                                     match.rects = std::move(lineRects);
                                     match.matchedText = pageText.fullText.substr(cMin, cMax - cMin + 1);
 
-                                    // Check duplicate against existing matches on this page
-                                    bool isDup = false;
-                                    for (const auto& em : pageMatches) {
-                                        float ix0 = std::max(match.pageRect.left, em.pageRect.left);
-                                        float iy0 = std::max(match.pageRect.top, em.pageRect.top);
-                                        float ix1 = std::min(match.pageRect.right, em.pageRect.right);
-                                        float iy1 = std::min(match.pageRect.bottom, em.pageRect.bottom);
-                                        if (ix1 > ix0 && iy1 > iy0) {
-                                            float interArea = (ix1 - ix0) * (iy1 - iy0);
-                                            float matchArea = (match.pageRect.right - match.pageRect.left) * (match.pageRect.bottom - match.pageRect.top);
-                                            if (matchArea > 0.0f && (interArea / matchArea) > 0.6f) {
-                                                isDup = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (!isDup) {
-                                        pageMatches.push_back(std::move(match));
-                                    }
+                                    pageMatches.push_back(std::move(match));
                                 }
 
                                 pos += std::max(1ULL, (unsigned long long)matchLen);

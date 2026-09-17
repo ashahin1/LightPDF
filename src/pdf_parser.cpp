@@ -1794,6 +1794,111 @@ std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string
     return xobjects;
 }
 
+static bool IsArabicAlphabetLetter(wchar_t ch) {
+    return (ch >= 0x0621 && ch <= 0x064A) ||
+           (ch >= 0x066E && ch <= 0x06D3) ||
+           (ch >= 0xFB50 && ch <= 0xFDFF) ||
+           (ch >= 0xFE70 && ch <= 0xFEFF);
+}
+
+static void NormalizeVisualArabic(PdfPageText& outPage) {
+    if (outPage.chars.empty()) return;
+
+    // Step 1: Detect and reverse contiguous visual LTR Arabic words
+    size_t i = 0;
+    while (i < outPage.chars.size()) {
+        if (!IsArabicAlphabetLetter(outPage.chars[i].ch)) {
+            i++;
+            continue;
+        }
+
+        size_t start = i;
+        while (i < outPage.chars.size() && IsArabicAlphabetLetter(outPage.chars[i].ch)) {
+            i++;
+        }
+        size_t end = i;
+
+        if (end - start >= 2) {
+            float xFirst = outPage.chars[start].rect.left;
+            float xLast = outPage.chars[end - 1].rect.left;
+            float yFirst = outPage.chars[start].rect.top;
+            float yLast = outPage.chars[end - 1].rect.top;
+
+            // In natural Arabic (RTL), physical X decreases as the stream progresses.
+            // If X increases on the same line, the generator stored this word in visual LTR order.
+            if (std::abs(yFirst - yLast) < 6.0f && xFirst < xLast) {
+                std::reverse(outPage.chars.begin() + start, outPage.chars.begin() + end);
+            }
+        }
+    }
+
+    // Step 2: Reorder sequences of visual Arabic words on the same line into logical reading order
+    i = 0;
+    while (i < outPage.chars.size()) {
+        if (!IsArabicAlphabetLetter(outPage.chars[i].ch)) {
+            i++;
+            continue;
+        }
+
+        struct WordRange {
+            size_t start;
+            size_t end;
+            float minX;
+        };
+        std::vector<WordRange> words;
+        float lineY = outPage.chars[i].rect.top;
+        size_t phraseStart = i;
+
+        while (i < outPage.chars.size()) {
+            if (std::abs(outPage.chars[i].rect.top - lineY) > 6.0f) break;
+
+            if (IsArabicAlphabetLetter(outPage.chars[i].ch)) {
+                size_t wStart = i;
+                float minX = outPage.chars[i].rect.left;
+                while (i < outPage.chars.size() && IsArabicAlphabetLetter(outPage.chars[i].ch) &&
+                       std::abs(outPage.chars[i].rect.top - lineY) <= 6.0f) {
+                    minX = (std::min)(minX, outPage.chars[i].rect.left);
+                    i++;
+                }
+                words.push_back({ wStart, i, minX });
+            } else if (outPage.chars[i].ch == L' ' || outPage.chars[i].ch == L'.') {
+                if (i + 1 < outPage.chars.size() && IsArabicAlphabetLetter(outPage.chars[i + 1].ch)) {
+                    float gap = std::abs(outPage.chars[i + 1].rect.left - outPage.chars[i].rect.left);
+                    if (gap > 45.0f) {
+                        i++;
+                        break;
+                    }
+                }
+                i++;
+            } else {
+                break;
+            }
+        }
+        size_t phraseEnd = i;
+
+        if (words.size() >= 2 && words.front().minX < words.back().minX) {
+            std::reverse(outPage.chars.begin() + phraseStart, outPage.chars.begin() + phraseEnd);
+            size_t k = phraseStart;
+            while (k < phraseEnd) {
+                if (IsArabicAlphabetLetter(outPage.chars[k].ch)) {
+                    size_t ws = k;
+                    while (k < phraseEnd && IsArabicAlphabetLetter(outPage.chars[k].ch)) k++;
+                    std::reverse(outPage.chars.begin() + ws, outPage.chars.begin() + k);
+                } else {
+                    k++;
+                }
+            }
+        }
+    }
+
+    // Rebuild fullText
+    outPage.fullText.clear();
+    outPage.fullText.reserve(outPage.chars.size());
+    for (const auto& c : outPage.chars) {
+        outPage.fullText.push_back(c.ch);
+    }
+}
+
 bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     if (pageIndex >= m_pageObjectNums.size() || m_bufferView.empty()) return false;
 
@@ -1925,6 +2030,8 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
             ParseContentStream(streamBytes, x0, y0, cropW, cropH, rotate, fonts, outPage, xobjects);
         }
     }
+
+    NormalizeVisualArabic(outPage);
 
     outPage.hasDigitalText = !outPage.chars.empty();
     return true;
