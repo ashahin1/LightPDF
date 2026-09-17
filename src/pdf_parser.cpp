@@ -159,9 +159,13 @@ namespace MiniZlib {
         if (!in_data || in_size < 2) return false;
 
         size_t start = 0;
-        if ((in_data[0] == 0x78) && ((in_data[0] * 256 + in_data[1]) % 31 == 0)) {
+        if ((in_data[0] & 0x0F) == 8 && ((in_data[0] >> 4) <= 7) && ((in_data[0] * 256 + in_data[1]) % 31 == 0)) {
             start = 2; // Skip 2-byte zlib header
+            if (in_data[1] & 0x20) { // Preset dictionary (FDICT) present
+                start += 4;
+            }
         }
+        if (start > in_size) return false;
 
         BitStream bs(in_data + start, in_size - start);
         bool bfinal = false;
@@ -575,9 +579,9 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
     size_t stStart = m_bufferView.find("stream", start);
     if (stStart == std::string_view::npos) return false;
 
-    size_t dStart = m_bufferView.find('\n', stStart);
-    if (dStart == std::string_view::npos) return false;
-    dStart++;
+    size_t dStart = stStart + 6;
+    if (dStart < m_bufferView.size() && m_bufferView[dStart] == '\r') dStart++;
+    if (dStart < m_bufferView.size() && m_bufferView[dStart] == '\n') dStart++;
     size_t dEnd = m_bufferView.find("endstream", dStart);
     if (dEnd == std::string_view::npos) return false;
 
@@ -706,6 +710,8 @@ bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
         std::string dictStr = std::string(m_bufferView.substr(curOffset, stStart - curOffset));
         if (outTrailerDict.empty()) {
             outTrailerDict = dictStr;
+        } else {
+            outTrailerDict += "\n" + dictStr;
         }
 
         // Parse objNum of this xref stream so we can index it in m_xref
@@ -756,9 +762,9 @@ bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
         }
 
         // Stream data extraction
-        size_t dStart = m_bufferView.find('\n', stStart);
-        if (dStart == std::string_view::npos) break;
-        dStart++;
+        size_t dStart = stStart + 6;
+        if (dStart < m_bufferView.size() && m_bufferView[dStart] == '\r') dStart++;
+        if (dStart < m_bufferView.size() && m_bufferView[dStart] == '\n') dStart++;
         size_t dEnd = m_bufferView.find("endstream", dStart);
         if (dEnd == std::string_view::npos) break;
         while (dEnd > dStart && (m_bufferView[dEnd - 1] == '\r' || m_bufferView[dEnd - 1] == '\n')) dEnd--;
@@ -898,6 +904,8 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
         std::string trDict = ResolveDict(std::string(m_bufferView.substr(trPos)), "<<");
         if (outTrailerDict.empty()) {
             outTrailerDict = trDict;
+        } else {
+            outTrailerDict += "\n" + trDict;
         }
 
         size_t prevPos = trDict.find("/Prev");
