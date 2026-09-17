@@ -532,6 +532,12 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushPropsSecBtn = nullptr;
     m_brushPropsSecBtnHover = nullptr;
     m_brushPropsSuccess = nullptr;
+    m_pageCache = PageBitmapCache();
+    m_printRenderTexture = nullptr;
+    m_printStagingTexture = nullptr;
+    m_printTargetBitmap = nullptr;
+    m_cachedPrintW = 0;
+    m_cachedPrintH = 0;
     m_pdfRenderer = nullptr;
     m_d2dContext = nullptr;
     m_d2dDevice = nullptr;
@@ -573,25 +579,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    if (tabs.size() > 1) {
-        DrawTabBar(tabs, isAddHovered);
-    }
-
-    if (searchBar.visible) {
-        DrawSearchBar(searchBar);
-    }
-
-    if (showGoToPage) {
-        DrawGoToPageOverlay(goToPageBuffer, 0);
-    }
-
-    if (showHelp) {
-        DrawHelpOverlay();
-    }
-
-    if (docProps.visible) {
-        DrawDocumentProperties(docProps);
-    }
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, showHelp, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -626,15 +614,73 @@ void D2DRenderer::RenderPage(
 
     std::lock_guard<std::mutex> lock(m_renderMutex);
 
-    m_d2dContext->BeginDraw();
-    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
-
     float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
     float pageY = offsetY + topOffset;
 
     float destW = pageSize.width * zoom;
     float destH = pageSize.height * zoom;
+    UINT32 renderW = (UINT32)std::max(1.0f, std::round(destW));
+    UINT32 renderH = (UINT32)std::max(1.0f, std::round(destH));
+
+    // Check if we have a valid cached bitmap for this page and zoom
+    bool needRasterize = !m_pageCache.bitmap ||
+                         m_pageCache.pageIndex != currentPageIndex ||
+                         std::abs(m_pageCache.zoom - zoom) > 0.0001f ||
+                         m_pageCache.pixelW != renderW ||
+                         m_pageCache.pixelH != renderH;
+
+    if (needRasterize && m_pdfRenderer && renderW > 0 && renderH > 0) {
+        D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            m_dpi, m_dpi
+        );
+        D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
+
+        ComPtr<ID2D1Bitmap1> pageBitmap;
+        HRESULT hrBmp = m_d2dContext->CreateBitmap(
+            pixelSize,
+            nullptr,
+            0,
+            &bp,
+            &pageBitmap
+        );
+
+        if (SUCCEEDED(hrBmp) && pageBitmap) {
+            m_d2dContext->SetTarget(pageBitmap.Get());
+            m_d2dContext->BeginDraw();
+            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+            m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+
+            PDF_RENDER_PARAMS params = {};
+            params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+            params.DestinationWidth = renderW;
+            params.DestinationHeight = renderH;
+            params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+            params.IgnoreHighContrast = FALSE;
+
+            m_pdfRenderer->RenderPageToDeviceContext(
+                (IUnknown*)winrt::get_abi(page),
+                m_d2dContext.Get(),
+                &params
+            );
+
+            m_d2dContext->EndDraw();
+
+            m_pageCache.bitmap = pageBitmap;
+            m_pageCache.pageIndex = currentPageIndex;
+            m_pageCache.zoom = zoom;
+            m_pageCache.pixelW = renderW;
+            m_pageCache.pixelH = renderH;
+
+            // Restore screen target bitmap
+            m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+        }
+    }
+
+    m_d2dContext->BeginDraw();
+    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
 
     // 1. Draw Page Drop Shadow
     D2D1_RECT_F shadowRect = D2D1::RectF(
@@ -657,12 +703,14 @@ void D2DRenderer::RenderPage(
     );
     m_d2dContext->FillRectangle(pageRect, m_brushPageBg.Get());
 
-    // 3. Render PDF Content via Hardware Renderer
-    if (m_pdfRenderer) {
+    // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
+    if (m_pageCache.bitmap && m_pageCache.pageIndex == currentPageIndex) {
+        m_d2dContext->DrawBitmap(m_pageCache.bitmap.Get(), pageRect);
+    } else if (m_pdfRenderer) {
         PDF_RENDER_PARAMS params = {};
         params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-        params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
-        params.DestinationHeight = (UINT32)std::max(1.0f, std::round(destH));
+        params.DestinationWidth = renderW;
+        params.DestinationHeight = renderH;
         params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
         params.IgnoreHighContrast = FALSE;
 
@@ -736,33 +784,8 @@ void D2DRenderer::RenderPage(
         );
     }
 
-    // 6. Draw Scrollbar
-    DrawScrollbar(scrollbar);
-
-    // 7. Draw Floating Search Bar if visible
-    if (searchBar.visible) {
-        DrawSearchBar(searchBar);
-    }
-
-    // 8. Draw Tab Bar if 2+ tabs exist (above page content)
-    if (tabs.size() > 1) {
-        DrawTabBar(tabs, isAddHovered);
-    }
-
-    // 9. Draw Go to Page Overlay if active
-    if (showGoToPage) {
-        DrawGoToPageOverlay(goToPageBuffer, totalPages);
-    }
-
-    // 9. Draw Help Overlay if toggled
-    if (showHelp) {
-        DrawHelpOverlay();
-    }
-
-    // 10. Draw Document Properties Overlay if active
-    if (docProps.visible) {
-        DrawDocumentProperties(docProps);
-    }
+    // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, showHelp, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -910,33 +933,8 @@ void D2DRenderer::RenderContinuous(
         );
     }
 
-    // 6. Draw Scrollbar
-    DrawScrollbar(scrollbar);
-
-    // 7. Draw Floating Search Bar if visible
-    if (searchBar.visible) {
-        DrawSearchBar(searchBar);
-    }
-
-    // 8. Draw Tab Bar if 2+ tabs exist (above page content)
-    if (tabs.size() > 1) {
-        DrawTabBar(tabs, isAddHovered);
-    }
-
-    // 9. Draw Go to Page Overlay if active
-    if (showGoToPage) {
-        DrawGoToPageOverlay(goToPageBuffer, totalPages);
-    }
-
-    // 10. Draw Help Overlay if toggled
-    if (showHelp) {
-        DrawHelpOverlay();
-    }
-
-    // 11. Draw Document Properties Overlay if active
-    if (docProps.visible) {
-        DrawDocumentProperties(docProps);
-    }
+    // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, showHelp, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -945,6 +943,48 @@ void D2DRenderer::RenderContinuous(
         CreateWindowSizeDependentResources();
     } else {
         m_swapChain->Present(1, 0);
+    }
+}
+
+void D2DRenderer::DrawOverlays(
+    const std::vector<TabRenderInfo>& tabs,
+    bool isAddHovered,
+    const ScrollbarRenderInfo* pScrollbar,
+    bool showGoToPage,
+    const std::wstring& goToPageBuffer,
+    uint32_t totalPages,
+    const SearchBarRenderInfo& searchBar,
+    bool showHelp,
+    const DocumentPropertiesRenderInfo& docProps
+) {
+    // 1. Draw Scrollbar
+    if (pScrollbar && pScrollbar->visible) {
+        DrawScrollbar(*pScrollbar);
+    }
+
+    // 2. Draw Floating Search Bar if visible
+    if (searchBar.visible) {
+        DrawSearchBar(searchBar);
+    }
+
+    // 3. Draw Tab Bar if 2+ tabs exist (above page content)
+    if (tabs.size() > 1) {
+        DrawTabBar(tabs, isAddHovered);
+    }
+
+    // 4. Draw Go to Page Overlay if active
+    if (showGoToPage) {
+        DrawGoToPageOverlay(goToPageBuffer, totalPages);
+    }
+
+    // 5. Draw Help Overlay if toggled
+    if (showHelp) {
+        DrawHelpOverlay();
+    }
+
+    // 6. Draw Document Properties Overlay if active
+    if (docProps.visible) {
+        DrawDocumentProperties(docProps);
     }
 }
 
@@ -1683,79 +1723,100 @@ bool D2DRenderer::PrintPageToHdc(
         destX = (pagePixelW - destW) / 2;
     }
 
-    // 4. Create D3D11 Texture2D for rendering
-    D3D11_TEXTURE2D_DESC texDesc = {};
-    texDesc.Width = renderW;
-    texDesc.Height = renderH;
-    texDesc.MipLevels = 1;
-    texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_DEFAULT;
-    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    // 4. Render and stage page pixels under m_renderMutex
+    std::vector<uint8_t> pixelBytes;
+    {
+        std::lock_guard<std::mutex> lock(m_renderMutex);
 
-    ComPtr<ID3D11Texture2D> renderTexture;
-    HRESULT hr = m_d3dDevice->CreateTexture2D(&texDesc, nullptr, &renderTexture);
-    if (FAILED(hr)) return false;
+        // Reuse or recreate D3D11 Texture2D for rendering
+        if (!m_printRenderTexture || m_cachedPrintW != renderW || m_cachedPrintH != renderH) {
+            D3D11_TEXTURE2D_DESC texDesc = {};
+            texDesc.Width = renderW;
+            texDesc.Height = renderH;
+            texDesc.MipLevels = 1;
+            texDesc.ArraySize = 1;
+            texDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            texDesc.SampleDesc.Count = 1;
+            texDesc.Usage = D3D11_USAGE_DEFAULT;
+            texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    ComPtr<IDXGISurface> dxgiSurface;
-    hr = renderTexture.As(&dxgiSurface);
-    if (FAILED(hr)) return false;
+            m_printRenderTexture = nullptr;
+            m_printTargetBitmap = nullptr;
+            HRESULT hr = m_d3dDevice->CreateTexture2D(&texDesc, nullptr, &m_printRenderTexture);
+            if (FAILED(hr)) return false;
 
-    D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        printDpi, printDpi
-    );
+            ComPtr<IDXGISurface> dxgiSurface;
+            hr = m_printRenderTexture.As(&dxgiSurface);
+            if (FAILED(hr)) return false;
 
-    ComPtr<ID2D1Bitmap1> targetBitmap;
-    hr = m_d2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &targetBitmap);
-    if (FAILED(hr)) return false;
+            D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                D2D1_BITMAP_OPTIONS_TARGET,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                printDpi, printDpi
+            );
 
-    // 5. Render PDF Page onto the texture
-    m_d2dContext->SetTarget(targetBitmap.Get());
-    m_d2dContext->BeginDraw();
-    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    m_d2dContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
+            hr = m_d2dContext->CreateBitmapFromDxgiSurface(dxgiSurface.Get(), &bp, &m_printTargetBitmap);
+            if (FAILED(hr)) return false;
 
-    PDF_RENDER_PARAMS params = {};
-    params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-    params.DestinationWidth = renderW;
-    params.DestinationHeight = renderH;
-    params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-    params.IgnoreHighContrast = FALSE;
+            texDesc.Usage = D3D11_USAGE_STAGING;
+            texDesc.BindFlags = 0;
+            texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            m_printStagingTexture = nullptr;
+            hr = m_d3dDevice->CreateTexture2D(&texDesc, nullptr, &m_printStagingTexture);
+            if (FAILED(hr)) return false;
 
-    m_pdfRenderer->RenderPageToDeviceContext(
-        (IUnknown*)winrt::get_abi(page),
-        m_d2dContext.Get(),
-        &params
-    );
+            m_cachedPrintW = renderW;
+            m_cachedPrintH = renderH;
+        }
 
-    hr = m_d2dContext->EndDraw();
+        // 5. Render PDF Page onto the texture
+        m_d2dContext->SetTarget(m_printTargetBitmap.Get());
+        m_d2dContext->BeginDraw();
+        m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        m_d2dContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
-    // Restore screen target bitmap immediately
-    if (m_d2dTargetBitmap) {
-        m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+        PDF_RENDER_PARAMS params = {};
+        params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+        params.DestinationWidth = renderW;
+        params.DestinationHeight = renderH;
+        params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        params.IgnoreHighContrast = FALSE;
+
+        m_pdfRenderer->RenderPageToDeviceContext(
+            (IUnknown*)winrt::get_abi(page),
+            m_d2dContext.Get(),
+            &params
+        );
+
+        HRESULT hr = m_d2dContext->EndDraw();
+
+        // Restore screen target bitmap immediately
+        if (m_d2dTargetBitmap) {
+            m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+        }
+
+        if (FAILED(hr)) return false;
+
+        // 6. Copy pixels from GPU to staging texture
+        m_d3dContext->CopyResource(m_printStagingTexture.Get(), m_printRenderTexture.Get());
+
+        // 7. Map staging texture and extract pixel bytes
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        hr = m_d3dContext->Map(m_printStagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr)) return false;
+
+        size_t rowBytes = (size_t)renderW * 4;
+        pixelBytes.resize(rowBytes * renderH);
+        const uint8_t* pSrc = (const uint8_t*)mapped.pData;
+        uint8_t* pDst = pixelBytes.data();
+        for (UINT32 y = 0; y < renderH; ++y) {
+            memcpy(pDst + y * rowBytes, pSrc + y * mapped.RowPitch, rowBytes);
+        }
+
+        m_d3dContext->Unmap(m_printStagingTexture.Get(), 0);
     }
 
-    if (FAILED(hr)) return false;
-
-    // 6. Create staging texture to copy pixels from GPU to CPU
-    texDesc.Usage = D3D11_USAGE_STAGING;
-    texDesc.BindFlags = 0;
-    texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-    ComPtr<ID3D11Texture2D> stagingTexture;
-    hr = m_d3dDevice->CreateTexture2D(&texDesc, nullptr, &stagingTexture);
-    if (FAILED(hr)) return false;
-
-    m_d3dContext->CopyResource(stagingTexture.Get(), renderTexture.Get());
-
-    // 7. Map staging texture and transfer to Printer HDC via StretchDIBits
-    D3D11_MAPPED_SUBRESOURCE mapped = {};
-    hr = m_d3dContext->Map(stagingTexture.Get(), 0, D3D11_MAP_READ, 0, &mapped);
-    if (FAILED(hr)) return false;
-
+    // 8. Transfer to Printer HDC via StretchDIBits without holding m_renderMutex!
     BITMAPINFO bmi = {};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = (LONG)renderW;
@@ -1771,13 +1832,11 @@ bool D2DRenderer::PrintPageToHdc(
         hdc,
         destX, destY, destW, destH,
         0, 0, (int)renderW, (int)renderH,
-        mapped.pData,
+        pixelBytes.data(),
         &bmi,
         DIB_RGB_COLORS,
         SRCCOPY
     );
-
-    m_d3dContext->Unmap(stagingTexture.Get(), 0);
 
     return scanlines > 0;
 }

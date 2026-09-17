@@ -13,6 +13,7 @@
 #include "d2d_renderer.hpp"
 #include "pdf_document.hpp"
 #include "pdf_search.hpp"
+#include "pdf_parser.hpp"
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 
@@ -33,6 +34,18 @@ struct DocumentTab {
     float offsetY = 0.0f;
     bool continuousScroll = false;
     float scrollY = 0.0f;
+
+    // Continuous scroll prefix sums & dimensions cache
+    std::vector<float> pageOffsets;
+    float totalDocHeight = 0.0f;
+    float lastOffsetsZoom = -1.0f;
+
+    // Metadata cache for document properties (Ctrl+D)
+    PdfMetadata metadata;
+    bool metadataLoaded = false;
+
+    // Parsed page text cache for fast search
+    std::shared_ptr<PageTextCache> textCache;
 };
 
 class AppWindow {
@@ -85,8 +98,11 @@ private:
     void ShowScrollbar();
     void HandleScrollbarDrag(float mouseY);
 
+    void UpdateContinuousOffsets(DocumentTab* pTab);
+
     SearchBarRenderInfo GetSearchBarInfo() const;
-    std::vector<SearchHighlight> GetSearchHighlights() const;
+    const std::vector<SearchHighlight>& GetSearchHighlights() const;
+    void InvalidateSearchHighlights() { m_highlightsDirty = true; }
     int HitTestSearchBar(POINT pt) const;
     void TriggerSearch();
     void JumpToActiveMatch();
@@ -144,6 +160,8 @@ private:
     PdfSearchEngine m_searchEngine;
     int m_searchHoveredBtn = 0; // 0=body/none, 1=prev, 2=next, 3=case, 4=ocr, 5=close
     int m_lastJumpedMatch = -1;
+    mutable std::vector<SearchHighlight> m_cachedHighlights;
+    mutable bool m_highlightsDirty = true;
 
     // Document Properties state
     bool m_showProperties = false;
@@ -154,13 +172,20 @@ private:
     // Scrollbar state
     bool m_isDraggingScrollbar = false;
     float m_scrollbarDragThumbOffsetY = 0.0f;
-    float m_scrollbarDragThumbY = 0.0f;
+    mutable float m_scrollbarDragThumbY = 0.0f;
     uint64_t m_lastScrollbarActiveTime = 0;
     float m_scrollbarAlpha = 0.0f;
     bool m_isScrollbarHovered = false;
 
+    // Cursors
+    HCURSOR m_cursorArrow = nullptr;
+    HCURSOR m_cursorHand = nullptr;
+    HCURSOR m_cursorIBeam = nullptr;
+    HCURSOR m_cursorSizeAll = nullptr;
+
     // File Open Dialog state
     std::atomic<bool> m_isDialogOpen{ false };
+    std::thread m_dialogThread;
 
     // Printing state
     std::atomic<bool> m_isPrinting{ false };

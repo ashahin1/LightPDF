@@ -7,11 +7,17 @@
 #include <windows.h>
 #include <d2d1.h>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <cstdint>
 
 constexpr float PDF_POINT_TO_DIP = 96.0f / 72.0f;
+
+struct NumericTokens {
+    float values[6] = { 0.0f };
+    size_t count = 0;
+};
 
 struct PdfTextChar {
     wchar_t ch = 0;
@@ -91,13 +97,13 @@ struct PdfMetadata {
 class PdfParser {
 public:
     PdfParser() = default;
-    ~PdfParser() = default;
+    ~PdfParser() { Close(); }
 
     // Load and index PDF file structure
     bool Load(const std::wstring& filePath);
     void Close();
 
-    bool IsLoaded() const { return !m_buffer.empty(); }
+    bool IsLoaded() const { return !m_bufferView.empty(); }
     uint32_t GetPageCount() const { return (uint32_t)m_pageObjectNums.size(); }
 
     // Extract text for a specific page (0-based)
@@ -119,6 +125,7 @@ private:
     void DecodeObjStream(uint32_t stmObjNum) const;
 
     // Helpers to resolve indirect objects
+    std::string_view GetObjectView(uint32_t objNum) const;
     std::string GetObjectString(uint32_t objNum) const;
     bool GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const;
     bool FindIndirectRef(const std::string& dictStr, const std::string& key, uint32_t& outObjNum) const;
@@ -145,8 +152,11 @@ private:
         D2D1_RECT_F localClip = { -1e9f, -1e9f, 1e9f, 1e9f }
     );
 
-    std::vector<uint8_t> m_buffer;
-    std::string m_bufferStr;
+    HANDLE m_hFile = INVALID_HANDLE_VALUE;
+    HANDLE m_hMapping = nullptr;
+    const char* m_mappedData = nullptr;
+    size_t m_fileSize = 0;
+    std::string_view m_bufferView;
     std::string m_pdfVersion = "1.4";
     uint32_t m_infoObjNum = 0;
     std::vector<uint32_t> m_pageObjectNums;

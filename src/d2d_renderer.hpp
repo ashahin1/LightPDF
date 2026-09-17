@@ -17,6 +17,14 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct PageBitmapCache {
+    uint32_t pageIndex = UINT32_MAX;
+    float zoom = 0.0f;
+    UINT32 pixelW = 0;
+    UINT32 pixelH = 0;
+    ComPtr<ID2D1Bitmap1> bitmap;
+};
+
 struct TabRenderInfo {
     std::wstring title;
     bool isActive = false;
@@ -227,6 +235,11 @@ public:
     UINT GetWidth() const { return m_width; }
     UINT GetHeight() const { return m_height; }
 
+    void InvalidatePageCache() {
+        std::lock_guard<std::mutex> lock(m_renderMutex);
+        m_pageCache = PageBitmapCache();
+    }
+
 private:
     bool CreateDeviceIndependentResources();
     bool CreateDeviceResources();
@@ -238,6 +251,17 @@ private:
     void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
     void DrawSearchBar(const SearchBarRenderInfo& searchBar);
     void DrawDocumentProperties(const DocumentPropertiesRenderInfo& props);
+    void DrawOverlays(
+        const std::vector<TabRenderInfo>& tabs,
+        bool isAddHovered,
+        const ScrollbarRenderInfo* pScrollbar,
+        bool showGoToPage,
+        const std::wstring& goToPageBuffer,
+        uint32_t totalPages,
+        const SearchBarRenderInfo& searchBar,
+        bool showHelp,
+        const DocumentPropertiesRenderInfo& docProps
+    );
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;
@@ -326,6 +350,16 @@ private:
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;
+
+    // Fast Page Bitmap Cache for zero-cost pan & UI hover blits
+    PageBitmapCache m_pageCache;
+
+    // Cached print textures to avoid 70MB allocation/deallocation per page
+    ComPtr<ID3D11Texture2D> m_printRenderTexture;
+    ComPtr<ID3D11Texture2D> m_printStagingTexture;
+    ComPtr<ID2D1Bitmap1> m_printTargetBitmap;
+    UINT m_cachedPrintW = 0;
+    UINT m_cachedPrintH = 0;
 
     // Mutex for thread-safe rendering between UI and background print worker
     std::mutex m_renderMutex;
