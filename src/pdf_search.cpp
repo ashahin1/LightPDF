@@ -267,11 +267,14 @@ void PdfSearchEngine::SearchWorker(
 ) {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 
-    PdfParser parser;
-    if (!parser.Load(filePath)) {
-        m_isSearching = false;
-        PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
-        return;
+    // Initial check to verify parser can open the file
+    {
+        PdfParser testParser;
+        if (!testParser.Load(filePath)) {
+            m_isSearching = false;
+            PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
+            return;
+        }
     }
 
     std::wstring needle = matchCase ? query : ToUpperStr(query);
@@ -304,293 +307,330 @@ void PdfSearchEngine::SearchWorker(
         }
     }
 
-    winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
-    if (ocrEnabled && doc) {
-        try {
-            if (isQueryArabic) {
-                auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
-                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
-                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
-                }
-                if (!ocrEngine) {
-                    auto arGen = winrt::Windows::Globalization::Language(L"ar");
-                    if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
-                    }
-                }
-            }
-            if (!ocrEngine) {
-                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
-            }
-        } catch (...) {}
-    }
-
     auto lastNotifyTime = std::chrono::steady_clock::now();
     bool hasFirstMatchNotified = false;
+    std::atomic<uint32_t> nextPageIndex{ 0 };
 
-    PdfPageText pageText;
-    for (uint32_t p = 0; p < totalPages && !m_cancelToken; ++p) {
-        std::shared_ptr<PdfPageText> cachedPage;
-        if (textCache) {
-            std::lock_guard<std::mutex> lock(textCache->mutex);
-            if (p < textCache->pages.size() && textCache->pages[p]) {
-                cachedPage = textCache->pages[p];
-            }
-        }
+    uint32_t numWorkers = std::thread::hardware_concurrency();
+    if (numWorkers == 0) numWorkers = 4;
+    numWorkers = std::min({ numWorkers, 8u, totalPages });
 
-        if (cachedPage && (!cachedPage->chars.empty() || !ocrEnabled || cachedPage->hasDigitalText)) {
-            pageText = *cachedPage;
-        } else {
-            pageText.fullText.clear();
-            pageText.chars.clear();
-            pageText.hasDigitalText = false;
-            parser.ExtractPageText(p, pageText);
+    std::vector<std::thread> workers;
+    workers.reserve(numWorkers);
 
-            // Check if page has digital text
-            if (!pageText.hasDigitalText) {
-                m_hasScannedPages = true;
+    for (uint32_t w = 0; w < numWorkers; ++w) {
+        workers.emplace_back([&, w]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 
-                // OCR fallback if enabled by user
-                if (ocrEnabled && doc && ocrEngine) {
-                    try {
-                        auto page = doc.GetPage(p);
-                        if (page) {
-                            winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
-                            page.RenderToStreamAsync(stream).get();
-                            auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
-                            auto bitmap = decoder.GetSoftwareBitmapAsync().get();
-                            auto ocrResult = ocrEngine.RecognizeAsync(bitmap).get();
+            try {
+                winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            } catch (...) {}
 
-                            float scaleX = (bitmap.PixelWidth() > 0) ? (pageText.pageWidth / (float)bitmap.PixelWidth()) : 1.0f;
-                            float scaleY = (bitmap.PixelHeight() > 0) ? (pageText.pageHeight / (float)bitmap.PixelHeight()) : 1.0f;
+            PdfParser parser;
+            if (!parser.Load(filePath)) return;
 
-                            for (auto line : ocrResult.Lines()) {
-                                for (auto word : line.Words()) {
-                                    auto r = word.BoundingRect();
-                                    D2D1_RECT_F wRect = D2D1::RectF(
-                                        r.X * scaleX,
-                                        r.Y * scaleY,
-                                        (r.X + r.Width) * scaleX,
-                                        (r.Y + r.Height) * scaleY
-                                    );
-                                    std::wstring wText = std::wstring(word.Text());
-                                    float charW = (wRect.right - wRect.left) / (float)std::max(1ULL, (unsigned long long)wText.size());
-                                    for (size_t ci = 0; ci < wText.size(); ++ci) {
-                                        float cx = wRect.left + ci * charW;
-                                        pageText.fullText.push_back(wText[ci]);
-                                        pageText.chars.push_back({ wText[ci], D2D1::RectF(cx, wRect.top, cx + charW, wRect.bottom) });
-                                    }
-                                    pageText.fullText.push_back(L' ');
-                                    pageText.chars.push_back({ L' ', D2D1::RectF(wRect.right, wRect.top, wRect.right + 4.0f, wRect.bottom) });
-                                }
+            winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+            if (ocrEnabled && doc) {
+                try {
+                    if (isQueryArabic) {
+                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+                        }
+                        if (!ocrEngine) {
+                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
+                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
                             }
-                            pageText.hasDigitalText = !pageText.chars.empty();
                         }
-                    } catch (...) {}
-                }
+                    }
+                    if (!ocrEngine) {
+                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+                    }
+                } catch (...) {}
             }
 
-            if (textCache) {
-                std::lock_guard<std::mutex> lock(textCache->mutex);
-                if (p < textCache->pages.size()) {
-                    textCache->pages[p] = std::make_shared<PdfPageText>(pageText);
+            PdfPageText pageText;
+            while (!m_cancelToken) {
+                uint32_t p = nextPageIndex.fetch_add(1);
+                if (p >= totalPages) break;
+
+                std::shared_ptr<PdfPageText> cachedPage;
+                if (textCache) {
+                    std::lock_guard<std::mutex> lock(textCache->mutex);
+                    if (p < textCache->pages.size() && textCache->pages[p]) {
+                        cachedPage = textCache->pages[p];
+                    }
                 }
-            }
-        }
 
-        // Perform text matching on pageText
-        if (!pageText.fullText.empty() && !pageText.chars.empty()) {
-            std::vector<SearchMatch> pageMatches;
+                if (cachedPage && (!cachedPage->chars.empty() || !ocrEnabled || cachedPage->hasDigitalText)) {
+                    pageText = *cachedPage;
+                } else {
+                    pageText.fullText.clear();
+                    pageText.chars.clear();
+                    pageText.hasDigitalText = false;
+                    parser.ExtractPageText(p, pageText);
 
-            bool isPageArabic = isQueryArabic || ContainsArabic(pageText.fullText);
+                    // Check if page has digital text
+                    if (!pageText.hasDigitalText) {
+                        m_hasScannedPages = true;
 
-            if (isPageArabic) {
-                std::vector<size_t> charMap;
-                std::wstring textToNorm = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
-                std::wstring normHay = NormalizeArabic(textToNorm, &charMap);
+                        // OCR fallback if enabled by user
+                        if (ocrEnabled && doc && ocrEngine) {
+                            try {
+                                auto page = doc.GetPage(p);
+                                if (page) {
+                                    winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
+                                    page.RenderToStreamAsync(stream).get();
+                                    auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
+                                    auto bitmap = decoder.GetSoftwareBitmapAsync().get();
+                                    auto ocrResult = ocrEngine.RecognizeAsync(bitmap).get();
 
-                struct QueryVariant {
-                    std::wstring q;
-                    bool isReversed;
-                };
-                std::vector<QueryVariant> variants;
-                if (!qFwd.empty()) variants.push_back({ qFwd, false });
-                if (canReverse && !qRev.empty() && qRev != qFwd) variants.push_back({ qRev, true });
-                if (canReverse && !qWordRev.empty() && qWordRev != qFwd && qWordRev != qRev) variants.push_back({ qWordRev, true });
+                                    float scaleX = (bitmap.PixelWidth() > 0) ? (pageText.pageWidth / (float)bitmap.PixelWidth()) : 1.0f;
+                                    float scaleY = (bitmap.PixelHeight() > 0) ? (pageText.pageHeight / (float)bitmap.PixelHeight()) : 1.0f;
 
-                for (const auto& variant : variants) {
-                    if (m_cancelToken) break;
-                    size_t pos = 0;
-                    while ((pos = normHay.find(variant.q, pos)) != std::wstring::npos) {
-                        if (m_cancelToken) break;
-                        size_t matchLen = variant.q.size();
-                        if (pos >= charMap.size() || pos + matchLen - 1 >= charMap.size()) {
-                            pos += std::max(1ULL, (unsigned long long)matchLen);
-                            continue;
+                                    for (auto line : ocrResult.Lines()) {
+                                        for (auto word : line.Words()) {
+                                            auto r = word.BoundingRect();
+                                            D2D1_RECT_F wRect = D2D1::RectF(
+                                                r.X * scaleX,
+                                                r.Y * scaleY,
+                                                (r.X + r.Width) * scaleX,
+                                                (r.Y + r.Height) * scaleY
+                                            );
+                                            std::wstring wText = std::wstring(word.Text());
+                                            float charW = (wRect.right - wRect.left) / (float)std::max(1ULL, (unsigned long long)wText.size());
+                                            for (size_t ci = 0; ci < wText.size(); ++ci) {
+                                                float cx = wRect.left + ci * charW;
+                                                pageText.fullText.push_back(wText[ci]);
+                                                pageText.chars.push_back({ wText[ci], D2D1::RectF(cx, wRect.top, cx + charW, wRect.bottom) });
+                                            }
+                                            pageText.fullText.push_back(L' ');
+                                            pageText.chars.push_back({ L' ', D2D1::RectF(wRect.right, wRect.top, wRect.right + 4.0f, wRect.bottom) });
+                                        }
+                                    }
+                                    pageText.hasDigitalText = !pageText.chars.empty();
+                                }
+                            } catch (...) {}
                         }
+                    }
 
-                        size_t origStart = charMap[pos];
-                        size_t origEnd = charMap[pos + matchLen - 1];
-                        size_t cMin = std::min(origStart, origEnd);
-                        size_t cMax = std::max(origStart, origEnd);
+                    if (textCache) {
+                        std::lock_guard<std::mutex> lock(textCache->mutex);
+                        if (p < textCache->pages.size()) {
+                            textCache->pages[p] = std::make_shared<PdfPageText>(pageText);
+                        }
+                    }
+                }
 
-                        // Group matching characters into line rectangles
-                        std::vector<D2D1_RECT_F> lineRects;
-                        D2D1_RECT_F curLine = { 1e9f, 1e9f, -1e9f, -1e9f };
-                        float curLineTop = -9999.0f;
-                        float overallMinX = 1e9f, overallMinY = 1e9f, overallMaxX = -1e9f, overallMaxY = -1e9f;
+                // Perform text matching on pageText
+                if (!pageText.fullText.empty() && !pageText.chars.empty()) {
+                    std::vector<SearchMatch> pageMatches;
 
-                        for (size_t c = cMin; c <= cMax && c < pageText.chars.size(); ++c) {
-                            const auto& r = pageText.chars[c].rect;
-                            if (r.right <= r.left || r.bottom <= r.top) continue;
+                    bool isPageArabic = isQueryArabic || ContainsArabic(pageText.fullText);
 
-                            overallMinX = std::min(overallMinX, r.left);
-                            overallMinY = std::min(overallMinY, r.top);
-                            overallMaxX = std::max(overallMaxX, r.right);
-                            overallMaxY = std::max(overallMaxY, r.bottom);
+                    if (isPageArabic) {
+                        std::vector<size_t> charMap;
+                        std::wstring textToNorm = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
+                        std::wstring normHay = NormalizeArabic(textToNorm, &charMap);
 
-                            if (curLineTop < -9000.0f) {
-                                curLineTop = r.top;
-                                curLine = r;
-                            } else if (std::abs(r.top - curLineTop) > 6.0f) {
-                                // Different line
+                        struct QueryVariant {
+                            std::wstring q;
+                            bool isReversed;
+                        };
+                        std::vector<QueryVariant> variants;
+                        if (!qFwd.empty()) variants.push_back({ qFwd, false });
+                        if (canReverse && !qRev.empty() && qRev != qFwd) variants.push_back({ qRev, true });
+                        if (canReverse && !qWordRev.empty() && qWordRev != qFwd && qWordRev != qRev) variants.push_back({ qWordRev, true });
+
+                        for (const auto& variant : variants) {
+                            if (m_cancelToken) break;
+                            size_t pos = 0;
+                            while ((pos = normHay.find(variant.q, pos)) != std::wstring::npos) {
+                                if (m_cancelToken) break;
+                                size_t matchLen = variant.q.size();
+                                if (pos >= charMap.size() || pos + matchLen - 1 >= charMap.size()) {
+                                    pos += std::max(1ULL, (unsigned long long)matchLen);
+                                    continue;
+                                }
+
+                                size_t origStart = charMap[pos];
+                                size_t origEnd = charMap[pos + matchLen - 1];
+                                size_t cMin = std::min(origStart, origEnd);
+                                size_t cMax = std::max(origStart, origEnd);
+
+                                // Group matching characters into line rectangles
+                                std::vector<D2D1_RECT_F> lineRects;
+                                D2D1_RECT_F curLine = { 1e9f, 1e9f, -1e9f, -1e9f };
+                                float curLineTop = -9999.0f;
+                                float overallMinX = 1e9f, overallMinY = 1e9f, overallMaxX = -1e9f, overallMaxY = -1e9f;
+
+                                for (size_t c = cMin; c <= cMax && c < pageText.chars.size(); ++c) {
+                                    const auto& r = pageText.chars[c].rect;
+                                    if (r.right <= r.left || r.bottom <= r.top) continue;
+
+                                    overallMinX = std::min(overallMinX, r.left);
+                                    overallMinY = std::min(overallMinY, r.top);
+                                    overallMaxX = std::max(overallMaxX, r.right);
+                                    overallMaxY = std::max(overallMaxY, r.bottom);
+
+                                    if (curLineTop < -9000.0f) {
+                                        curLineTop = r.top;
+                                        curLine = r;
+                                    } else if (std::abs(r.top - curLineTop) > 6.0f) {
+                                        // Different line
+                                        if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
+                                            lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
+                                        }
+                                        curLineTop = r.top;
+                                        curLine = r;
+                                    } else {
+                                        // Same line
+                                        curLine.left = std::min(curLine.left, r.left);
+                                        curLine.top = std::min(curLine.top, r.top);
+                                        curLine.right = std::max(curLine.right, r.right);
+                                        curLine.bottom = std::max(curLine.bottom, r.bottom);
+                                    }
+                                }
+
                                 if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
                                     lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
                                 }
-                                curLineTop = r.top;
-                                curLine = r;
-                            } else {
-                                // Same line
-                                curLine.left = std::min(curLine.left, r.left);
-                                curLine.top = std::min(curLine.top, r.top);
-                                curLine.right = std::max(curLine.right, r.right);
-                                curLine.bottom = std::max(curLine.bottom, r.bottom);
+
+                                if (!lineRects.empty()) {
+                                    SearchMatch match;
+                                    match.pageIndex = p;
+                                    match.pageRect = D2D1::RectF(overallMinX - 1.0f, overallMinY - 0.5f, overallMaxX + 1.0f, overallMaxY + 0.5f);
+                                    match.rects = std::move(lineRects);
+                                    match.matchedText = pageText.fullText.substr(cMin, cMax - cMin + 1);
+
+                                    // Check duplicate against existing matches on this page
+                                    bool isDup = false;
+                                    for (const auto& em : pageMatches) {
+                                        float ix0 = std::max(match.pageRect.left, em.pageRect.left);
+                                        float iy0 = std::max(match.pageRect.top, em.pageRect.top);
+                                        float ix1 = std::min(match.pageRect.right, em.pageRect.right);
+                                        float iy1 = std::min(match.pageRect.bottom, em.pageRect.bottom);
+                                        if (ix1 > ix0 && iy1 > iy0) {
+                                            float interArea = (ix1 - ix0) * (iy1 - iy0);
+                                            float matchArea = (match.pageRect.right - match.pageRect.left) * (match.pageRect.bottom - match.pageRect.top);
+                                            if (matchArea > 0.0f && (interArea / matchArea) > 0.6f) {
+                                                isDup = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if (!isDup) {
+                                        pageMatches.push_back(std::move(match));
+                                    }
+                                }
+
+                                pos += std::max(1ULL, (unsigned long long)matchLen);
                             }
                         }
+                    } else {
+                        std::wstring hay = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
+                        size_t pos = 0;
 
-                        if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
-                            lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
-                        }
+                        while ((pos = hay.find(needle, pos)) != std::wstring::npos) {
+                            if (m_cancelToken) break;
 
-                        if (!lineRects.empty()) {
-                            SearchMatch match;
-                            match.pageIndex = p;
-                            match.pageRect = D2D1::RectF(overallMinX - 1.0f, overallMinY - 0.5f, overallMaxX + 1.0f, overallMaxY + 0.5f);
-                            match.rects = std::move(lineRects);
-                            match.matchedText = pageText.fullText.substr(cMin, cMax - cMin + 1);
+                            // Group matching characters into line rectangles
+                            std::vector<D2D1_RECT_F> lineRects;
+                            D2D1_RECT_F curLine = { 1e9f, 1e9f, -1e9f, -1e9f };
+                            float curLineTop = -9999.0f;
+                            float overallMinX = 1e9f, overallMinY = 1e9f, overallMaxX = -1e9f, overallMaxY = -1e9f;
 
-                            // Check duplicate against existing matches on this page
-                            bool isDup = false;
-                            for (const auto& em : pageMatches) {
-                                float ix0 = std::max(match.pageRect.left, em.pageRect.left);
-                                float iy0 = std::max(match.pageRect.top, em.pageRect.top);
-                                float ix1 = std::min(match.pageRect.right, em.pageRect.right);
-                                float iy1 = std::min(match.pageRect.bottom, em.pageRect.bottom);
-                                if (ix1 > ix0 && iy1 > iy0) {
-                                    float interArea = (ix1 - ix0) * (iy1 - iy0);
-                                    float matchArea = (match.pageRect.right - match.pageRect.left) * (match.pageRect.bottom - match.pageRect.top);
-                                    if (matchArea > 0.0f && (interArea / matchArea) > 0.6f) {
-                                        isDup = true;
-                                        break;
+                            for (size_t c = pos; c < pos + needle.size() && c < pageText.chars.size(); ++c) {
+                                const auto& r = pageText.chars[c].rect;
+                                if (r.right <= r.left || r.bottom <= r.top) continue;
+
+                                overallMinX = std::min(overallMinX, r.left);
+                                overallMinY = std::min(overallMinY, r.top);
+                                overallMaxX = std::max(overallMaxX, r.right);
+                                overallMaxY = std::max(overallMaxY, r.bottom);
+
+                                if (curLineTop < -9000.0f) {
+                                    curLineTop = r.top;
+                                    curLine = r;
+                                } else if (std::abs(r.top - curLineTop) > 6.0f) {
+                                    // Different line
+                                    if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
+                                        lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
                                     }
+                                    curLineTop = r.top;
+                                    curLine = r;
+                                } else {
+                                    // Same line
+                                    curLine.left = std::min(curLine.left, r.left);
+                                    curLine.top = std::min(curLine.top, r.top);
+                                    curLine.right = std::max(curLine.right, r.right);
+                                    curLine.bottom = std::max(curLine.bottom, r.bottom);
                                 }
                             }
 
-                            if (!isDup) {
-                                pageMatches.push_back(std::move(match));
-                            }
-                        }
-
-                        pos += std::max(1ULL, (unsigned long long)matchLen);
-                    }
-                }
-            } else {
-                std::wstring hay = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
-                size_t pos = 0;
-
-                while ((pos = hay.find(needle, pos)) != std::wstring::npos) {
-                    if (m_cancelToken) break;
-
-                    // Group matching characters into line rectangles
-                    std::vector<D2D1_RECT_F> lineRects;
-                    D2D1_RECT_F curLine = { 1e9f, 1e9f, -1e9f, -1e9f };
-                    float curLineTop = -9999.0f;
-                    float overallMinX = 1e9f, overallMinY = 1e9f, overallMaxX = -1e9f, overallMaxY = -1e9f;
-
-                    for (size_t c = pos; c < pos + needle.size() && c < pageText.chars.size(); ++c) {
-                        const auto& r = pageText.chars[c].rect;
-                        if (r.right <= r.left || r.bottom <= r.top) continue;
-
-                        overallMinX = std::min(overallMinX, r.left);
-                        overallMinY = std::min(overallMinY, r.top);
-                        overallMaxX = std::max(overallMaxX, r.right);
-                        overallMaxY = std::max(overallMaxY, r.bottom);
-
-                        if (curLineTop < -9000.0f) {
-                            curLineTop = r.top;
-                            curLine = r;
-                        } else if (std::abs(r.top - curLineTop) > 6.0f) {
-                            // Different line
                             if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
                                 lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
                             }
-                            curLineTop = r.top;
-                            curLine = r;
-                        } else {
-                            // Same line
-                            curLine.left = std::min(curLine.left, r.left);
-                            curLine.top = std::min(curLine.top, r.top);
-                            curLine.right = std::max(curLine.right, r.right);
-                            curLine.bottom = std::max(curLine.bottom, r.bottom);
+
+                            if (!lineRects.empty()) {
+                                SearchMatch match;
+                                match.pageIndex = p;
+                                match.pageRect = D2D1::RectF(overallMinX - 1.0f, overallMinY - 0.5f, overallMaxX + 1.0f, overallMaxY + 0.5f);
+                                match.rects = std::move(lineRects);
+                                match.matchedText = pageText.fullText.substr(pos, needle.size());
+                                pageMatches.push_back(std::move(match));
+                            }
+
+                            pos += std::max(1ULL, (unsigned long long)needle.size());
                         }
                     }
 
-                    if (curLine.right > curLine.left && curLine.bottom > curLine.top) {
-                        lineRects.push_back(D2D1::RectF(curLine.left - 1.0f, curLine.top - 0.5f, curLine.right + 1.0f, curLine.bottom + 0.5f));
-                    }
+                    if (!pageMatches.empty() && !m_cancelToken) {
+                        bool shouldNotify = false;
+                        {
+                            std::lock_guard<std::mutex> lock(m_mutex);
+                            bool wasEmpty = m_matches.empty();
+                            for (auto& m : pageMatches) {
+                                // Sorted insertion maintaining page and vertical order across worker threads
+                                auto it = std::upper_bound(m_matches.begin(), m_matches.end(), m,
+                                    [](const SearchMatch& a, const SearchMatch& b) {
+                                        if (a.pageIndex != b.pageIndex) return a.pageIndex < b.pageIndex;
+                                        if (std::abs(a.pageRect.top - b.pageRect.top) > 1.0f) return a.pageRect.top < b.pageRect.top;
+                                        return a.pageRect.left < b.pageRect.left;
+                                    });
+                                m_matches.insert(it, std::move(m));
+                            }
+                            if (wasEmpty && !m_matches.empty() && m_activeMatchIndex == -1) {
+                                m_activeMatchIndex = 0;
+                            }
 
-                    if (!lineRects.empty()) {
-                        SearchMatch match;
-                        match.pageIndex = p;
-                        match.pageRect = D2D1::RectF(overallMinX - 1.0f, overallMinY - 0.5f, overallMaxX + 1.0f, overallMaxY + 0.5f);
-                        match.rects = std::move(lineRects);
-                        match.matchedText = pageText.fullText.substr(pos, needle.size());
-                        pageMatches.push_back(std::move(match));
-                    }
-
-                    pos += std::max(1ULL, (unsigned long long)needle.size());
-                }
-            }
-
-            if (!pageMatches.empty() && !m_cancelToken) {
-                bool shouldNotify = false;
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    bool wasEmpty = m_matches.empty();
-                    for (auto& m : pageMatches) {
-                        m_matches.push_back(std::move(m));
-                    }
-                    if (wasEmpty && !m_matches.empty() && m_activeMatchIndex == -1) {
-                        m_activeMatchIndex = 0;
-                    }
-
-                    auto now = std::chrono::steady_clock::now();
-                    if (!hasFirstMatchNotified) {
-                        hasFirstMatchNotified = true;
-                        shouldNotify = true;
-                        lastNotifyTime = now;
-                    } else {
-                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastNotifyTime).count();
-                        if (elapsed >= 60) {
-                            shouldNotify = true;
-                            lastNotifyTime = now;
+                            auto now = std::chrono::steady_clock::now();
+                            if (!hasFirstMatchNotified) {
+                                hasFirstMatchNotified = true;
+                                shouldNotify = true;
+                                lastNotifyTime = now;
+                            } else {
+                                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastNotifyTime).count();
+                                if (elapsed >= 60) {
+                                    shouldNotify = true;
+                                    lastNotifyTime = now;
+                                }
+                            }
+                        }
+                        if (shouldNotify) {
+                            PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
                         }
                     }
                 }
-                if (shouldNotify) {
-                    PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
-                }
             }
+        });
+    }
+
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
         }
     }
 

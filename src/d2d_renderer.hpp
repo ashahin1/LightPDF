@@ -22,6 +22,7 @@ struct PageBitmapCache {
     float zoom = 0.0f;
     UINT32 pixelW = 0;
     UINT32 pixelH = 0;
+    uint64_t lastUsedTime = 0;
     ComPtr<ID2D1Bitmap1> bitmap;
 };
 
@@ -238,6 +239,7 @@ public:
     void InvalidatePageCache() {
         std::lock_guard<std::mutex> lock(m_renderMutex);
         m_pageCache = PageBitmapCache();
+        m_continuousPageCache.clear();
     }
 
 private:
@@ -351,8 +353,13 @@ private:
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;
 
-    // Fast Page Bitmap Cache for zero-cost pan & UI hover blits
+    // Fast Page Bitmap Cache for zero-cost pan & UI hover blits (single page mode)
     PageBitmapCache m_pageCache;
+
+    // Multi-page LRU Bitmap Cache for smooth continuous scroll (up to 8 pages)
+    static constexpr size_t MAX_CONTINUOUS_CACHED_PAGES = 8;
+    std::vector<PageBitmapCache> m_continuousPageCache;
+    uint64_t m_continuousCacheClock = 0;
 
     // Cached print textures to avoid 70MB allocation/deallocation per page
     ComPtr<ID3D11Texture2D> m_printRenderTexture;
