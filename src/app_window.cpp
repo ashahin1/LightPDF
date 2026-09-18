@@ -380,11 +380,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
 
-        // 3. Help Overlay dismissal
+        // 3. Help Overlay interaction
         if (m_showHelp) {
-            m_showHelp = false;
-            Render();
-            return 0;
+            int hit = m_renderer.HitTestHelpOverlay(pt);
+            if (hit == 100 || hit == -1) {
+                // Close button [×] or outside card (backdrop)
+                m_showHelp = false;
+                Render();
+                return 0;
+            } else if (hit >= 0 && hit <= 4) {
+                // Category tab clicked
+                m_helpActiveCategory = hit;
+                Render();
+                return 0;
+            } else if (hit == 999) {
+                // Clicked inside card body - do nothing, swallow click
+                return 0;
+            }
         }
 
         // 4. Scrollbar interaction (Left button only)
@@ -447,6 +459,24 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
             }
             if (hit > 0) {
+                SetCursor(m_cursorHand);
+            } else {
+                SetCursor(m_cursorArrow);
+            }
+            return 0;
+        }
+
+        // 0b. Help Overlay hover detection
+        if (m_showHelp) {
+            int hit = m_renderer.HitTestHelpOverlay(pt);
+            int newCat = (hit >= 0 && hit <= 4) ? hit : -1;
+            int newClose = (hit == 100) ? 1 : 0;
+            if (newCat != m_helpHoveredCategory || newClose != m_helpHoveredClose) {
+                m_helpHoveredCategory = newCat;
+                m_helpHoveredClose = newClose;
+                Render();
+            }
+            if (newCat >= 0 || newClose > 0) {
                 SetCursor(m_cursorHand);
             } else {
                 SetCursor(m_cursorArrow);
@@ -678,6 +708,35 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             } else if (wParam == 'C' && isCtrlDown) {
                 CopyPropertiesToClipboard();
+                return 0;
+            }
+            return 0;
+        }
+
+        if (m_showHelp) {
+            if (wParam == VK_ESCAPE || wParam == VK_F1) {
+                m_showHelp = false;
+                Render();
+                return 0;
+            } else if (wParam >= '1' && wParam <= '5' && !isCtrlDown) {
+                m_helpActiveCategory = (int)(wParam - '1');
+                Render();
+                return 0;
+            } else if (wParam == VK_TAB) {
+                if (isShiftDown) {
+                    m_helpActiveCategory = (m_helpActiveCategory + 4) % 5;
+                } else {
+                    m_helpActiveCategory = (m_helpActiveCategory + 1) % 5;
+                }
+                Render();
+                return 0;
+            } else if (wParam == VK_LEFT) {
+                m_helpActiveCategory = (m_helpActiveCategory + 4) % 5;
+                Render();
+                return 0;
+            } else if (wParam == VK_RIGHT) {
+                m_helpActiveCategory = (m_helpActiveCategory + 1) % 5;
+                Render();
                 return 0;
             }
             return 0;
@@ -1008,6 +1067,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         case VK_F1:
             m_showHelp = !m_showHelp;
+            if (m_showHelp) {
+                m_helpHoveredCategory = -1;
+                m_helpHoveredClose = 0;
+                m_showProperties = false;
+                m_showGoToPage = false;
+                m_showSearch = false;
+            }
             Render();
             return 0;
         case VK_F11:
@@ -1885,7 +1951,7 @@ void AppWindow::Render() {
                 pTab->document.GetPageCount(),
                 modeStr,
                 true,
-                m_showHelp,
+                GetHelpInfo(),
                 tabInfos,
                 m_hoveredAdd,
                 GetScrollbarInfo(),
@@ -1911,7 +1977,7 @@ void AppWindow::Render() {
                 pTab->currentPage,
                 pTab->document.GetPageCount(),
                 modeStr,
-                m_showHelp,
+                GetHelpInfo(),
                 tabInfos,
                 m_hoveredAdd,
                 GetScrollbarInfo(),
@@ -1927,7 +1993,7 @@ void AppWindow::Render() {
 
     m_renderer.RenderBlank(
         L"",
-        m_showHelp,
+        GetHelpInfo(),
         tabInfos,
         m_hoveredAdd,
         m_showGoToPage,
@@ -1935,6 +2001,15 @@ void AppWindow::Render() {
         GetSearchBarInfo(),
         m_docPropsInfo
     );
+}
+
+HelpOverlayRenderInfo AppWindow::GetHelpInfo() const {
+    HelpOverlayRenderInfo info;
+    info.visible = m_showHelp;
+    info.activeCategory = m_helpActiveCategory;
+    info.hoveredCategory = m_helpHoveredCategory;
+    info.hoveredClose = m_helpHoveredClose;
+    return info;
 }
 
 void AppWindow::ShowScrollbar() {

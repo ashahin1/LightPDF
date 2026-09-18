@@ -148,8 +148,8 @@ struct DocumentPropertiesLayout {
     static constexpr float HEIGHT = 552.0f;
 
     static inline D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight) {
-        float left = std::max(10.0f, (dipWidth - WIDTH) * 0.5f);
-        float top = std::max(10.0f, (dipHeight - HEIGHT) * 0.5f);
+        float left = (std::max)(10.0f, (dipWidth - WIDTH) * 0.5f);
+        float top = (std::max)(10.0f, (dipHeight - HEIGHT) * 0.5f);
         return D2D1::RectF(left, top, left + WIDTH, top + HEIGHT);
     }
 
@@ -166,6 +166,40 @@ struct DocumentPropertiesLayout {
     }
 };
 
+struct HelpOverlayRenderInfo {
+    bool visible = false;
+    int activeCategory = 0; // 0=All, 1=Navigation, 2=Zoom & View, 3=Tabs & Files, 4=Search & Tools
+    int hoveredCategory = -1;
+    int hoveredClose = 0;   // 0=none, 1=close
+};
+
+struct HelpOverlayLayout {
+    static constexpr float WIDTH = 680.0f;
+    static constexpr float HEIGHT = 440.0f;
+
+    static inline D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight) {
+        float left = (std::max)(10.0f, (dipWidth - WIDTH) * 0.5f);
+        float top = (std::max)(10.0f, (dipHeight - HEIGHT) * 0.5f);
+        return D2D1::RectF(left, top, left + WIDTH, top + HEIGHT);
+    }
+
+    static inline D2D1_RECT_F GetCloseBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 36.0f, card.top + 12.0f, card.right - 12.0f, card.top + 36.0f);
+    }
+
+    static inline D2D1_RECT_F GetCategoryTabRect(const D2D1_RECT_F& card, int index) {
+        static const float widths[5] = { 72.0f, 126.0f, 138.0f, 134.0f, 146.0f };
+        static const float gap = 4.0f;
+        float x = card.left + 24.0f;
+        for (int i = 0; i < index && i < 5; ++i) {
+            x += widths[i] + gap;
+        }
+        float w = (index >= 0 && index < 5) ? widths[index] : 80.0f;
+        float y = card.top + 46.0f;
+        return D2D1::RectF(x, y, x + w, y + 26.0f);
+    }
+};
+
 class D2DRenderer {
 public:
     D2DRenderer();
@@ -177,7 +211,7 @@ public:
 
     void RenderBlank(
         const std::wstring& message,
-        bool showHelp = false,
+        const HelpOverlayRenderInfo& help = {},
         const std::vector<TabRenderInfo>& tabs = {},
         bool isAddHovered = false,
         bool showGoToPage = false,
@@ -194,7 +228,7 @@ public:
         uint32_t currentPageIndex,
         uint32_t totalPages,
         const std::wstring& zoomModeText,
-        bool showHelp = false,
+        const HelpOverlayRenderInfo& help = {},
         const std::vector<TabRenderInfo>& tabs = {},
         bool isAddHovered = false,
         const ScrollbarRenderInfo& scrollbar = {},
@@ -211,7 +245,7 @@ public:
         uint32_t totalPages,
         const std::wstring& zoomModeText,
         bool isContinuous,
-        bool showHelp = false,
+        const HelpOverlayRenderInfo& help = {},
         const std::vector<TabRenderInfo>& tabs = {},
         bool isAddHovered = false,
         const ScrollbarRenderInfo& scrollbar = {},
@@ -223,6 +257,7 @@ public:
     );
 
     int HitTestDocumentProperties(POINT pt) const;
+    int HitTestHelpOverlay(POINT pt) const;
 
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -247,7 +282,7 @@ private:
     bool CreateDeviceResources();
     bool CreateWindowSizeDependentResources();
     void DiscardDeviceResources();
-    void DrawHelpOverlay();
+    void DrawHelpOverlay(const HelpOverlayRenderInfo& help);
     void DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered);
     void DrawScrollbar(const ScrollbarRenderInfo& scrollbar);
     void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
@@ -261,7 +296,7 @@ private:
         const std::wstring& goToPageBuffer,
         uint32_t totalPages,
         const SearchBarRenderInfo& searchBar,
-        bool showHelp,
+        const HelpOverlayRenderInfo& help,
         const DocumentPropertiesRenderInfo& docProps
     );
 
@@ -289,6 +324,13 @@ private:
     ComPtr<IDWriteTextFormat> m_textFormatHelpSub;
     ComPtr<IDWriteTextFormat> m_textFormatHelpKey;
     ComPtr<IDWriteTextFormat> m_textFormatHelpDesc;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpSection;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpColKey;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpColDesc;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpSingleKey;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpSingleDesc;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpFooterLeft;
+    ComPtr<IDWriteTextFormat> m_textFormatHelpFooterRight;
     ComPtr<IDWriteTextFormat> m_textFormatTab;
     ComPtr<IDWriteTextFormat> m_textFormatTabClose;
     ComPtr<IDWriteTextFormat> m_textFormatTabAdd;
@@ -311,6 +353,9 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushHelpKeyText;
     ComPtr<ID2D1SolidColorBrush> m_brushHelpDescText;
     ComPtr<ID2D1SolidColorBrush> m_brushHelpSubText;
+    ComPtr<ID2D1SolidColorBrush> m_brushHelpKeycapBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushHelpKeycapBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushHelpRowAlt;
 
     // Tab Bar Brushes
     ComPtr<ID2D1SolidColorBrush> m_brushTabBarBg;
