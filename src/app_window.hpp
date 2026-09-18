@@ -114,6 +114,8 @@ private:
     void CloseDocumentProperties();
     void CopyPropertiesToClipboard();
 
+    HelpOverlayRenderInfo GetHelpInfo() const;
+
     DocumentTab* GetActiveTab() {
         if (m_tabs.empty() || m_activeTab >= m_tabs.size()) return nullptr;
         return &m_tabs[m_activeTab];
@@ -147,6 +149,9 @@ private:
 
     // Help Overlay state
     bool m_showHelp = false;
+    int m_helpActiveCategory = 0; // 0=All, 1=Navigation, 2=Zoom & View, 3=Tabs & Files, 4=Search & Tools
+    int m_helpHoveredCategory = -1;
+    int m_helpHoveredClose = 0;   // 0=none, 1=close
 
     // Go to Page state
     bool m_showGoToPage = false;

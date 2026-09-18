@@ -179,6 +179,118 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatHelpDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     m_textFormatHelpDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Help Section Format: Segoe UI, 11.5pt, Bold, Left-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        11.5f,
+        L"en-us",
+        &m_textFormatHelpSection
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpSection->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatHelpSection->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Help Column Key: Consolas, 10.5pt, Bold, Right-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Consolas",
+        nullptr,
+        DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        10.5f,
+        L"en-us",
+        &m_textFormatHelpColKey
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpColKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+    m_textFormatHelpColKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Help Column Description: Segoe UI, 10.5pt, Regular, Left-aligned with ellipsis trimming
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        10.5f,
+        L"en-us",
+        &m_textFormatHelpColDesc
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpColDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatHelpColDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    m_textFormatHelpColDesc->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    {
+        DWRITE_TRIMMING trim = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        ComPtr<IDWriteInlineObject> inlineEllipsis;
+        m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatHelpColDesc.Get(), &inlineEllipsis);
+        m_textFormatHelpColDesc->SetTrimming(&trim, inlineEllipsis.Get());
+    }
+
+    // Help Single-Category Key: Consolas, 12.0pt, Semi-Bold, Centered
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Consolas",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.0f,
+        L"en-us",
+        &m_textFormatHelpSingleKey
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpSingleKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatHelpSingleKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Help Single-Category Description: Segoe UI, 12.5pt, Regular, Left-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.5f,
+        L"en-us",
+        &m_textFormatHelpSingleDesc
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpSingleDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatHelpSingleDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Help Footer Left: Segoe UI, 10.5pt, Regular, Left-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        10.5f,
+        L"en-us",
+        &m_textFormatHelpFooterLeft
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpFooterLeft->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatHelpFooterLeft->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Help Footer Right: Segoe UI, 10.5pt, Regular, Right-aligned
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        10.5f,
+        L"en-us",
+        &m_textFormatHelpFooterRight
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatHelpFooterRight->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+    m_textFormatHelpFooterRight->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     // Tab Text Format: Segoe UI, 12pt, Regular, Left-aligned, Trimming with ellipsis
     hr = m_dwriteFactory->CreateTextFormat(
         L"Segoe UI",
@@ -383,6 +495,9 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.74f, 0.97f, 1.0f), &m_brushHelpKeyText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.94f, 0.96f, 1.0f), &m_brushHelpDescText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.60f, 0.65f, 0.70f, 1.0f), &m_brushHelpSubText);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.18f, 0.20f, 0.90f), &m_brushHelpKeycapBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.30f, 0.30f, 0.34f, 0.70f), &m_brushHelpKeycapBorder);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.03f), &m_brushHelpRowAlt);
 
     // Tab Bar Brushes
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.09f, 0.09f, 0.09f, 1.0f), &m_brushTabBarBg);
@@ -508,6 +623,9 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushHelpKeyText = nullptr;
     m_brushHelpDescText = nullptr;
     m_brushHelpSubText = nullptr;
+    m_brushHelpKeycapBg = nullptr;
+    m_brushHelpKeycapBorder = nullptr;
+    m_brushHelpRowAlt = nullptr;
     m_brushTabBarBg = nullptr;
     m_brushTabActiveBg = nullptr;
     m_brushTabInactiveBg = nullptr;
@@ -549,7 +667,7 @@ void D2DRenderer::DiscardDeviceResources() {
 
 void D2DRenderer::RenderBlank(
     const std::wstring& message,
-    bool showHelp,
+    const HelpOverlayRenderInfo& help,
     const std::vector<TabRenderInfo>& tabs,
     bool isAddHovered,
     bool showGoToPage,
@@ -580,7 +698,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, showHelp, docProps);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -601,7 +719,7 @@ void D2DRenderer::RenderPage(
     uint32_t currentPageIndex,
     uint32_t totalPages,
     const std::wstring& zoomModeText,
-    bool showHelp,
+    const HelpOverlayRenderInfo& help,
     const std::vector<TabRenderInfo>& tabs,
     bool isAddHovered,
     const ScrollbarRenderInfo& scrollbar,
@@ -790,7 +908,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, showHelp, docProps);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -809,7 +927,7 @@ void D2DRenderer::RenderContinuous(
     uint32_t totalPages,
     const std::wstring& zoomModeText,
     bool isContinuous,
-    bool showHelp,
+    const HelpOverlayRenderInfo& help,
     const std::vector<TabRenderInfo>& tabs,
     bool isAddHovered,
     const ScrollbarRenderInfo& scrollbar,
@@ -1033,7 +1151,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, showHelp, docProps);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1053,7 +1171,7 @@ void D2DRenderer::DrawOverlays(
     const std::wstring& goToPageBuffer,
     uint32_t totalPages,
     const SearchBarRenderInfo& searchBar,
-    bool showHelp,
+    const HelpOverlayRenderInfo& help,
     const DocumentPropertiesRenderInfo& docProps
 ) {
     // 1. Draw Scrollbar
@@ -1077,8 +1195,8 @@ void D2DRenderer::DrawOverlays(
     }
 
     // 5. Draw Help Overlay if toggled
-    if (showHelp) {
-        DrawHelpOverlay();
+    if (help.visible) {
+        DrawHelpOverlay(help);
     }
 
     // 6. Draw Document Properties Overlay if active
@@ -1500,103 +1618,305 @@ void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
     );
 }
 
-void D2DRenderer::DrawHelpOverlay() {
+int D2DRenderer::HitTestHelpOverlay(POINT pt) const {
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+
+    float px = (float)pt.x * dipScale;
+    float py = (float)pt.y * dipScale;
+
+    D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    D2D1_RECT_F closeBtn = HelpOverlayLayout::GetCloseBtnRect(card);
+
+    if (px >= closeBtn.left && px <= closeBtn.right && py >= closeBtn.top && py <= closeBtn.bottom) {
+        return 100; // Close button
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        D2D1_RECT_F tabRect = HelpOverlayLayout::GetCategoryTabRect(card, i);
+        if (px >= tabRect.left && px <= tabRect.right && py >= tabRect.top && py <= tabRect.bottom) {
+            return i; // Category tab 0..4
+        }
+    }
+
+    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
+        return 999; // Inside card body
+    }
+
+    return -1; // Outside card (backdrop)
+}
+
+void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     if (!m_d2dContext) return;
 
-    float dipWidth = m_width * (96.0f / m_dpi);
-    float dipHeight = m_height * (96.0f / m_dpi);
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
 
     // 1. Semi-transparent backdrop over entire window
     D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
     m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
 
     // 2. Centered Help Card
-    float cardW = 550.0f;
-    float cardH = 595.0f;
-    float cardLeft = std::max(10.0f, (dipWidth - cardW) * 0.5f);
-    float cardTop = std::max(10.0f, (dipHeight - cardH) * 0.5f);
-
-    D2D1_RECT_F cardRect = D2D1::RectF(cardLeft, cardTop, cardLeft + cardW, cardTop + cardH);
-    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(cardRect, 14.0f, 14.0f);
+    D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(card, 12.0f, 12.0f);
 
     // Drop shadow
-    D2D1_RECT_F cardShadow = D2D1::RectF(cardLeft + 6.0f, cardTop + 6.0f, cardLeft + cardW + 8.0f, cardTop + cardH + 8.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 14.0f, 14.0f), m_brushPageShadow.Get());
+    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
 
     // Card background & crisp border
     m_d2dContext->FillRoundedRectangle(roundedCard, m_brushHelpCardBg.Get());
     m_d2dContext->DrawRoundedRectangle(roundedCard, m_brushHelpCardBorder.Get(), 1.5f);
 
-    // Title
-    D2D1_RECT_F titleRect = D2D1::RectF(cardLeft, cardTop + 16.0f, cardLeft + cardW, cardTop + 42.0f);
-    const wchar_t* titleStr = L"LightPDF \x2014 Keyboard & Mouse Shortcuts";
+    // 3. Header: Title and Close Button [×]
+    D2D1_RECT_F titleRect = D2D1::RectF(card.left, card.top + 14.0f, card.right, card.top + 38.0f);
+    const wchar_t* titleStr = L"Keyboard & Mouse Shortcuts";
     m_d2dContext->DrawText(titleStr, (UINT32)wcslen(titleStr), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
 
-    // Subtitle
-    D2D1_RECT_F subRect = D2D1::RectF(cardLeft, cardTop + 42.0f, cardLeft + cardW, cardTop + 62.0f);
-    const wchar_t* subStr = L"Press F1 or Esc to close";
-    m_d2dContext->DrawText(subStr, (UINT32)wcslen(subStr), m_textFormatHelpSub.Get(), subRect, m_brushHelpSubText.Get());
+    // Close Button [×]
+    D2D1_RECT_F closeRect = HelpOverlayLayout::GetCloseBtnRect(card);
+    if (help.hoveredClose == 1) {
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushTabCloseHover.Get());
+    }
+    const wchar_t* closeGlyph = L"\x00D7";
+    m_d2dContext->DrawText(
+        closeGlyph,
+        1,
+        m_textFormatTabClose.Get(),
+        closeRect,
+        (help.hoveredClose == 1) ? m_brushHudText.Get() : m_brushHelpSubText.Get()
+    );
 
-    // Separator line
+    // 4. Category Tabs
+    static const wchar_t* tabLabels[5] = {
+        L"All (27)",
+        L"Navigation (6)",
+        L"Zoom & View (8)",
+        L"Tabs & Files (7)",
+        L"Search & Tools (6)"
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        D2D1_RECT_F tabRect = HelpOverlayLayout::GetCategoryTabRect(card, i);
+        D2D1_ROUNDED_RECT rTab = D2D1::RoundedRect(tabRect, 4.0f, 4.0f);
+
+        if (help.activeCategory == i) {
+            // Active tab pill
+            m_d2dContext->FillRoundedRectangle(rTab, m_brushSearchBtnActive.Get());
+            m_d2dContext->DrawRoundedRectangle(rTab, m_brushTabAccent.Get(), 1.0f);
+            m_d2dContext->DrawText(
+                tabLabels[i],
+                (UINT32)wcslen(tabLabels[i]),
+                m_textFormatSearchBtn.Get(),
+                tabRect,
+                m_brushHudText.Get()
+            );
+        } else if (help.hoveredCategory == i) {
+            // Hovered inactive tab
+            m_d2dContext->FillRoundedRectangle(rTab, m_brushTabHoverBg.Get());
+            m_d2dContext->DrawText(
+                tabLabels[i],
+                (UINT32)wcslen(tabLabels[i]),
+                m_textFormatSearchBtn.Get(),
+                tabRect,
+                m_brushHudText.Get()
+            );
+        } else {
+            // Inactive tab
+            m_d2dContext->DrawText(
+                tabLabels[i],
+                (UINT32)wcslen(tabLabels[i]),
+                m_textFormatSearchBtn.Get(),
+                tabRect,
+                m_brushTabTextInactive.Get()
+            );
+        }
+    }
+
+    // Divider line under tabs
     m_d2dContext->DrawLine(
-        D2D1::Point2F(cardLeft + 24.0f, cardTop + 68.0f),
-        D2D1::Point2F(cardLeft + cardW - 24.0f, cardTop + 68.0f),
+        D2D1::Point2F(card.left + 24.0f, card.top + 78.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 78.0f),
         m_brushHelpCardBorder.Get(),
         1.0f
     );
 
-    // Shortcuts List
+    // Shortcuts Data Categorized
     struct ShortcutItem {
         const wchar_t* key;
         const wchar_t* desc;
     };
 
-    static const ShortcutItem items[] = {
+    static const ShortcutItem navItems[] = {
+        { L"Page Down / Space",     L"Advance to next page" },
+        { L"Page Up / Shift+Space", L"Go to previous page" },
+        { L"Right / Left Arrow",    L"Next / Previous page" },
+        { L"Home / End",            L"Jump to first / last page" },
+        { L"Mouse Wheel",           L"Scroll page vertically" },
+        { L"Left / Middle Drag",    L"Smooth pan / drag document" }
+    };
+
+    static const ShortcutItem zoomItems[] = {
+        { L"Ctrl + Wheel / + / -",  L"Zoom in / out centered on cursor" },
+        { L"Ctrl + 0",              L"Fit full page to window" },
+        { L"Ctrl + 1",              L"Actual size (100% zoom)" },
+        { L"Ctrl + 2",              L"Fit page width to window" },
+        { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
+        { L"Double Click",          L"Fit Page / Fit Width (or Open file)" },
+        { L"F11",                   L"Toggle borderless fullscreen" },
+        { L"Scrollbar Drag",        L"Scrub through document pages" }
+    };
+
+    static const ShortcutItem tabItems[] = {
         { L"Ctrl + O / Ctrl + T",    L"Open PDF document in new tab" },
         { L"Ctrl + W",              L"Close active tab" },
         { L"Ctrl + Tab",            L"Switch to next tab" },
         { L"Ctrl + Shift + Tab",    L"Switch to previous tab" },
         { L"Alt + 1..9",            L"Jump directly to tab 1 through 9" },
         { L"Middle Click Tab",      L"Close clicked tab" },
+        { L"Drag & Drop",           L"Open dropped PDF files as tabs" }
+    };
+
+    static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
         { L"Ctrl + G",              L"Go to specific page number prompt" },
-        { L"Scrollbar Drag",        L"Scrub through document pages" },
-        { L"Drag & Drop",           L"Open dropped PDF files as tabs" },
-        { L"Page Down / Space",     L"Advance to next page" },
-        { L"Page Up / Shift+Space", L"Go to previous page" },
-        { L"Right / Left Arrow",    L"Next / Previous page" },
-        { L"Home / End",            L"Jump to first / last page" },
-        { L"Mouse Wheel",           L"Scroll page vertically" },
-        { L"Left / Middle Drag",    L"Smooth pan / drag document" },
-        { L"Ctrl + Wheel / + / -",  L"Zoom in / out centered on cursor" },
-        { L"Ctrl + 0",              L"Fit full page to window" },
-        { L"Ctrl + 1",              L"Actual size (100% zoom)" },
-        { L"Ctrl + 2",              L"Fit page width to window" },
-        { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
         { L"Ctrl + D",              L"Document properties (Information)" },
-        { L"Double Click",          L"Fit Page / Fit Width (or Open file if empty)" },
-        { L"F11",                   L"Toggle borderless fullscreen" },
-        { L"F1 / Esc",              L"Toggle / dismiss this help overlay" },
+        { L"F1 / Esc",              L"Toggle / dismiss this help overlay" }
     };
 
-    float startY = cardTop + 76.0f;
-    float rowH = 19.5f;
-    float keyColW = 195.0f;
-    float gap = 16.0f;
-    float leftColX = cardLeft + 24.0f;
-    float descColX = leftColX + keyColW + gap;
-    float descColW = cardW - 48.0f - keyColW - gap;
+    if (help.activeCategory == 0) {
+        // Mode 0: All (27) shortcuts in balanced 2-column layout
+        float col1Left = card.left + 24.0f;
+        float col2Left = card.left + 354.0f;
+        float keyColW = 136.0f;
+        float gap = 8.0f;
+        float descColW = 158.0f;
+        float rowH = 18.0f;
+        float headerH = 20.0f;
 
-    for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); ++i) {
-        float y = startY + (float)i * rowH;
-        D2D1_RECT_F keyRect = D2D1::RectF(leftColX, y, leftColX + keyColW, y + rowH);
-        D2D1_RECT_F descRect = D2D1::RectF(descColX, y, descColX + descColW, y + rowH);
+        // Vertical divider line between columns
+        m_d2dContext->DrawLine(
+            D2D1::Point2F(card.left + 340.0f, card.top + 88.0f),
+            D2D1::Point2F(card.left + 340.0f, card.top + 406.0f),
+            m_brushTabBorder.Get(),
+            1.0f
+        );
 
-        m_d2dContext->DrawText(items[i].key, (UINT32)wcslen(items[i].key), m_textFormatHelpKey.Get(), keyRect, m_brushHelpKeyText.Get());
-        m_d2dContext->DrawText(items[i].desc, (UINT32)wcslen(items[i].desc), m_textFormatHelpDesc.Get(), descRect, m_brushHelpDescText.Get());
+        auto drawSection = [&](float colX, float startY, const wchar_t* title, const ShortcutItem* items, size_t count) -> float {
+            D2D1_RECT_F headRect = D2D1::RectF(colX, startY, colX + 302.0f, startY + headerH);
+            m_d2dContext->DrawText(title, (UINT32)wcslen(title), m_textFormatHelpSection.Get(), headRect, m_brushPropsAccent.Get());
+
+            float y = startY + headerH + 2.0f;
+            for (size_t i = 0; i < count; ++i) {
+                D2D1_RECT_F keyRect = D2D1::RectF(colX, y, colX + keyColW, y + rowH);
+                D2D1_RECT_F descRect = D2D1::RectF(colX + keyColW + gap, y, colX + keyColW + gap + descColW, y + rowH);
+
+                m_d2dContext->DrawText(items[i].key, (UINT32)wcslen(items[i].key), m_textFormatHelpColKey.Get(), keyRect, m_brushHelpKeyText.Get());
+                m_d2dContext->DrawText(items[i].desc, (UINT32)wcslen(items[i].desc), m_textFormatHelpColDesc.Get(), descRect, m_brushHelpDescText.Get());
+                y += rowH;
+            }
+            return y;
+        };
+
+        // Left Column: Navigation (6) + Tabs & Files (7)
+        float curY1 = drawSection(col1Left, card.top + 86.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
+        drawSection(col1Left, curY1 + 10.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
+
+        // Right Column: Zoom & View (8) + Search & Tools (6)
+        float curY2 = drawSection(col2Left, card.top + 86.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
+        drawSection(col2Left, curY2 + 10.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
+    } else {
+        // Modes 1..4: Single category view with spacious row badges
+        const ShortcutItem* catItems = nullptr;
+        size_t catCount = 0;
+
+        switch (help.activeCategory) {
+        case 1:
+            catItems = navItems;
+            catCount = sizeof(navItems) / sizeof(navItems[0]);
+            break;
+        case 2:
+            catItems = zoomItems;
+            catCount = sizeof(zoomItems) / sizeof(zoomItems[0]);
+            break;
+        case 3:
+            catItems = tabItems;
+            catCount = sizeof(tabItems) / sizeof(tabItems[0]);
+            break;
+        case 4:
+            catItems = toolItems;
+            catCount = sizeof(toolItems) / sizeof(toolItems[0]);
+            break;
+        }
+
+        if (catItems && catCount > 0) {
+            float startY = card.top + 92.0f;
+            float rowH = 36.0f;
+            float rowW = card.right - card.left - 48.0f;
+
+            for (size_t i = 0; i < catCount; ++i) {
+                float y = startY + (float)i * rowH;
+
+                // Subtle alternating row background
+                if (i % 2 == 1) {
+                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + 32.0f);
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(altRect, 4.0f, 4.0f), m_brushHelpRowAlt.Get());
+                }
+
+                // Keycap badge
+                float keycapX = card.left + 32.0f;
+                float keycapY = y + 3.0f;
+                float keycapW = 180.0f;
+                float keycapH = 26.0f;
+                D2D1_RECT_F keycapRect = D2D1::RectF(keycapX, keycapY, keycapX + keycapW, keycapY + keycapH);
+                D2D1_ROUNDED_RECT rKeycap = D2D1::RoundedRect(keycapRect, 4.0f, 4.0f);
+
+                m_d2dContext->FillRoundedRectangle(rKeycap, m_brushHelpKeycapBg.Get());
+                m_d2dContext->DrawRoundedRectangle(rKeycap, m_brushHelpKeycapBorder.Get(), 1.0f);
+
+                m_d2dContext->DrawText(
+                    catItems[i].key,
+                    (UINT32)wcslen(catItems[i].key),
+                    m_textFormatHelpSingleKey.Get(),
+                    keycapRect,
+                    m_brushHelpKeyText.Get()
+                );
+
+                // Description
+                float descX = keycapX + keycapW + 18.0f;
+                float descW = card.right - 32.0f - descX;
+                D2D1_RECT_F descRect = D2D1::RectF(descX, y, descX + descW, y + 32.0f);
+
+                m_d2dContext->DrawText(
+                    catItems[i].desc,
+                    (UINT32)wcslen(catItems[i].desc),
+                    m_textFormatHelpSingleDesc.Get(),
+                    descRect,
+                    m_brushHelpDescText.Get()
+                );
+            }
+        }
     }
+
+    // 5. Footer: Divider line and Keyboard Hints
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.top + 412.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 412.0f),
+        m_brushHelpCardBorder.Get(),
+        1.0f
+    );
+
+    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, card.top + 414.0f, card.left + 380.0f, card.top + 434.0f);
+    const wchar_t* footLeftStr = L"Switch tabs: 1\x2013\x0035, Tab / Shift+Tab, or \x2190 \x2192";
+    m_d2dContext->DrawText(footLeftStr, (UINT32)wcslen(footLeftStr), m_textFormatHelpFooterLeft.Get(), footLeftRect, m_brushHelpSubText.Get());
+
+    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 200.0f, card.top + 414.0f, card.right - 24.0f, card.top + 434.0f);
+    const wchar_t* footRightStr = L"Press Esc or F1 to close";
+    m_d2dContext->DrawText(footRightStr, (UINT32)wcslen(footRightStr), m_textFormatHelpFooterRight.Get(), footRightRect, m_brushHelpSubText.Get());
 }
 
 int D2DRenderer::HitTestDocumentProperties(POINT pt) const {
