@@ -76,8 +76,8 @@ private:
     void AdjustZoom(float factor, POINT mousePos);
     void RecalculateLayout();
 
-    void NextPage();
-    void PrevPage();
+    void NextPage(bool shouldRender = true);
+    void PrevPage(bool shouldRender = true);
     void GoToPage(uint32_t pageIndex);
 
     void ToggleContinuousScroll();
@@ -91,6 +91,7 @@ private:
     float GetTopOffset() const { return (m_tabs.size() > 1) ? 34.0f : 0.0f; }
     int HitTestTab(POINT pt, bool& outClose, bool& outAdd) const;
     std::vector<TabRenderInfo> GetTabRenderInfos() const;
+    void UpdateTabRenderInfos(std::vector<TabRenderInfo>& infos) const;
 
     ScrollbarRenderInfo GetScrollbarInfo() const;
     bool HitTestScrollbar(POINT pt, bool& outThumb, ScrollbarRenderInfo* outInfo = nullptr) const;
@@ -191,4 +192,7 @@ private:
     std::atomic<bool> m_isPrinting{ false };
     std::atomic<bool> m_cancelPrint{ false };
     std::thread m_printThread;
+
+    // Tab rendering cache
+    mutable std::vector<TabRenderInfo> m_cachedTabInfos;
 };
