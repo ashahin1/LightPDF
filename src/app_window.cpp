@@ -254,16 +254,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 float maxOffsetY = 20.0f;
 
                 if (oldOffsetY <= minOffsetY && delta < 0) {
-                    NextPage(false);
-                    pTab->offsetY = 20.0f;
+                    if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
+                        NextPage(false);
+                        pTab->offsetY = 20.0f;
+                    } else {
+                        pTab->offsetY = minOffsetY;
+                    }
                 } else if (oldOffsetY >= maxOffsetY && delta > 0) {
-                    PrevPage(false);
-                    D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
-                    pTab->offsetY = dipH - (prevSize.height * pTab->zoom) - 20.0f;
+                    if (pTab->currentPage > 0) {
+                        PrevPage(false);
+                        D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
+                        pTab->offsetY = dipH - (prevSize.height * pTab->zoom) - 20.0f;
+                    } else {
+                        pTab->offsetY = maxOffsetY;
+                    }
                 } else {
                     pTab->offsetY = std::clamp(pTab->offsetY, minOffsetY, maxOffsetY);
                 }
-                pTab->zoomMode = ZoomMode::Custom;
                 Render();
             } else {
                 if (delta < 0) {
