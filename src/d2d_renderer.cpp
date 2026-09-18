@@ -1780,8 +1780,6 @@ bool D2DRenderer::PrintPageToHdc(
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(m_renderMutex);
-
     if (pageSize.width <= 0.0f || pageSize.height <= 0.0f) {
         return false;
     }
@@ -1831,7 +1829,6 @@ bool D2DRenderer::PrintPageToHdc(
     }
 
     // 4. Render and stage page pixels under m_renderMutex
-    std::vector<uint8_t> pixelBytes;
     {
         std::lock_guard<std::mutex> lock(m_renderMutex);
 
@@ -1913,9 +1910,9 @@ bool D2DRenderer::PrintPageToHdc(
         if (FAILED(hr)) return false;
 
         size_t rowBytes = (size_t)renderW * 4;
-        pixelBytes.resize(rowBytes * renderH);
+        m_printPixelBuffer.resize(rowBytes * renderH);
         const uint8_t* pSrc = (const uint8_t*)mapped.pData;
-        uint8_t* pDst = pixelBytes.data();
+        uint8_t* pDst = m_printPixelBuffer.data();
         for (UINT32 y = 0; y < renderH; ++y) {
             memcpy(pDst + y * rowBytes, pSrc + y * mapped.RowPitch, rowBytes);
         }
@@ -1939,7 +1936,7 @@ bool D2DRenderer::PrintPageToHdc(
         hdc,
         destX, destY, destW, destH,
         0, 0, (int)renderW, (int)renderH,
-        pixelBytes.data(),
+        m_printPixelBuffer.data(),
         &bmi,
         DIB_RGB_COLORS,
         SRCCOPY

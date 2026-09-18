@@ -361,12 +361,13 @@ private:
     std::vector<PageBitmapCache> m_continuousPageCache;
     uint64_t m_continuousCacheClock = 0;
 
-    // Cached print textures to avoid 70MB allocation/deallocation per page
+    // Cached print textures and readback buffer to avoid 70MB allocation/deallocation per page
     ComPtr<ID3D11Texture2D> m_printRenderTexture;
     ComPtr<ID3D11Texture2D> m_printStagingTexture;
     ComPtr<ID2D1Bitmap1> m_printTargetBitmap;
     UINT m_cachedPrintW = 0;
     UINT m_cachedPrintH = 0;
+    std::vector<uint8_t> m_printPixelBuffer;
 
     // Cached DirectWrite text layout for search bar
     Microsoft::WRL::ComPtr<IDWriteTextLayout> m_cachedSearchLayout;
