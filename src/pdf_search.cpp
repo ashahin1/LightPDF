@@ -161,8 +161,15 @@ bool HasArabicLetters(const std::wstring& str) {
     return false;
 }
 
-std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap) {
-    std::wstring out;
+static void ToUpperInPlace(const std::wstring& s, std::wstring& out) {
+    out.resize(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        out[i] = (wchar_t)towupper(s[i]);
+    }
+}
+
+void NormalizeArabic(const std::wstring& in, std::wstring& out, std::vector<size_t>* outCharMap) {
+    out.clear();
     out.reserve(in.size());
     if (outCharMap) {
         outCharMap->clear();
@@ -251,7 +258,11 @@ std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCha
             outCharMap->push_back(i);
         }
     }
+}
 
+std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap) {
+    std::wstring out;
+    NormalizeArabic(in, out, outCharMap);
     return out;
 }
 
@@ -280,6 +291,13 @@ void PdfSearchEngine::SearchWorker(
     std::wstring needle = matchCase ? query : ToUpperStr(query);
 
     bool isQueryArabic = ContainsArabic(query);
+    bool queryHasDigits = false;
+    for (wchar_t ch : query) {
+        if (ch >= L'0' && ch <= L'9') {
+            queryHasDigits = true;
+            break;
+        }
+    }
     std::wstring qFwd = NormalizeArabic(needle);
 
     auto lastNotifyTime = std::chrono::steady_clock::now();
@@ -303,6 +321,11 @@ void PdfSearchEngine::SearchWorker(
 
             PdfParser parser;
             if (!parser.Load(filePath)) return;
+
+            // Reusable buffers to eliminate per-page heap allocations
+            std::wstring workerUpperBuf;
+            std::wstring workerNormBuf;
+            std::vector<size_t> workerCharMap;
 
             winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
             if (ocrEnabled && doc) {
@@ -402,12 +425,17 @@ void PdfSearchEngine::SearchWorker(
                 if (!pageText.fullText.empty() && !pageText.chars.empty()) {
                     std::vector<SearchMatch> pageMatches;
 
-                    bool isPageArabic = isQueryArabic || ContainsArabic(pageText.fullText);
+                    bool isPageArabic = isQueryArabic || (queryHasDigits && ContainsArabic(pageText.fullText));
 
                     if (isPageArabic) {
-                        std::vector<size_t> charMap;
-                        std::wstring textToNorm = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
-                        std::wstring normHay = NormalizeArabic(textToNorm, &charMap);
+                        const std::wstring* pTextToNorm = &pageText.fullText;
+                        if (!matchCase) {
+                            ToUpperInPlace(pageText.fullText, workerUpperBuf);
+                            pTextToNorm = &workerUpperBuf;
+                        }
+                        NormalizeArabic(*pTextToNorm, workerNormBuf, &workerCharMap);
+                        const std::wstring& normHay = workerNormBuf;
+                        const std::vector<size_t>& charMap = workerCharMap;
 
                         if (!qFwd.empty()) {
                             size_t pos = 0;
@@ -476,7 +504,12 @@ void PdfSearchEngine::SearchWorker(
                             }
                         }
                     } else {
-                        std::wstring hay = matchCase ? pageText.fullText : ToUpperStr(pageText.fullText);
+                        const std::wstring* pHay = &pageText.fullText;
+                        if (!matchCase) {
+                            ToUpperInPlace(pageText.fullText, workerUpperBuf);
+                            pHay = &workerUpperBuf;
+                        }
+                        const std::wstring& hay = *pHay;
                         size_t pos = 0;
 
                         while ((pos = hay.find(needle, pos)) != std::wstring::npos) {
@@ -538,16 +571,14 @@ void PdfSearchEngine::SearchWorker(
                         {
                             std::lock_guard<std::mutex> lock(m_mutex);
                             bool wasEmpty = m_matches.empty();
-                            for (auto& m : pageMatches) {
-                                // Sorted insertion maintaining page and vertical order across worker threads
-                                auto it = std::upper_bound(m_matches.begin(), m_matches.end(), m,
-                                    [](const SearchMatch& a, const SearchMatch& b) {
-                                        if (a.pageIndex != b.pageIndex) return a.pageIndex < b.pageIndex;
-                                        if (std::abs(a.pageRect.top - b.pageRect.top) > 1.0f) return a.pageRect.top < b.pageRect.top;
-                                        return a.pageRect.left < b.pageRect.left;
-                                    });
-                                m_matches.insert(it, std::move(m));
-                            }
+                            auto it = std::upper_bound(m_matches.begin(), m_matches.end(), pageMatches.front(),
+                                [](const SearchMatch& a, const SearchMatch& b) {
+                                    if (a.pageIndex != b.pageIndex) return a.pageIndex < b.pageIndex;
+                                    if (std::abs(a.pageRect.top - b.pageRect.top) > 1.0f) return a.pageRect.top < b.pageRect.top;
+                                    return a.pageRect.left < b.pageRect.left;
+                                });
+                            m_matches.insert(it, std::make_move_iterator(pageMatches.begin()), std::make_move_iterator(pageMatches.end()));
+
                             if (wasEmpty && !m_matches.empty() && m_activeMatchIndex == -1) {
                                 m_activeMatchIndex = 0;
                             }

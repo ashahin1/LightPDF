@@ -241,8 +241,10 @@ namespace MiniZlib {
 
                         if ((size_t)distance > out.size()) return false;
                         size_t src_offset = out.size() - distance;
+                        size_t old_size = out.size();
+                        out.resize(old_size + length);
                         for (int k = 0; k < length; ++k) {
-                            out.push_back(out[src_offset + k]);
+                            out[old_size + k] = out[src_offset + k];
                         }
                     }
                 }

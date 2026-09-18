@@ -26,6 +26,7 @@ struct SearchMatch {
 // Arabic script detection and orthographic normalization helpers
 bool ContainsArabic(const std::wstring& str);
 bool HasArabicLetters(const std::wstring& str);
+void NormalizeArabic(const std::wstring& in, std::wstring& out, std::vector<size_t>* outCharMap = nullptr);
 std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCharMap = nullptr);
 
 struct PageTextCache {

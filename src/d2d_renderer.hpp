@@ -368,6 +368,13 @@ private:
     UINT m_cachedPrintW = 0;
     UINT m_cachedPrintH = 0;
 
+    // Cached DirectWrite text layout for search bar
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> m_cachedSearchLayout;
+    std::wstring m_cachedSearchQuery;
+    float m_cachedSearchLayoutW = 0.0f;
+    float m_cachedSearchLayoutH = 0.0f;
+    FLOAT m_cachedSearchCaretX = 0.0f;
+
     // Mutex for thread-safe rendering between UI and background print worker
     std::mutex m_renderMutex;
 };

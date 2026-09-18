@@ -254,10 +254,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 float maxOffsetY = 20.0f;
 
                 if (oldOffsetY <= minOffsetY && delta < 0) {
-                    NextPage();
+                    NextPage(false);
                     pTab->offsetY = 20.0f;
                 } else if (oldOffsetY >= maxOffsetY && delta > 0) {
-                    PrevPage();
+                    PrevPage(false);
                     D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
                     pTab->offsetY = dipH - (prevSize.height * pTab->zoom) - 20.0f;
                 } else {
@@ -1243,19 +1243,25 @@ int AppWindow::HitTestTab(POINT pt, bool& outClose, bool& outAdd) const {
     return -1;
 }
 
-std::vector<TabRenderInfo> AppWindow::GetTabRenderInfos() const {
-    std::vector<TabRenderInfo> infos;
-    infos.reserve(m_tabs.size());
-
-    for (size_t i = 0; i < m_tabs.size(); ++i) {
-        TabRenderInfo info;
-        info.title = m_tabs[i].document.IsLoaded() ? m_tabs[i].document.GetFileName() : L"Empty";
-        info.isActive = (i == m_activeTab);
-        info.isHovered = ((int)i == m_hoveredTab);
-        info.isCloseHovered = ((int)i == m_hoveredTab && m_hoveredClose);
-        infos.push_back(std::move(info));
+void AppWindow::UpdateTabRenderInfos(std::vector<TabRenderInfo>& infos) const {
+    if (infos.size() != m_tabs.size()) {
+        infos.resize(m_tabs.size());
     }
 
+    for (size_t i = 0; i < m_tabs.size(); ++i) {
+        const std::wstring& title = m_tabs[i].document.IsLoaded() ? m_tabs[i].document.GetFileName() : L"Empty";
+        if (infos[i].title != title) {
+            infos[i].title = title;
+        }
+        infos[i].isActive = (i == m_activeTab);
+        infos[i].isHovered = ((int)i == m_hoveredTab);
+        infos[i].isCloseHovered = ((int)i == m_hoveredTab && m_hoveredClose);
+    }
+}
+
+std::vector<TabRenderInfo> AppWindow::GetTabRenderInfos() const {
+    std::vector<TabRenderInfo> infos;
+    UpdateTabRenderInfos(infos);
     return infos;
 }
 
@@ -1605,7 +1611,7 @@ void AppWindow::RecalculateLayout() {
     }
 }
 
-void AppWindow::NextPage() {
+void AppWindow::NextPage(bool shouldRender) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded()) return;
     if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
@@ -1625,11 +1631,13 @@ void AppWindow::NextPage() {
         }
         UpdateTitle();
         ShowScrollbar();
-        Render();
+        if (shouldRender) {
+            Render();
+        }
     }
 }
 
-void AppWindow::PrevPage() {
+void AppWindow::PrevPage(bool shouldRender) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded()) return;
     if (pTab->currentPage > 0) {
@@ -1649,7 +1657,9 @@ void AppWindow::PrevPage() {
         }
         UpdateTitle();
         ShowScrollbar();
-        Render();
+        if (shouldRender) {
+            Render();
+        }
     }
 }
 
@@ -1808,7 +1818,8 @@ void AppWindow::ToggleFullscreen() {
 
 void AppWindow::Render() {
     auto* pTab = GetActiveTab();
-    auto tabInfos = GetTabRenderInfos();
+    UpdateTabRenderInfos(m_cachedTabInfos);
+    const auto& tabInfos = m_cachedTabInfos;
 
     m_docPropsInfo.visible = m_showProperties;
     m_docPropsInfo.hoveredBtn = m_propsHoveredBtn;

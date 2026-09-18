@@ -724,28 +724,32 @@ void D2DRenderer::RenderPage(
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
     }
 
-    // 3b. Draw Search Match Highlights over page
-    for (const auto& hl : highlights) {
-        if (hl.pageIndex == currentPageIndex) {
-            auto drawBox = [&](const D2D1_RECT_F& pr) {
-                float hx = offsetX + pr.left * zoom;
-                float hy = pageY + pr.top * zoom;
-                float hw = (pr.right - pr.left) * zoom;
-                float hh = (pr.bottom - pr.top) * zoom;
-                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-                if (hl.isActive) {
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
-                    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
-                } else {
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
-                }
-            };
-
-            if (!hl.rects.empty()) {
-                for (const auto& lr : hl.rects) drawBox(lr);
+    // 3b. Draw Search Match Highlights over page (O(log N) lookup)
+    struct HighlightPageComp {
+        bool operator()(const SearchHighlight& a, uint32_t page) const { return a.pageIndex < page; }
+        bool operator()(uint32_t page, const SearchHighlight& a) const { return page < a.pageIndex; }
+    };
+    auto hlRange = std::equal_range(highlights.begin(), highlights.end(), currentPageIndex, HighlightPageComp{});
+    for (auto it = hlRange.first; it != hlRange.second; ++it) {
+        const auto& hl = *it;
+        auto drawBox = [&](const D2D1_RECT_F& pr) {
+            float hx = offsetX + pr.left * zoom;
+            float hy = pageY + pr.top * zoom;
+            float hw = (pr.right - pr.left) * zoom;
+            float hh = (pr.bottom - pr.top) * zoom;
+            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+            if (hl.isActive) {
+                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
             } else {
-                drawBox(hl.pageRect);
+                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
             }
+        };
+
+        if (!hl.rects.empty()) {
+            for (const auto& lr : hl.rects) drawBox(lr);
+        } else {
+            drawBox(hl.pageRect);
         }
     }
 
@@ -962,28 +966,32 @@ void D2DRenderer::RenderContinuous(
             m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         }
 
-        // 3b. Draw Search Match Highlights for this page
-        for (const auto& hl : highlights) {
-            if (hl.pageIndex == vp.pageIndex) {
-                auto drawBox = [&](const D2D1_RECT_F& pr) {
-                    float hx = pageX + pr.left * zoom;
-                    float hy = pageY + pr.top * zoom;
-                    float hw = (pr.right - pr.left) * zoom;
-                    float hh = (pr.bottom - pr.top) * zoom;
-                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-                    if (hl.isActive) {
-                        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
-                        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
-                    } else {
-                        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
-                    }
-                };
-
-                if (!hl.rects.empty()) {
-                    for (const auto& lr : hl.rects) drawBox(lr);
+        // 3b. Draw Search Match Highlights for this page (O(log N) lookup)
+        struct HighlightPageComp {
+            bool operator()(const SearchHighlight& a, uint32_t page) const { return a.pageIndex < page; }
+            bool operator()(uint32_t page, const SearchHighlight& a) const { return page < a.pageIndex; }
+        };
+        auto hlRange = std::equal_range(highlights.begin(), highlights.end(), vp.pageIndex, HighlightPageComp{});
+        for (auto it = hlRange.first; it != hlRange.second; ++it) {
+            const auto& hl = *it;
+            auto drawBox = [&](const D2D1_RECT_F& pr) {
+                float hx = pageX + pr.left * zoom;
+                float hy = pageY + pr.top * zoom;
+                float hw = (pr.right - pr.left) * zoom;
+                float hh = (pr.bottom - pr.top) * zoom;
+                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                if (hl.isActive) {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
+                    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
                 } else {
-                    drawBox(hl.pageRect);
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
                 }
+            };
+
+            if (!hl.rects.empty()) {
+                for (const auto& lr : hl.rects) drawBox(lr);
+            } else {
+                drawBox(hl.pageRect);
             }
         }
 
@@ -1322,34 +1330,42 @@ void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
         }
 
         if (hasArabic && m_dwriteFactory) {
-            m_d2dContext->DrawText(
-                searchBar.query.c_str(),
-                (UINT32)searchBar.query.length(),
-                m_textFormatSearchInput.Get(),
-                inputRect,
-                m_brushHudText.Get()
-            );
+            float boxW = inputRect.right - inputRect.left;
+            float boxH = inputRect.bottom - inputRect.top;
+            if (!m_cachedSearchLayout || m_cachedSearchQuery != searchBar.query ||
+                std::abs(m_cachedSearchLayoutW - boxW) > 1.0f || std::abs(m_cachedSearchLayoutH - boxH) > 1.0f) {
+                m_cachedSearchLayout.Reset();
+                m_cachedSearchQuery = searchBar.query;
+                m_cachedSearchLayoutW = boxW;
+                m_cachedSearchLayoutH = boxH;
+                m_cachedSearchCaretX = 0;
+                if (SUCCEEDED(m_dwriteFactory->CreateTextLayout(
+                    searchBar.query.c_str(),
+                    (UINT32)searchBar.query.length(),
+                    m_textFormatSearchInput.Get(),
+                    boxW,
+                    boxH,
+                    &m_cachedSearchLayout))) {
+                    DWRITE_HIT_TEST_METRICS htm = {};
+                    FLOAT caretY = 0;
+                    m_cachedSearchLayout->HitTestTextPosition((UINT32)searchBar.query.length(), FALSE, &m_cachedSearchCaretX, &caretY, &htm);
+                }
+            }
 
-            Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-            if (SUCCEEDED(m_dwriteFactory->CreateTextLayout(
-                searchBar.query.c_str(),
-                (UINT32)searchBar.query.length(),
-                m_textFormatSearchInput.Get(),
-                inputRect.right - inputRect.left,
-                inputRect.bottom - inputRect.top,
-                &layout))) {
-                DWRITE_HIT_TEST_METRICS htm = {};
-                FLOAT caretX = 0, caretY = 0;
-                if (SUCCEEDED(layout->HitTestTextPosition((UINT32)searchBar.query.length(), FALSE, &caretX, &caretY, &htm))) {
-                    float cx = inputRect.left + caretX;
-                    if (cx >= inputRect.left && cx <= inputRect.right) {
-                        m_d2dContext->DrawLine(
-                            D2D1::Point2F(cx, inputRect.top + 3.0f),
-                            D2D1::Point2F(cx, inputRect.bottom - 3.0f),
-                            m_brushHudText.Get(),
-                            1.5f
-                        );
-                    }
+            if (m_cachedSearchLayout) {
+                m_d2dContext->DrawTextLayout(
+                    D2D1::Point2F(inputRect.left, inputRect.top),
+                    m_cachedSearchLayout.Get(),
+                    m_brushHudText.Get()
+                );
+                float cx = inputRect.left + m_cachedSearchCaretX;
+                if (cx >= inputRect.left && cx <= inputRect.right) {
+                    m_d2dContext->DrawLine(
+                        D2D1::Point2F(cx, inputRect.top + 3.0f),
+                        D2D1::Point2F(cx, inputRect.bottom - 3.0f),
+                        m_brushHudText.Get(),
+                        1.5f
+                    );
                 }
             }
         } else {
