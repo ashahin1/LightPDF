@@ -125,6 +125,41 @@ struct SelectionHighlightSpan {
     std::vector<D2D1_RECT_F> rects;        // PDF page coordinates in DIPs
 };
 
+struct DictionaryCardRenderInfo {
+    bool visible = false;
+    D2D1_RECT_F anchorRect = { 0, 0, 0, 0 }; // Screen DIPs around target word/phrase
+    std::wstring word;
+    std::wstring definition;
+    std::wstring categoryTag;
+    uint16_t category = 0;
+};
+
+struct DictionaryCardLayout {
+    static constexpr float WIDTH = 380.0f;
+    static constexpr float MIN_HEIGHT = 130.0f;
+    static constexpr float MAX_HEIGHT = 280.0f;
+
+    static inline D2D1_RECT_F CalculateCardRect(const D2D1_RECT_F& anchorRect, float defHeight, float dipWidth, float dipHeight, float topOffset) {
+        float cardWidth = (std::min)(WIDTH, (std::max)(100.0f, dipWidth - 24.0f));
+        float cardHeight = std::clamp(38.0f + 10.0f + defHeight + 14.0f + 20.0f + 12.0f, MIN_HEIGHT, MAX_HEIGHT);
+
+        float left = (anchorRect.left + anchorRect.right) * 0.5f - cardWidth * 0.5f;
+        left = std::clamp(left, 12.0f, (std::max)(12.0f, dipWidth - cardWidth - 12.0f));
+
+        // Prefer placing card above the anchor word
+        float top = anchorRect.top - cardHeight - 8.0f;
+        if (top < topOffset + 8.0f) {
+            // Not enough room above, place below
+            top = anchorRect.bottom + 8.0f;
+        }
+        if (top + cardHeight > dipHeight - 12.0f) {
+            top = (std::max)(topOffset + 8.0f, dipHeight - cardHeight - 12.0f);
+        }
+
+        return D2D1::RectF(left, top, left + cardWidth, top + cardHeight);
+    }
+};
+
 struct DocumentPropertiesRenderInfo {
     bool visible = false;
     // Document Information
@@ -222,7 +257,8 @@ public:
         bool showGoToPage = false,
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
-        const DocumentPropertiesRenderInfo& docProps = {}
+        const DocumentPropertiesRenderInfo& docProps = {},
+        const DictionaryCardRenderInfo& dictCard = {}
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -242,7 +278,8 @@ public:
         const SearchBarRenderInfo& searchBar = {},
         const std::vector<SearchHighlight>& highlights = {},
         const DocumentPropertiesRenderInfo& docProps = {},
-        const std::vector<SelectionHighlightSpan>& selectionSpans = {}
+        const std::vector<SelectionHighlightSpan>& selectionSpans = {},
+        const DictionaryCardRenderInfo& dictCard = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -260,8 +297,11 @@ public:
         const SearchBarRenderInfo& searchBar = {},
         const std::vector<SearchHighlight>& highlights = {},
         const DocumentPropertiesRenderInfo& docProps = {},
-        const std::vector<SelectionHighlightSpan>& selectionSpans = {}
+        const std::vector<SelectionHighlightSpan>& selectionSpans = {},
+        const DictionaryCardRenderInfo& dictCard = {}
     );
+
+    void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
 
     int HitTestDocumentProperties(POINT pt) const;
     int HitTestHelpOverlay(POINT pt) const;
@@ -304,7 +344,8 @@ private:
         uint32_t totalPages,
         const SearchBarRenderInfo& searchBar,
         const HelpOverlayRenderInfo& help,
-        const DocumentPropertiesRenderInfo& docProps
+        const DocumentPropertiesRenderInfo& docProps,
+        const DictionaryCardRenderInfo* pDictCard = nullptr
     );
 
     HWND m_hwnd = nullptr;
@@ -402,6 +443,18 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushPropsSecBtn;
     ComPtr<ID2D1SolidColorBrush> m_brushPropsSecBtnHover;
     ComPtr<ID2D1SolidColorBrush> m_brushPropsSuccess;
+
+    // Dictionary Card Formats & Brushes
+    ComPtr<IDWriteTextFormat> m_textFormatDictWord;
+    ComPtr<IDWriteTextFormat> m_textFormatDictTag;
+    ComPtr<IDWriteTextFormat> m_textFormatDictDef;
+    ComPtr<IDWriteTextFormat> m_textFormatDictHint;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictCardBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictCardBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictTagBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictTagText;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictDefText;
+    ComPtr<ID2D1SolidColorBrush> m_brushDictHintText;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;

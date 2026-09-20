@@ -67,6 +67,9 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
         return false;
     }
 
+    // Initialize offline dictionary engine (non-blocking, graceful fallback if missing)
+    m_dictEngine.Initialize();
+
     if (!initialFile.empty()) {
         OpenTab(initialFile);
     }
@@ -276,6 +279,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             return 0;
+        }
+
+        // 0b. If Dictionary Card is open and clicked outside, dismiss it
+        if (m_dictCardInfo.visible && !HitTestDictionaryCard(pt)) {
+            DismissDictionaryCard();
         }
 
         // 1. If Go to Page overlay is open, click outside closes it
@@ -726,6 +734,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                             pTab->selection.startIndex = wStart;
                             pTab->selection.endPage = hitPage;
                             pTab->selection.endIndex = wEnd;
+
+                            D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
+                            std::wstring selectedWord = GetSelectedWordOrText(anchorRect);
+                            if (!selectedWord.empty()) {
+                                TriggerDictionaryLookup(selectedWord, anchorRect);
+                            }
                             Render();
                             return 0;
                         }
@@ -825,6 +839,16 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (m_isDraggingScrollbar) return 0;
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+        if (m_dictCardInfo.visible) {
+            if (wParam == VK_ESCAPE) {
+                DismissDictionaryCard();
+                return 0;
+            } else if (wParam == 'C' && isCtrlDown) {
+                CopyDictionaryDefinitionToClipboard();
+                return 0;
+            }
+        }
 
         if (m_showProperties) {
             if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
@@ -979,6 +1003,15 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (isCtrlDown) {
                 if (m_showProperties) CloseDocumentProperties();
                 else ShowDocumentProperties();
+                return 0;
+            } else if (!m_showSearch && !m_showGoToPage) {
+                D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
+                std::wstring query = GetSelectedWordOrText(anchorRect);
+                if (!query.empty()) {
+                    TriggerDictionaryLookup(query, anchorRect);
+                } else {
+                    ShowToast(L"Select text or double-click a word for dictionary lookup (D)");
+                }
                 return 0;
             }
             break;
@@ -2178,7 +2211,8 @@ void AppWindow::Render() {
                 GetSearchBarInfo(),
                 GetSearchHighlights(),
                 m_docPropsInfo,
-                selectionSpans
+                selectionSpans,
+                m_dictCardInfo
             );
             return;
         }
@@ -2205,7 +2239,8 @@ void AppWindow::Render() {
                 GetSearchBarInfo(),
                 GetSearchHighlights(),
                 m_docPropsInfo,
-                selectionSpans
+                selectionSpans,
+                m_dictCardInfo
             );
             return;
         }
@@ -2219,7 +2254,8 @@ void AppWindow::Render() {
         m_showGoToPage,
         m_goToPageBuffer,
         GetSearchBarInfo(),
-        m_docPropsInfo
+        m_docPropsInfo,
+        m_dictCardInfo
     );
 }
 
@@ -3094,6 +3130,161 @@ void AppWindow::ClampCanvasOffsets(DocumentTab* pTab) {
             float maxOffsetY = margin;
             pTab->offsetY = std::clamp(pTab->offsetY, minOffsetY, maxOffsetY);
         }
+    }
+}
+
+bool AppWindow::TriggerDictionaryLookup(const std::wstring& query, const D2D1_RECT_F& anchorRect) {
+    if (query.empty()) return false;
+
+    if (!m_dictEngine.IsLoaded()) {
+        m_dictEngine.Initialize();
+    }
+
+    if (!m_dictEngine.IsLoaded()) {
+        ShowToast(L"Dictionary not found (dict\\en-ar.dat)");
+        return false;
+    }
+
+    DictionaryResult res;
+    if (m_dictEngine.Lookup(query, res)) {
+        m_dictCardInfo.visible = true;
+        m_dictCardInfo.anchorRect = anchorRect;
+        m_dictCardInfo.word = res.word;
+        m_dictCardInfo.definition = res.definition;
+        m_dictCardInfo.categoryTag = res.GetCategoryName();
+        m_dictCardInfo.category = (uint16_t)res.category;
+
+        // Precompute card bounds for hit-testing / click outside
+        float dipScale = 96.0f / m_renderer.GetDpi();
+        float dipWidth = (float)m_renderer.GetWidth() * dipScale;
+        float dipHeight = (float)m_renderer.GetHeight() * dipScale;
+        float topOffset = GetTopOffset();
+
+        float approxDefHeight = (float)(res.definition.length() / 25 + 1) * 22.0f;
+        approxDefHeight = (std::max)(32.0f, approxDefHeight);
+        m_dictCardBounds = DictionaryCardLayout::CalculateCardRect(
+            anchorRect, approxDefHeight, dipWidth, dipHeight, topOffset
+        );
+
+        Render();
+        return true;
+    } else {
+        ShowToast(L"No dictionary entry found for \"" + query + L"\"");
+        return false;
+    }
+}
+
+void AppWindow::DismissDictionaryCard() {
+    if (m_dictCardInfo.visible) {
+        m_dictCardInfo.visible = false;
+        Render();
+    }
+}
+
+bool AppWindow::HitTestDictionaryCard(POINT pt) const {
+    if (!m_dictCardInfo.visible) return false;
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float x = (float)pt.x * dipScale;
+    float y = (float)pt.y * dipScale;
+    return (x >= m_dictCardBounds.left && x <= m_dictCardBounds.right &&
+            y >= m_dictCardBounds.top && y <= m_dictCardBounds.bottom);
+}
+
+std::wstring AppWindow::GetSelectedWordOrText(D2D1_RECT_F& outAnchorRect) {
+    outAnchorRect = { 0, 0, 0, 0 };
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || !pTab->selection.HasSelection()) {
+        return L"";
+    }
+
+    uint32_t startPage = 0, endPage = 0;
+    size_t startIdx = 0, endIdx = 0;
+    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
+
+    std::wstring result;
+    D2D1_RECT_F pageBounds = { 1e9f, 1e9f, -1e9f, -1e9f };
+    bool hasBounds = false;
+    uint32_t primaryPage = startPage;
+
+    for (uint32_t p = startPage; p <= endPage; ++p) {
+        auto pageText = GetOrExtractPageText(pTab, p);
+        if (!pageText || pageText->chars.empty()) continue;
+
+        size_t pStart = (p == startPage) ? startIdx : 0;
+        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
+        if (pStart >= pageText->chars.size()) continue;
+        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
+        if (pStart >= pEnd) continue;
+
+        for (size_t i = pStart; i < pEnd; ++i) {
+            const auto& ch = pageText->chars[i];
+            if (ch.ch != 0) {
+                if (!result.empty() && ch.rect.left > pageBounds.right + 4.0f && result.back() != L' ') {
+                    result += L' ';
+                }
+                result += ch.ch;
+            }
+            if (ch.rect.right > ch.rect.left && ch.rect.bottom > ch.rect.top) {
+                pageBounds.left = (std::min)(pageBounds.left, ch.rect.left);
+                pageBounds.top = (std::min)(pageBounds.top, ch.rect.top);
+                pageBounds.right = (std::max)(pageBounds.right, ch.rect.right);
+                pageBounds.bottom = (std::max)(pageBounds.bottom, ch.rect.bottom);
+                hasBounds = true;
+            }
+        }
+    }
+
+    if (result.empty() || !hasBounds) return L"";
+
+    // Transform page bounds to screen DIPs
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float topOffset = GetTopOffset();
+
+    if (pTab->continuousScroll) {
+        UpdateContinuousOffsets(pTab);
+        if (primaryPage < pTab->pageOffsets.size()) {
+            D2D1_SIZE_F pSize = pTab->document.GetPageSize(primaryPage);
+            float pageW = pSize.width * pTab->zoom;
+            float dipW = (float)m_renderer.GetWidth() * dipScale;
+            float margin = 24.0f;
+            float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
+            float pageTopY = pTab->pageOffsets[primaryPage] - pTab->scrollY + topOffset;
+
+            outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
+            outAnchorRect.top = pageTopY + pageBounds.top * pTab->zoom;
+            outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
+            outAnchorRect.bottom = pageTopY + pageBounds.bottom * pTab->zoom;
+        }
+    } else {
+        float pageX = pTab->offsetX;
+        float pageY = pTab->offsetY + topOffset;
+        outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
+        outAnchorRect.top = pageY + pageBounds.top * pTab->zoom;
+        outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
+        outAnchorRect.bottom = pageY + pageBounds.bottom * pTab->zoom;
+    }
+
+    return result;
+}
+
+void AppWindow::CopyDictionaryDefinitionToClipboard() {
+    if (!m_dictCardInfo.visible || m_dictCardInfo.definition.empty()) return;
+    std::wstring text = m_dictCardInfo.word + L" \x2014 " + m_dictCardInfo.definition;
+
+    if (OpenClipboard(m_hwnd)) {
+        EmptyClipboard();
+        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (hMem) {
+            void* pMem = GlobalLock(hMem);
+            if (pMem) {
+                memcpy(pMem, text.c_str(), bytes);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            }
+        }
+        CloseClipboard();
+        ShowToast(L"Definition copied to clipboard");
     }
 }
 

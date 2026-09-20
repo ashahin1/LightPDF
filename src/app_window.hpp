@@ -14,6 +14,7 @@
 #include "pdf_document.hpp"
 #include "pdf_search.hpp"
 #include "pdf_parser.hpp"
+#include "dictionary_engine.hpp"
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 
@@ -170,6 +171,11 @@ private:
     bool HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar);
     std::vector<SelectionHighlightSpan> GetSelectionSpans() const;
     void CopySelectionToClipboard();
+    bool TriggerDictionaryLookup(const std::wstring& query, const D2D1_RECT_F& anchorRect);
+    void DismissDictionaryCard();
+    bool HitTestDictionaryCard(POINT pt) const;
+    std::wstring GetSelectedWordOrText(D2D1_RECT_F& outAnchorRect);
+    void CopyDictionaryDefinitionToClipboard();
     void ClampCanvasOffsets(DocumentTab* pTab);
 
     HelpOverlayRenderInfo GetHelpInfo() const;
@@ -263,4 +269,9 @@ private:
 
     // Tab rendering cache
     mutable std::vector<TabRenderInfo> m_cachedTabInfos;
+
+    // Dictionary Engine & Floating Card state
+    DictionaryEngine m_dictEngine;
+    DictionaryCardRenderInfo m_dictCardInfo;
+    D2D1_RECT_F m_dictCardBounds = { 0, 0, 0, 0 };
 };
