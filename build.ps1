@@ -19,7 +19,7 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     }
 }
 
-Write-Host "Compiling optimized C++20 release binary with /O2 /MT /LTCG..." -ForegroundColor Green
+Write-Host "Compiling optimized C++20 release binary with /O2 /MT /LTCG /AVX2..." -ForegroundColor Green
 
 $sources = @(
     "src\main.cpp",
@@ -38,6 +38,9 @@ $clArgs = @(
     "/O2",
     "/Ob3",
     "/fp:fast",
+    "/arch:AVX2",
+    "/GA",
+    "/Oi",
     "/GF",
     "/MT",
     "/std:c++20",
