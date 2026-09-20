@@ -25,6 +25,49 @@ enum class ZoomMode {
     Custom
 };
 
+enum class ToolMode {
+    TextSelect,
+    Hand
+};
+
+struct TextSelection {
+    bool active = false;
+    bool isDragging = false;
+    uint32_t startPage = 0;
+    size_t startIndex = 0;
+    uint32_t endPage = 0;
+    size_t endIndex = 0;
+
+    void Clear() {
+        active = false;
+        isDragging = false;
+        startPage = 0;
+        startIndex = 0;
+        endPage = 0;
+        endIndex = 0;
+    }
+
+    bool HasSelection() const {
+        if (!active) return false;
+        if (startPage != endPage) return true;
+        return startIndex != endIndex;
+    }
+
+    void GetOrderedRange(uint32_t& outStartPage, size_t& outStartIdx, uint32_t& outEndPage, size_t& outEndIdx) const {
+        if (startPage < endPage || (startPage == endPage && startIndex <= endIndex)) {
+            outStartPage = startPage;
+            outStartIdx = startIndex;
+            outEndPage = endPage;
+            outEndIdx = endIndex;
+        } else {
+            outStartPage = endPage;
+            outStartIdx = endIndex;
+            outEndPage = startPage;
+            outEndIdx = startIndex;
+        }
+    }
+};
+
 struct DocumentTab {
     PdfDocumentWrapper document;
     uint32_t currentPage = 0;
@@ -44,8 +87,14 @@ struct DocumentTab {
     PdfMetadata metadata;
     bool metadataLoaded = false;
 
-    // Parsed page text cache for fast search
+    // Parsed page text cache for fast search & selection
     std::shared_ptr<PageTextCache> textCache;
+
+    // Text selection state
+    TextSelection selection;
+
+    // Parser for lazy, zero-latency single-page text extraction
+    std::unique_ptr<PdfParser> parser;
 };
 
 class AppWindow {
@@ -114,6 +163,13 @@ private:
     void ShowDocumentProperties();
     void CloseDocumentProperties();
     void CopyPropertiesToClipboard();
+
+    void SetToolMode(ToolMode mode);
+    void ShowToast(const std::wstring& text);
+    std::shared_ptr<PdfPageText> GetOrExtractPageText(DocumentTab* pTab, uint32_t pageIndex);
+    bool HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar);
+    std::vector<SelectionHighlightSpan> GetSelectionSpans() const;
+    void CopySelectionToClipboard();
 
     HelpOverlayRenderInfo GetHelpInfo() const;
 
@@ -189,6 +245,11 @@ private:
     HCURSOR m_cursorHand = nullptr;
     HCURSOR m_cursorIBeam = nullptr;
     HCURSOR m_cursorSizeAll = nullptr;
+
+    // Tool Mode & Toast Feedback
+    ToolMode m_toolMode = ToolMode::TextSelect;
+    uint64_t m_hudToastTime = 0;
+    std::wstring m_hudToastText;
 
     // File Open Dialog state
     std::atomic<bool> m_isDialogOpen{ false };

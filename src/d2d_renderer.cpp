@@ -522,6 +522,7 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.75f, 1.0f, 0.95f), &m_brushSearchActiveBorder);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.09f), &m_brushSearchBtnBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.40f), &m_brushSearchBtnActive);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 0.35f), &m_brushTextSelection);
 
     // Document Properties Brushes
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.74f, 0.97f, 1.0f), &m_brushPropsAccent);
@@ -644,6 +645,7 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushSearchActiveBorder = nullptr;
     m_brushSearchBtnBg = nullptr;
     m_brushSearchBtnActive = nullptr;
+    m_brushTextSelection = nullptr;
     m_brushPropsAccent = nullptr;
     m_brushPropsBtn = nullptr;
     m_brushPropsBtnHover = nullptr;
@@ -732,7 +734,8 @@ void D2DRenderer::RenderPage(
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
     const std::vector<SearchHighlight>& highlights,
-    const DocumentPropertiesRenderInfo& docProps
+    const DocumentPropertiesRenderInfo& docProps,
+    const std::vector<SelectionHighlightSpan>& selectionSpans
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -888,6 +891,22 @@ void D2DRenderer::RenderPage(
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
     }
 
+    // 3a. Draw Text Selection Highlights over page
+    if (m_brushTextSelection) {
+        for (const auto& span : selectionSpans) {
+            if (span.pageIndex == currentPageIndex) {
+                for (const auto& pr : span.rects) {
+                    float hx = offsetX + pr.left * zoom;
+                    float hy = pageY + pr.top * zoom;
+                    float hw = (pr.right - pr.left) * zoom;
+                    float hh = (pr.bottom - pr.top) * zoom;
+                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                    m_d2dContext->FillRectangle(r, m_brushTextSelection.Get());
+                }
+            }
+        }
+    }
+
     // 3b. Draw Search Match Highlights over page (O(log N) lookup)
     struct HighlightPageComp {
         bool operator()(const SearchHighlight& a, uint32_t page) const { return a.pageIndex < page; }
@@ -986,7 +1005,8 @@ void D2DRenderer::RenderContinuous(
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
     const std::vector<SearchHighlight>& highlights,
-    const DocumentPropertiesRenderInfo& docProps
+    const DocumentPropertiesRenderInfo& docProps,
+    const std::vector<SelectionHighlightSpan>& selectionSpans
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1133,6 +1153,22 @@ void D2DRenderer::RenderContinuous(
                 &params
             );
             m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
+
+        // 3a. Draw Text Selection Highlights for this page
+        if (m_brushTextSelection) {
+            for (const auto& span : selectionSpans) {
+                if (span.pageIndex == vp.pageIndex) {
+                    for (const auto& pr : span.rects) {
+                        float hx = pageX + pr.left * zoom;
+                        float hy = pageY + pr.top * zoom;
+                        float hw = (pr.right - pr.left) * zoom;
+                        float hh = (pr.bottom - pr.top) * zoom;
+                        D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                        m_d2dContext->FillRectangle(r, m_brushTextSelection.Get());
+                    }
+                }
+            }
         }
 
         // 3b. Draw Search Match Highlights for this page (O(log N) lookup)
@@ -1811,7 +1847,9 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
         { L"Right / Left Arrow",    L"Next / Previous page" },
         { L"Home / End",            L"Jump to first / last page" },
         { L"Mouse Wheel",           L"Scroll page vertically" },
-        { L"Left / Middle Drag",    L"Smooth pan / drag document" }
+        { L"Middle Drag / Space",   L"Smooth pan / drag document" },
+        { L"H",                     L"Hand Tool (toggle drag pan)" },
+        { L"V / S",                 L"Text Selection Tool" }
     };
 
     static const ShortcutItem zoomItems[] = {
@@ -1838,6 +1876,7 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
+        { L"Ctrl + C",              L"Copy selected text to clipboard" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
         { L"Ctrl + G",              L"Go to specific page number prompt" },
         { L"Ctrl + D",              L"Document properties (Information)" },
@@ -1845,14 +1884,14 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     };
 
     if (help.activeCategory == 0) {
-        // Mode 0: All (27) shortcuts in balanced 2-column layout
+        // Mode 0: All (30) shortcuts in balanced 2-column layout
         float col1Left = card.left + 24.0f;
         float col2Left = card.left + 354.0f;
         float keyColW = 136.0f;
         float gap = 8.0f;
         float descColW = 158.0f;
-        float rowH = 18.0f;
-        float headerH = 20.0f;
+        float rowH = 16.5f;
+        float headerH = 18.0f;
 
         // Vertical divider line between columns
         m_d2dContext->DrawLine(

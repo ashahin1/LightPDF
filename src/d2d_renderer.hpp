@@ -120,6 +120,11 @@ struct SearchHighlight {
     bool isActive = false;
 };
 
+struct SelectionHighlightSpan {
+    uint32_t pageIndex = 0;
+    std::vector<D2D1_RECT_F> rects;        // PDF page coordinates in DIPs
+};
+
 struct DocumentPropertiesRenderInfo {
     bool visible = false;
     // Document Information
@@ -236,7 +241,8 @@ public:
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
         const std::vector<SearchHighlight>& highlights = {},
-        const DocumentPropertiesRenderInfo& docProps = {}
+        const DocumentPropertiesRenderInfo& docProps = {},
+        const std::vector<SelectionHighlightSpan>& selectionSpans = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -253,7 +259,8 @@ public:
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
         const std::vector<SearchHighlight>& highlights = {},
-        const DocumentPropertiesRenderInfo& docProps = {}
+        const DocumentPropertiesRenderInfo& docProps = {},
+        const std::vector<SelectionHighlightSpan>& selectionSpans = {}
     );
 
     int HitTestDocumentProperties(POINT pt) const;
@@ -384,6 +391,7 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushSearchActiveBorder;
     ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnBg;
     ComPtr<ID2D1SolidColorBrush> m_brushSearchBtnActive;
+    ComPtr<ID2D1SolidColorBrush> m_brushTextSelection;
 
     // Document Properties Formats & Brushes
     ComPtr<IDWriteTextFormat> m_textFormatPropsLabel;

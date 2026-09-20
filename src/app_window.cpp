@@ -176,6 +176,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_searchDebouncePending = false;
             TriggerSearch();
             Render();
+        } else if (wParam == 3) {
+            // HUD toast timer: revert HUD status message
+            KillTimer(m_hwnd, 3);
+            m_hudToastTime = 0;
+            m_hudToastText.clear();
+            Render();
         }
         return 0;
     }
@@ -395,13 +401,57 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
-        // 6. Canvas Panning
+        // 6. Canvas & Text Interaction
         auto* pTab = GetActiveTab();
         if (pTab && pTab->document.IsLoaded()) {
-            m_isPanning = true;
-            m_lastMousePos = pt;
-            SetCapture(m_hwnd);
-            SetCursor(m_cursorSizeAll);
+            if (msg == WM_MBUTTONDOWN) {
+                // Middle click: always pan
+                m_isPanning = true;
+                m_lastMousePos = pt;
+                SetCapture(m_hwnd);
+                SetCursor(m_cursorSizeAll);
+                return 0;
+            }
+
+            // Left click: Check if Hand mode or holding spacebar
+            bool isSpaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
+            if (m_toolMode == ToolMode::Hand || isSpaceDown) {
+                m_isPanning = true;
+                m_lastMousePos = pt;
+                SetCapture(m_hwnd);
+                SetCursor(m_cursorSizeAll);
+                return 0;
+            }
+
+            // Text Selection Mode
+            uint32_t hitPage = 0;
+            size_t hitChar = 0;
+            bool afterChar = false;
+            bool hitText = HitTestPageText(pt, hitPage, hitChar, afterChar);
+
+            if (hitText) {
+                size_t idx = afterChar ? hitChar + 1 : hitChar;
+                pTab->selection.active = true;
+                pTab->selection.isDragging = true;
+                pTab->selection.startPage = hitPage;
+                pTab->selection.startIndex = idx;
+                pTab->selection.endPage = hitPage;
+                pTab->selection.endIndex = idx;
+                SetCapture(m_hwnd);
+                Render();
+                return 0;
+            } else {
+                // Clicked outside text on page margins / empty canvas
+                if (pTab->selection.HasSelection()) {
+                    pTab->selection.Clear();
+                    Render();
+                }
+                m_isPanning = true;
+                m_lastMousePos = pt;
+                SetCapture(m_hwnd);
+                SetCursor(m_cursorSizeAll);
+                return 0;
+            }
         }
         return 0;
     }
@@ -506,9 +556,38 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         }
 
-        // 4. Canvas Panning
+        auto* pTab = GetActiveTab();
+
+        // 4. Handle Text Selection Dragging
+        if (pTab && pTab->selection.isDragging) {
+            uint32_t hitPage = 0;
+            size_t hitChar = 0;
+            bool afterChar = false;
+            if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
+                size_t newEnd = afterChar ? hitChar + 1 : hitChar;
+                if (pTab->selection.endPage != hitPage || pTab->selection.endIndex != newEnd) {
+                    pTab->selection.endPage = hitPage;
+                    pTab->selection.endIndex = newEnd;
+                    pTab->selection.active = true;
+                    Render();
+                }
+            }
+
+            // Auto-scroll when dragging near viewport top/bottom borders
+            float dipH = (float)m_renderer.GetHeight() * dipScale;
+            if (dipY < topOffset + 40.0f) {
+                if (pTab->continuousScroll) ScrollContinuous(16.0f);
+                else ScrollSinglePage(16.0f);
+            } else if (dipY > dipH - 40.0f) {
+                if (pTab->continuousScroll) ScrollContinuous(-16.0f);
+                else ScrollSinglePage(-16.0f);
+            }
+            SetCursor(m_cursorIBeam);
+            return 0;
+        }
+
+        // 5. Canvas Panning
         if (m_isPanning) {
-            auto* pTab = GetActiveTab();
             if (pTab) {
                 float dx = (pt.x - m_lastMousePos.x) * dipScale;
                 float dy = (pt.y - m_lastMousePos.y) * dipScale;
@@ -524,12 +603,40 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     Render();
                 }
             }
+            return 0;
+        }
+
+        // 6. Idle Hover Cursor Management
+        if (pTab && pTab->document.IsLoaded() && dipY >= topOffset) {
+            bool isSpaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
+            if (m_toolMode == ToolMode::Hand || isSpaceDown) {
+                SetCursor(m_cursorHand);
+            } else {
+                uint32_t hitPage = 0;
+                size_t hitChar = 0;
+                bool afterChar = false;
+                if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
+                    SetCursor(m_cursorIBeam);
+                } else {
+                    SetCursor(m_cursorArrow);
+                }
+            }
         }
         return 0;
     }
 
     case WM_LBUTTONUP:
     case WM_MBUTTONUP: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->selection.isDragging) {
+            pTab->selection.isDragging = false;
+            ReleaseCapture();
+            if (!pTab->selection.HasSelection()) {
+                pTab->selection.active = false;
+            }
+            Render();
+            return 0;
+        }
         if (m_isDraggingScrollbar) {
             m_isDraggingScrollbar = false;
             ReleaseCapture();
@@ -540,12 +647,20 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (m_isPanning) {
             m_isPanning = false;
             ReleaseCapture();
-            SetCursor(m_cursorArrow);
+            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
         }
         return 0;
     }
 
     case WM_CAPTURECHANGED: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->selection.isDragging) {
+            pTab->selection.isDragging = false;
+            if (!pTab->selection.HasSelection()) {
+                pTab->selection.active = false;
+            }
+            Render();
+        }
         if (m_isDraggingScrollbar) {
             m_isDraggingScrollbar = false;
             ShowScrollbar();
@@ -553,7 +668,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         if (m_isPanning) {
             m_isPanning = false;
-            SetCursor(m_cursorArrow);
+            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
         }
         return 0;
     }
@@ -570,6 +685,39 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
         auto* pTab = GetActiveTab();
         if (pTab && pTab->document.IsLoaded()) {
+            // Double click in Text Select mode: select word if hitting text
+            if (m_toolMode == ToolMode::TextSelect) {
+                uint32_t hitPage = 0;
+                size_t hitChar = 0;
+                bool afterChar = false;
+                if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
+                    auto pageText = GetOrExtractPageText(pTab, hitPage);
+                    if (pageText && hitChar < pageText->chars.size()) {
+                        auto isWordChar = [](wchar_t c) {
+                            return iswalnum(c) || c == L'_';
+                        };
+                        size_t wStart = hitChar;
+                        while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
+                            wStart--;
+                        }
+                        size_t wEnd = hitChar;
+                        while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
+                            wEnd++;
+                        }
+                        if (wEnd > wStart) {
+                            pTab->selection.active = true;
+                            pTab->selection.isDragging = false;
+                            pTab->selection.startPage = hitPage;
+                            pTab->selection.startIndex = wStart;
+                            pTab->selection.endPage = hitPage;
+                            pTab->selection.endIndex = wEnd;
+                            Render();
+                            return 0;
+                        }
+                    }
+                }
+            }
+
             if (pTab->continuousScroll) {
                 float mouseY = dipY - topOffset;
                 float clickedDocY = pTab->scrollY + mouseY;
@@ -767,6 +915,18 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             break;
+        case 'H':
+            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+                SetToolMode((m_toolMode == ToolMode::Hand) ? ToolMode::TextSelect : ToolMode::Hand);
+                return 0;
+            }
+            break;
+        case 'S':
+            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+                SetToolMode(ToolMode::TextSelect);
+                return 0;
+            }
+            break;
         case 'V':
             if (isCtrlDown && m_showSearch) {
                 if (OpenClipboard(m_hwnd)) {
@@ -786,6 +946,18 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     CloseClipboard();
                 }
                 return 0;
+            } else if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+                SetToolMode(ToolMode::TextSelect);
+                return 0;
+            }
+            break;
+        case 'C':
+            if (isCtrlDown) {
+                auto* pTab = GetActiveTab();
+                if (pTab && pTab->selection.HasSelection()) {
+                    CopySelectionToClipboard();
+                    return 0;
+                }
             }
             break;
         case 'D':
@@ -1058,6 +1230,14 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
                 return 0;
             }
+            {
+                auto* pTab = GetActiveTab();
+                if (pTab && pTab->selection.HasSelection()) {
+                    pTab->selection.Clear();
+                    Render();
+                    return 0;
+                }
+            }
             if (m_isFullscreen) {
                 ToggleFullscreen();
             }
@@ -1065,6 +1245,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         break;
     }
+
+    case WM_KEYUP:
+        if (wParam == VK_SPACE && !m_isPanning) {
+            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
+        }
+        return 0;
 
     case WM_CHAR:
         if (m_showProperties) {
@@ -1127,6 +1313,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
         newTab.scrollY = 0.0f;
         newTab.textCache = std::make_shared<PageTextCache>();
         newTab.textCache->pages.resize(newTab.document.GetPageCount());
+        newTab.selection.Clear();
+        newTab.parser = std::make_unique<PdfParser>();
+        newTab.parser->Load(resolvedPath);
         m_renderer.InvalidatePageCache();
         m_tabs.push_back(std::move(newTab));
         m_activeTab = m_tabs.size() - 1;
@@ -1903,8 +2092,15 @@ void AppWindow::Render() {
 
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
-        if (pTab->zoomMode == ZoomMode::FitPage) modeStr = L"Fit Page";
-        else if (pTab->zoomMode == ZoomMode::FitWidth) modeStr = L"Fit Width";
+        if (m_hudToastTime > 0 && (GetTickCount64() - m_hudToastTime < 1500)) {
+            modeStr = m_hudToastText;
+        } else if (pTab->zoomMode == ZoomMode::FitPage) {
+            modeStr = L"Fit Page";
+        } else if (pTab->zoomMode == ZoomMode::FitWidth) {
+            modeStr = L"Fit Width";
+        }
+
+        auto selectionSpans = GetSelectionSpans();
 
         if (pTab->continuousScroll) {
             float dipW = m_renderer.GetWidth() * (96.0f / m_renderer.GetDpi());
@@ -1962,7 +2158,8 @@ void AppWindow::Render() {
                 m_goToPageBuffer,
                 GetSearchBarInfo(),
                 GetSearchHighlights(),
-                m_docPropsInfo
+                m_docPropsInfo,
+                selectionSpans
             );
             return;
         }
@@ -1988,7 +2185,8 @@ void AppWindow::Render() {
                 m_goToPageBuffer,
                 GetSearchBarInfo(),
                 GetSearchHighlights(),
-                m_docPropsInfo
+                m_docPropsInfo,
+                selectionSpans
             );
             return;
         }
@@ -2481,5 +2679,336 @@ void AppWindow::CopyPropertiesToClipboard() {
 
     m_propsCopiedFeedbackTime = GetTickCount64();
     Render();
+}
+
+static bool HitTestCharInPage(
+    const PdfPageText& pageText,
+    float pdfX,
+    float pdfY,
+    size_t& outCharIndex,
+    bool& outAfterChar
+) {
+    if (pageText.chars.empty()) return false;
+
+    // 1. Direct character bounding box containment test
+    for (size_t i = 0; i < pageText.chars.size(); ++i) {
+        const auto& c = pageText.chars[i];
+        if (c.rect.right <= c.rect.left) continue;
+        if (pdfY >= c.rect.top - 2.0f && pdfY <= c.rect.bottom + 2.0f) {
+            if (pdfX >= c.rect.left && pdfX <= c.rect.right) {
+                outCharIndex = i;
+                outAfterChar = (pdfX > (c.rect.left + c.rect.right) * 0.5f);
+                return true;
+            }
+        }
+    }
+
+    // 2. Line proximity test: Find line nearest to pdfY
+    float closestLineDist = 1e9f;
+    float bestLineY = 0.0f;
+    for (const auto& c : pageText.chars) {
+        if (c.rect.right <= c.rect.left) continue;
+        float midY = (c.rect.top + c.rect.bottom) * 0.5f;
+        float dist = std::abs(pdfY - midY);
+        if (dist < closestLineDist) {
+            closestLineDist = dist;
+            bestLineY = midY;
+        }
+    }
+
+    if (closestLineDist <= 24.0f) {
+        float minX = 1e9f, maxX = -1e9f;
+        size_t minIdx = 0, maxIdx = 0;
+        size_t closestHorizIdx = 0;
+        float closestHorizDist = 1e9f;
+
+        for (size_t i = 0; i < pageText.chars.size(); ++i) {
+            const auto& c = pageText.chars[i];
+            if (c.rect.right <= c.rect.left) continue;
+            float midY = (c.rect.top + c.rect.bottom) * 0.5f;
+            if (std::abs(midY - bestLineY) <= 6.0f) {
+                if (c.rect.left < minX) { minX = c.rect.left; minIdx = i; }
+                if (c.rect.right > maxX) { maxX = c.rect.right; maxIdx = i; }
+
+                float midX = (c.rect.left + c.rect.right) * 0.5f;
+                float hDist = std::abs(pdfX - midX);
+                if (hDist < closestHorizDist) {
+                    closestHorizDist = hDist;
+                    closestHorizIdx = i;
+                }
+            }
+        }
+
+        if (maxX >= minX) {
+            if (pdfX <= minX) {
+                outCharIndex = minIdx;
+                outAfterChar = false;
+                return true;
+            } else if (pdfX >= maxX) {
+                outCharIndex = maxIdx;
+                outAfterChar = true;
+                return true;
+            } else {
+                outCharIndex = closestHorizIdx;
+                const auto& c = pageText.chars[closestHorizIdx];
+                outAfterChar = (pdfX > (c.rect.left + c.rect.right) * 0.5f);
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void AppWindow::SetToolMode(ToolMode mode) {
+    m_toolMode = mode;
+    if (m_toolMode == ToolMode::Hand) {
+        SetCursor(m_cursorHand);
+        ShowToast(L"Hand Tool");
+    } else {
+        SetCursor(m_cursorArrow);
+        ShowToast(L"Text Select Tool");
+    }
+    Render();
+}
+
+void AppWindow::ShowToast(const std::wstring& text) {
+    m_hudToastText = text;
+    m_hudToastTime = GetTickCount64();
+    SetTimer(m_hwnd, 3, 1500, nullptr);
+}
+
+std::shared_ptr<PdfPageText> AppWindow::GetOrExtractPageText(DocumentTab* pTab, uint32_t pageIndex) {
+    if (!pTab || !pTab->document.IsLoaded() || pageIndex >= pTab->document.GetPageCount()) {
+        return nullptr;
+    }
+    if (!pTab->textCache) {
+        pTab->textCache = std::make_shared<PageTextCache>();
+        pTab->textCache->pages.resize(pTab->document.GetPageCount());
+    }
+    {
+        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+        if (pageIndex < pTab->textCache->pages.size() && pTab->textCache->pages[pageIndex]) {
+            return pTab->textCache->pages[pageIndex];
+        }
+    }
+
+    if (!pTab->parser) {
+        pTab->parser = std::make_unique<PdfParser>();
+        pTab->parser->Load(pTab->document.GetFilePath());
+    }
+
+    PdfPageText pageText;
+    if (pTab->parser->ExtractPageText(pageIndex, pageText)) {
+        auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
+        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+        if (pageIndex < pTab->textCache->pages.size()) {
+            pTab->textCache->pages[pageIndex] = sharedPage;
+        }
+        return sharedPage;
+    }
+    return nullptr;
+}
+
+bool AppWindow::HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipX = (float)clientPt.x * dipScale;
+    float dipY = (float)clientPt.y * dipScale;
+    float topOffset = GetTopOffset();
+    if (dipY < topOffset) return false;
+
+    if (pTab->continuousScroll) {
+        float mouseY = dipY - topOffset;
+        float docY = pTab->scrollY + mouseY;
+        uint32_t count = pTab->document.GetPageCount();
+        UpdateContinuousOffsets(pTab);
+        const auto& offsets = pTab->pageOffsets;
+
+        auto it = std::upper_bound(offsets.begin(), offsets.end(), docY);
+        uint32_t pageIdx = 0;
+        if (it != offsets.begin()) {
+            pageIdx = static_cast<uint32_t>(std::distance(offsets.begin(), it) - 1);
+        }
+        if (pageIdx >= count) return false;
+
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        float pageW = pSize.width * pTab->zoom;
+        float pageH = pSize.height * pTab->zoom;
+        float dipW = (float)m_renderer.GetWidth() * dipScale;
+        float pageX = (dipW > pageW) ? (dipW - pageW) * 0.5f + pTab->offsetX : 24.0f + pTab->offsetX;
+        float pageTopY = offsets[pageIdx] - pTab->scrollY;
+
+        if (dipX < pageX - 20.0f || dipX > pageX + pageW + 20.0f) return false;
+        if (mouseY < pageTopY - 10.0f || mouseY > pageTopY + pageH + 10.0f) return false;
+
+        float pdfX = (dipX - pageX) / pTab->zoom;
+        float pdfY = (mouseY - pageTopY) / pTab->zoom;
+        pdfX = std::clamp(pdfX, 0.0f, pSize.width);
+        pdfY = std::clamp(pdfY, 0.0f, pSize.height);
+
+        auto pageText = GetOrExtractPageText(pTab, pageIdx);
+        if (!pageText || pageText->chars.empty()) return false;
+
+        outPage = pageIdx;
+        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
+    } else {
+        uint32_t pageIdx = pTab->currentPage;
+        if (pageIdx >= pTab->document.GetPageCount()) return false;
+
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        float pageW = pSize.width * pTab->zoom;
+        float pageH = pSize.height * pTab->zoom;
+        float pageX = pTab->offsetX;
+        float pageY = pTab->offsetY;
+
+        if (dipX < pageX - 20.0f || dipX > pageX + pageW + 20.0f) return false;
+        if (dipY < pageY - 10.0f || dipY > pageY + pageH + 10.0f) return false;
+
+        float pdfX = (dipX - pageX) / pTab->zoom;
+        float pdfY = (dipY - pageY) / pTab->zoom;
+        pdfX = std::clamp(pdfX, 0.0f, pSize.width);
+        pdfY = std::clamp(pdfY, 0.0f, pSize.height);
+
+        auto pageText = GetOrExtractPageText(pTab, pageIdx);
+        if (!pageText || pageText->chars.empty()) return false;
+
+        outPage = pageIdx;
+        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
+    }
+}
+
+std::vector<SelectionHighlightSpan> AppWindow::GetSelectionSpans() const {
+    std::vector<SelectionHighlightSpan> spans;
+    const auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->selection.HasSelection()) return spans;
+
+    uint32_t startPage = 0, endPage = 0;
+    size_t startIdx = 0, endIdx = 0;
+    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
+
+    for (uint32_t p = startPage; p <= endPage; ++p) {
+        auto pageText = const_cast<AppWindow*>(this)->GetOrExtractPageText(const_cast<DocumentTab*>(pTab), p);
+        if (!pageText || pageText->chars.empty()) continue;
+
+        size_t pStart = (p == startPage) ? startIdx : 0;
+        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
+        if (pStart >= pageText->chars.size()) continue;
+        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
+        if (pStart >= pEnd) continue;
+
+        SelectionHighlightSpan span;
+        span.pageIndex = p;
+
+        D2D1_RECT_F curBand = { 0, 0, 0, 0 };
+        bool hasBand = false;
+
+        for (size_t i = pStart; i < pEnd; ++i) {
+            const auto& ch = pageText->chars[i];
+            if (ch.rect.right <= ch.rect.left || ch.rect.bottom <= ch.rect.top) {
+                continue;
+            }
+
+            if (!hasBand) {
+                curBand = ch.rect;
+                hasBand = true;
+            } else {
+                bool sameLine = (std::abs(ch.rect.top - curBand.top) < 6.0f) &&
+                                (std::abs(ch.rect.bottom - curBand.bottom) < 6.0f);
+                bool adjacent = (ch.rect.left <= curBand.right + 12.0f);
+
+                if (sameLine && adjacent) {
+                    curBand.left = (std::min)(curBand.left, ch.rect.left);
+                    curBand.right = (std::max)(curBand.right, ch.rect.right);
+                    curBand.top = (std::min)(curBand.top, ch.rect.top);
+                    curBand.bottom = (std::max)(curBand.bottom, ch.rect.bottom);
+                } else {
+                    span.rects.push_back(curBand);
+                    curBand = ch.rect;
+                }
+            }
+        }
+        if (hasBand) {
+            span.rects.push_back(curBand);
+        }
+
+        if (!span.rects.empty()) {
+            spans.push_back(std::move(span));
+        }
+    }
+    return spans;
+}
+
+void AppWindow::CopySelectionToClipboard() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->selection.HasSelection()) return;
+
+    uint32_t startPage = 0, endPage = 0;
+    size_t startIdx = 0, endIdx = 0;
+    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
+
+    std::wstring result;
+    for (uint32_t p = startPage; p <= endPage; ++p) {
+        auto pageText = GetOrExtractPageText(pTab, p);
+        if (!pageText || pageText->chars.empty()) continue;
+
+        size_t pStart = (p == startPage) ? startIdx : 0;
+        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
+        if (pStart >= pageText->chars.size()) continue;
+        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
+        if (pStart >= pEnd) continue;
+
+        if (p > startPage && !result.empty()) {
+            result += L"\r\n\r\n";
+        }
+
+        float lastY = -1.0f;
+        float lastRight = -1.0f;
+
+        for (size_t i = pStart; i < pEnd; ++i) {
+            const auto& ch = pageText->chars[i];
+            if (ch.ch == 0) continue;
+
+            if (lastY >= 0.0f) {
+                if (std::abs(ch.rect.top - lastY) > 8.0f) {
+                    result += L"\r\n";
+                    lastRight = -1.0f;
+                } else if (lastRight >= 0.0f && (ch.rect.left - lastRight) > 6.0f) {
+                    if (!result.empty() && result.back() != L' ') {
+                        result += L' ';
+                    }
+                }
+            }
+
+            result += ch.ch;
+            lastY = ch.rect.top;
+            if (ch.rect.right > ch.rect.left) {
+                lastRight = ch.rect.right;
+            }
+        }
+    }
+
+    if (result.empty()) return;
+
+    if (OpenClipboard(m_hwnd)) {
+        EmptyClipboard();
+        size_t bytes = (result.size() + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (hMem) {
+            void* pMem = GlobalLock(hMem);
+            if (pMem) {
+                memcpy(pMem, result.c_str(), bytes);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            } else {
+                GlobalFree(hMem);
+            }
+        }
+        CloseClipboard();
+        ShowToast(L"Copied to clipboard");
+        Render();
+    }
 }
 
