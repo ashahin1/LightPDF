@@ -10,6 +10,7 @@ bin/
 
 # MSVC portable toolchain
 tools/msvc/
+tools/*.sql
 
 # Python cache & environments
 __pycache__/

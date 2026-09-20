@@ -8,6 +8,8 @@ echo   Building LightPDF (Ultra-Fast Windows PDF Viewer)
 echo ===================================================
 
 if not exist "bin" mkdir bin
+if not exist "bin\dict" mkdir "bin\dict"
+if exist "dict\en-ar.dat" xcopy /y /e /q "dict\*" "bin\dict\" >nul 2>nul
 
 rem Activate portable MSVC environment if cl.exe is not in PATH
 where cl.exe >nul 2>nul
@@ -26,7 +28,7 @@ rc.exe /nologo /i resources /fo resources\app.res resources\app.rc
 
 echo Compiling optimized C++20 release binary...
 cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX ^
-    src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp ^
+    src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp ^
     resources\app.res ^
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS ^
     /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest ^

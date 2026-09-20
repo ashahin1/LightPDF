@@ -433,6 +433,67 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatPropsSection->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     m_textFormatPropsSection->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Dictionary Card Word Format: Segoe UI, 14.5pt, Semi-Bold, Leading
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        14.5f,
+        L"en-us",
+        &m_textFormatDictWord
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatDictWord->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatDictWord->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Dictionary Card Category Tag Format: Segoe UI, 10.0pt, Bold, Center
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        10.0f,
+        L"en-us",
+        &m_textFormatDictTag
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatDictTag->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatDictTag->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Dictionary Card Definition Format: Segoe UI, 13.0pt, Regular, Leading
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        13.0f,
+        L"ar-sa",
+        &m_textFormatDictDef
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatDictDef->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatDictDef->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    m_textFormatDictDef->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+
+    // Dictionary Card Hint Format: Segoe UI, 9.5pt, Regular, Leading
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        9.5f,
+        L"en-us",
+        &m_textFormatDictHint
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatDictHint->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    m_textFormatDictHint->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     return true;
 }
 
@@ -531,6 +592,14 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.153f, 0.153f, 0.165f, 0.95f), &m_brushPropsSecBtn);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.247f, 0.247f, 0.275f, 1.0f), &m_brushPropsSecBtnHover);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.133f, 0.773f, 0.369f, 1.0f), &m_brushPropsSuccess);
+
+    // Dictionary Card Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.13f, 0.15f, 0.96f), &m_brushDictCardBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.28f, 0.30f, 0.35f, 0.90f), &m_brushDictCardBorder);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.22f, 0.28f, 0.95f), &m_brushDictTagBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.75f, 1.0f, 1.0f), &m_brushDictTagText);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.94f, 0.94f, 0.96f, 1.0f), &m_brushDictDefText);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.60f, 0.62f, 0.66f, 0.85f), &m_brushDictHintText);
 
     return true;
 }
@@ -652,6 +721,12 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushPropsSecBtn = nullptr;
     m_brushPropsSecBtnHover = nullptr;
     m_brushPropsSuccess = nullptr;
+    m_brushDictCardBg = nullptr;
+    m_brushDictCardBorder = nullptr;
+    m_brushDictTagBg = nullptr;
+    m_brushDictTagText = nullptr;
+    m_brushDictDefText = nullptr;
+    m_brushDictHintText = nullptr;
     m_pageCache = PageBitmapCache();
     m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
@@ -675,7 +750,8 @@ void D2DRenderer::RenderBlank(
     bool showGoToPage,
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
-    const DocumentPropertiesRenderInfo& docProps
+    const DocumentPropertiesRenderInfo& docProps,
+    const DictionaryCardRenderInfo& dictCard
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -700,7 +776,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -735,7 +811,8 @@ void D2DRenderer::RenderPage(
     const SearchBarRenderInfo& searchBar,
     const std::vector<SearchHighlight>& highlights,
     const DocumentPropertiesRenderInfo& docProps,
-    const std::vector<SelectionHighlightSpan>& selectionSpans
+    const std::vector<SelectionHighlightSpan>& selectionSpans,
+    const DictionaryCardRenderInfo& dictCard
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -764,7 +841,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -973,7 +1050,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1006,7 +1083,8 @@ void D2DRenderer::RenderContinuous(
     const SearchBarRenderInfo& searchBar,
     const std::vector<SearchHighlight>& highlights,
     const DocumentPropertiesRenderInfo& docProps,
-    const std::vector<SelectionHighlightSpan>& selectionSpans
+    const std::vector<SelectionHighlightSpan>& selectionSpans,
+    const DictionaryCardRenderInfo& dictCard
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1238,7 +1316,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1264,7 +1342,8 @@ void D2DRenderer::DrawOverlays(
     uint32_t totalPages,
     const SearchBarRenderInfo& searchBar,
     const HelpOverlayRenderInfo& help,
-    const DocumentPropertiesRenderInfo& docProps
+    const DocumentPropertiesRenderInfo& docProps,
+    const DictionaryCardRenderInfo* pDictCard
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1294,6 +1373,11 @@ void D2DRenderer::DrawOverlays(
     // 6. Draw Document Properties Overlay if active
     if (docProps.visible) {
         DrawDocumentProperties(docProps);
+    }
+
+    // 7. Draw Dictionary Card if visible
+    if (pDictCard && pDictCard->visible) {
+        DrawDictionaryCard(*pDictCard);
     }
 }
 
@@ -1877,6 +1961,7 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
+        { L"D / Double-Click",      L"Offline English-Arabic Dictionary" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
         { L"Ctrl + G",              L"Go to specific page number prompt" },
         { L"Ctrl + D",              L"Document properties (Information)" },
@@ -2358,4 +2443,162 @@ bool D2DRenderer::PrintPageToHdc(
     );
 
     return scanlines > 0;
+}
+
+void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
+    if (!m_d2dContext || !dictCard.visible) return;
+
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+    float topOffset = 0.0f;
+
+    float maxDefWidth = DictionaryCardLayout::WIDTH - 32.0f;
+    float defHeight = 36.0f;
+
+    // Measure definition text layout height dynamically
+    ComPtr<IDWriteTextLayout> defLayout;
+    if (m_dwriteFactory && !dictCard.definition.empty()) {
+        HRESULT hr = m_dwriteFactory->CreateTextLayout(
+            dictCard.definition.c_str(),
+            (UINT32)dictCard.definition.length(),
+            m_textFormatDictDef.Get(),
+            maxDefWidth,
+            1000.0f,
+            &defLayout
+        );
+        if (SUCCEEDED(hr) && defLayout) {
+            // Check for Arabic characters to set BiDi RTL reading direction
+            bool hasArabic = false;
+            for (wchar_t ch : dictCard.definition) {
+                if (ch >= 0x0600 && ch <= 0x06FF) {
+                    hasArabic = true;
+                    break;
+                }
+            }
+            if (hasArabic) {
+                defLayout->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
+                defLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            }
+
+            DWRITE_TEXT_METRICS tm;
+            if (SUCCEEDED(defLayout->GetMetrics(&tm))) {
+                defHeight = (std::max)(28.0f, tm.height);
+            }
+        }
+    }
+
+    // Position the card container
+    D2D1_RECT_F card = DictionaryCardLayout::CalculateCardRect(
+        dictCard.anchorRect, defHeight, dipWidth, dipHeight, topOffset
+    );
+
+    // Drop shadow
+    D2D1_RECT_F shadowRect = D2D1::RectF(card.left + 4.0f, card.top + 4.0f, card.right + 6.0f, card.bottom + 6.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 8.0f, 8.0f), m_brushPageShadow.Get());
+
+    // Card background & crisp border
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(card, 8.0f, 8.0f), m_brushDictCardBg.Get());
+    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(card, 8.0f, 8.0f), m_brushDictCardBorder.Get(), 1.5f);
+
+    // 1. Header: Word Title
+    float badgeWidth = 0.0f;
+    if (!dictCard.categoryTag.empty()) {
+        badgeWidth = (float)(dictCard.categoryTag.length() * 7 + 18);
+        badgeWidth = std::clamp(badgeWidth, 80.0f, 180.0f);
+    }
+    float wordRight = card.right - badgeWidth - 20.0f;
+    D2D1_RECT_F wordRect = D2D1::RectF(card.left + 16.0f, card.top + 10.0f, (std::max)(card.left + 20.0f, wordRight), card.top + 34.0f);
+    m_d2dContext->DrawText(
+        dictCard.word.c_str(),
+        (UINT32)dictCard.word.length(),
+        m_textFormatDictWord.Get(),
+        wordRect,
+        m_brushHudText.Get()
+    );
+
+    // 2. Category Badge Pill
+    if (!dictCard.categoryTag.empty() && m_brushDictTagBg && m_brushDictTagText) {
+        D2D1_COLOR_F textColor;
+        D2D1_COLOR_F bgColor;
+        switch (dictCard.category) {
+        case 1: // Architecture: Amber/Orange
+            textColor = D2D1::ColorF(0.98f, 0.65f, 0.20f, 1.0f);
+            bgColor = D2D1::ColorF(0.98f, 0.65f, 0.20f, 0.18f);
+            break;
+        case 2: // Networks/IoT/WSN: Cyan/Blue
+            textColor = D2D1::ColorF(0.25f, 0.75f, 0.98f, 1.0f);
+            bgColor = D2D1::ColorF(0.25f, 0.75f, 0.98f, 0.18f);
+            break;
+        case 3: // AI/Vision: Purple/Violet
+            textColor = D2D1::ColorF(0.75f, 0.45f, 0.98f, 1.0f);
+            bgColor = D2D1::ColorF(0.75f, 0.45f, 0.98f, 0.18f);
+            break;
+        case 4: // Cybersecurity: Coral/Red
+            textColor = D2D1::ColorF(0.98f, 0.40f, 0.40f, 1.0f);
+            bgColor = D2D1::ColorF(0.98f, 0.40f, 0.40f, 0.18f);
+            break;
+        case 5: // Academic/ABET/NCAAA: Emerald
+            textColor = D2D1::ColorF(0.25f, 0.85f, 0.50f, 1.0f);
+            bgColor = D2D1::ColorF(0.25f, 0.85f, 0.50f, 0.18f);
+            break;
+        case 6: // QA: Gold
+            textColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 1.0f);
+            bgColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 0.18f);
+            break;
+        default: // General
+            textColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 1.0f);
+            bgColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 0.15f);
+            break;
+        }
+
+        D2D1_RECT_F badgeRect = D2D1::RectF(card.right - badgeWidth - 14.0f, card.top + 12.0f, card.right - 14.0f, card.top + 32.0f);
+        m_brushDictTagBg->SetColor(bgColor);
+        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(badgeRect, 4.0f, 4.0f), m_brushDictTagBg.Get());
+        m_brushDictTagText->SetColor(textColor);
+        m_d2dContext->DrawText(
+            dictCard.categoryTag.c_str(),
+            (UINT32)dictCard.categoryTag.length(),
+            m_textFormatDictTag.Get(),
+            badgeRect,
+            m_brushDictTagText.Get()
+        );
+    }
+
+    // 3. Subtle Header Divider Line
+    m_d2dContext->DrawLine(
+        D2D1::Point2F(card.left + 16.0f, card.top + 38.0f),
+        D2D1::Point2F(card.right - 16.0f, card.top + 38.0f),
+        m_brushDictCardBorder.Get(),
+        1.0f
+    );
+
+    // 4. Definition Content
+    D2D1_RECT_F defRect = D2D1::RectF(card.left + 16.0f, card.top + 46.0f, card.right - 16.0f, card.top + 46.0f + defHeight);
+    if (defLayout) {
+        m_d2dContext->DrawTextLayout(
+            D2D1::Point2F(defRect.left, defRect.top),
+            defLayout.Get(),
+            m_brushDictDefText.Get()
+        );
+    } else {
+        m_d2dContext->DrawText(
+            dictCard.definition.c_str(),
+            (UINT32)dictCard.definition.length(),
+            m_textFormatDictDef.Get(),
+            defRect,
+            m_brushDictDefText.Get()
+        );
+    }
+
+    // 5. Footer Hint
+    D2D1_RECT_F hintRect = D2D1::RectF(card.left + 16.0f, card.bottom - 22.0f, card.right - 16.0f, card.bottom - 6.0f);
+    const wchar_t* hint = L"Esc: dismiss \x2022 Ctrl+C: copy \x2022 100% Offline Lexicon";
+    m_d2dContext->DrawText(
+        hint,
+        (UINT32)wcslen(hint),
+        m_textFormatDictHint.Get(),
+        hintRect,
+        m_brushDictHintText.Get()
+    );
 }

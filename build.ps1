@@ -8,6 +8,12 @@ Write-Host "===================================================" -ForegroundColo
 if (-not (Test-Path "bin")) {
     New-Item -ItemType Directory -Path "bin" | Out-Null
 }
+if (-not (Test-Path "bin\dict")) {
+    New-Item -ItemType Directory -Path "bin\dict" -Force | Out-Null
+}
+if (Test-Path "dict\en-ar.dat") {
+    Copy-Item -Path "dict\*" -Destination "bin\dict\" -Recurse -Force
+}
 
 # Activate portable MSVC if needed
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
@@ -27,7 +33,8 @@ $sources = @(
     "src\d2d_renderer.cpp",
     "src\pdf_document.cpp",
     "src\pdf_parser.cpp",
-    "src\pdf_search.cpp"
+    "src\pdf_search.cpp",
+    "src\dictionary_engine.cpp"
 )
 
 Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Green

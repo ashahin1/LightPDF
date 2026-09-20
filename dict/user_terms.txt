@@ -1,0 +1,8 @@
+# LightPDF Custom User Lexicon
+# Add your custom research, faculty, or technical terms below.
+# Format: English Term = Arabic Translation
+# Lines starting with '#' are ignored.
+
+Heterogeneous Architecture = معمارية المعالجات غير المتجانسة
+Edge-AI = الذكاء الاصطناعي عند حافة الشبكة
+Zero-Knowledge SNARK = إثبات المعرفة الصفرية المقتضب غير التفاعلي (zk-SNARK)
