@@ -39,7 +39,8 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     wc.hCursor = m_cursorArrow;
     wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED);
-    wc.hbrBackground = nullptr;
+    static HBRUSH s_hbrDarkBg = CreateSolidBrush(RGB(31, 31, 31));
+    wc.hbrBackground = s_hbrDarkBg;
     wc.lpszClassName = WINDOW_CLASS_NAME;
 
     RegisterClassExW(&wc);
@@ -68,7 +69,8 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
 
     if (!initialFile.empty()) {
         OpenTab(initialFile);
-    } else {
+    }
+    if (m_tabs.empty()) {
         UpdateTitle();
         m_renderer.RenderBlank(L"");
     }
@@ -240,45 +242,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (pTab->continuousScroll) {
             ScrollContinuous((float)delta * 0.6f);
         } else {
-            D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
-            float topOffset = GetTopOffset();
-            float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
-            float renderedH = pSize.height * pTab->zoom;
-
-            if (renderedH > dipH) {
-                float scrollStep = (float)delta * 0.6f;
-                float oldOffsetY = pTab->offsetY;
-                pTab->offsetY += scrollStep;
-
-                float minOffsetY = dipH - renderedH - 20.0f;
-                float maxOffsetY = 20.0f;
-
-                if (oldOffsetY <= minOffsetY && delta < 0) {
-                    if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
-                        NextPage(false);
-                        pTab->offsetY = 20.0f;
-                    } else {
-                        pTab->offsetY = minOffsetY;
-                    }
-                } else if (oldOffsetY >= maxOffsetY && delta > 0) {
-                    if (pTab->currentPage > 0) {
-                        PrevPage(false);
-                        D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
-                        pTab->offsetY = dipH - (prevSize.height * pTab->zoom) - 20.0f;
-                    } else {
-                        pTab->offsetY = maxOffsetY;
-                    }
-                } else {
-                    pTab->offsetY = std::clamp(pTab->offsetY, minOffsetY, maxOffsetY);
-                }
-                Render();
-            } else {
-                if (delta < 0) {
-                    NextPage();
-                } else {
-                    PrevPage();
-                }
-            }
+            ScrollSinglePage((float)delta * 0.6f);
         }
         return 0;
     }
@@ -961,10 +925,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (pTab->continuousScroll) {
                     ScrollContinuous(-40.0f);
                 } else {
-                    pTab->offsetY -= 40.0f;
-                    pTab->zoomMode = ZoomMode::Custom;
-                    ShowScrollbar();
-                    Render();
+                    ScrollSinglePage(-40.0f);
                 }
             }
             return 0;
@@ -975,10 +936,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (pTab->continuousScroll) {
                     ScrollContinuous(40.0f);
                 } else {
-                    pTab->offsetY += 40.0f;
-                    pTab->zoomMode = ZoomMode::Custom;
-                    ShowScrollbar();
-                    Render();
+                    ScrollSinglePage(40.0f);
                 }
             }
             return 0;
@@ -1161,27 +1119,6 @@ void AppWindow::OpenTab(const std::wstring& path) {
         }
     }
 
-    // If we have a single tab that failed to load or is blank, reuse it
-    if (m_tabs.size() == 1 && !m_tabs[0].document.IsLoaded()) {
-        if (m_tabs[0].document.Open(resolvedPath, m_hwnd)) {
-            m_tabs[0].currentPage = 0;
-            m_tabs[0].zoomMode = ZoomMode::FitPage;
-            m_tabs[0].continuousScroll = false;
-            m_tabs[0].scrollY = 0.0f;
-            m_tabs[0].textCache = std::make_shared<PageTextCache>();
-            m_tabs[0].textCache->pages.resize(m_tabs[0].document.GetPageCount());
-            m_renderer.InvalidatePageCache();
-            m_activeTab = 0;
-            if (m_showSearch && !m_searchQuery.empty()) {
-                TriggerSearch();
-            }
-            RecalculateLayout();
-            UpdateTitle();
-            Render();
-        }
-        return;
-    }
-
     DocumentTab newTab;
     if (newTab.document.Open(resolvedPath, m_hwnd)) {
         newTab.currentPage = 0;
@@ -1199,6 +1136,20 @@ void AppWindow::OpenTab(const std::wstring& path) {
         RecalculateLayout();
         UpdateTitle();
         Render();
+    } else {
+        std::wstring fileName = resolvedPath;
+        size_t lastSlash = resolvedPath.find_last_of(L"\\/");
+        if (lastSlash != std::wstring::npos) {
+            fileName = resolvedPath.substr(lastSlash + 1);
+        }
+        std::wstring msg = L"Unable to open \"" + fileName + L"\".\n\n"
+                           L"The file may be password-protected, corrupted, or inaccessible.";
+        MessageBoxW(m_hwnd, msg.c_str(), L"LightPDF - Error", MB_OK | MB_ICONWARNING);
+
+        if (m_tabs.empty()) {
+            UpdateTitle();
+            Render();
+        }
     }
 }
 
@@ -1795,6 +1746,58 @@ void AppWindow::ScrollContinuous(float deltaY) {
     UpdateTitle();
     ShowScrollbar();
     Render();
+}
+
+void AppWindow::ScrollSinglePage(float deltaY) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    float topOffset = GetTopOffset();
+    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
+    float renderedH = pSize.height * pTab->zoom;
+
+    float margin = (pTab->zoomMode == ZoomMode::FitWidth) ? 24.0f : 20.0f;
+
+    if (renderedH > dipH) {
+        float oldOffsetY = pTab->offsetY;
+        pTab->offsetY += deltaY;
+
+        float minOffsetY = dipH - renderedH - margin;
+        float maxOffsetY = margin;
+
+        if (oldOffsetY <= minOffsetY && deltaY < 0.0f) {
+            if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
+                NextPage(false);
+                pTab->offsetY = maxOffsetY;
+            } else {
+                pTab->offsetY = minOffsetY;
+            }
+        } else if (oldOffsetY >= maxOffsetY && deltaY > 0.0f) {
+            if (pTab->currentPage > 0) {
+                PrevPage(false);
+                D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
+                float prevRenderedH = prevSize.height * pTab->zoom;
+                pTab->offsetY = dipH - prevRenderedH - margin;
+            } else {
+                pTab->offsetY = maxOffsetY;
+            }
+        } else {
+            pTab->offsetY = std::clamp(pTab->offsetY, minOffsetY, maxOffsetY);
+        }
+        ShowScrollbar();
+        Render();
+    } else {
+        if (deltaY < 0.0f) {
+            if (pTab->currentPage + 1 < pTab->document.GetPageCount()) {
+                NextPage();
+            }
+        } else if (deltaY > 0.0f) {
+            if (pTab->currentPage > 0) {
+                PrevPage();
+            }
+        }
+    }
 }
 
 void AppWindow::UpdateContinuousOffsets(DocumentTab* pTab) {

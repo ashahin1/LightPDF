@@ -567,7 +567,7 @@ bool D2DRenderer::CreateWindowSizeDependentResources() {
         swapChainDesc.SampleDesc.Quality = 0;
         swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swapChainDesc.BufferCount = 2;
-        swapChainDesc.Scaling = DXGI_SCALING_NONE;
+        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
         swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
@@ -706,7 +706,12 @@ void D2DRenderer::RenderBlank(
         CreateDeviceResources();
         CreateWindowSizeDependentResources();
     } else {
-        m_swapChain->Present(1, 0);
+        HRESULT hrPres = m_swapChain->Present(1, 0);
+        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
+            DiscardDeviceResources();
+            CreateDeviceResources();
+            CreateWindowSizeDependentResources();
+        }
     }
 }
 
@@ -729,9 +734,50 @@ void D2DRenderer::RenderPage(
     const std::vector<SearchHighlight>& highlights,
     const DocumentPropertiesRenderInfo& docProps
 ) {
-    if (!m_d2dContext || !m_swapChain || !page) return;
+    if (!m_d2dContext || !m_swapChain) return;
 
     std::lock_guard<std::mutex> lock(m_renderMutex);
+
+    if (!page) {
+        // Fallback: If page could not be retrieved, clear to dark background and render friendly message
+        m_d2dContext->BeginDraw();
+        m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+        m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
+
+        float dipWidth = m_width * (96.0f / m_dpi);
+        float dipHeight = m_height * (96.0f / m_dpi);
+        float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
+        D2D1_RECT_F layoutRect = D2D1::RectF(24.0f, 24.0f + topOffset, dipWidth - 24.0f, dipHeight - 24.0f);
+
+        std::wstring errMsg = L"Error: Unable to display page " + std::to_wstring(currentPageIndex + 1) +
+                              L".\nThe page data may be corrupted, password-protected, or in an unsupported format.\n\nPress Ctrl+O or Ctrl+T to open another file.";
+        if (m_brushBlankText && m_textFormatBlank) {
+            m_d2dContext->DrawText(
+                errMsg.c_str(),
+                (UINT32)errMsg.length(),
+                m_textFormatBlank.Get(),
+                layoutRect,
+                m_brushBlankText.Get()
+            );
+        }
+
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps);
+
+        HRESULT hr = m_d2dContext->EndDraw();
+        if (hr == D2DERR_RECREATE_TARGET) {
+            DiscardDeviceResources();
+            CreateDeviceResources();
+            CreateWindowSizeDependentResources();
+        } else {
+            HRESULT hrPres = m_swapChain->Present(1, 0);
+            if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
+                DiscardDeviceResources();
+                CreateDeviceResources();
+                CreateWindowSizeDependentResources();
+            }
+        }
+        return;
+    }
 
     float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
     float pageY = offsetY + topOffset;
@@ -916,7 +962,12 @@ void D2DRenderer::RenderPage(
         CreateDeviceResources();
         CreateWindowSizeDependentResources();
     } else {
-        m_swapChain->Present(1, 0);
+        HRESULT hrPres = m_swapChain->Present(1, 0);
+        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
+            DiscardDeviceResources();
+            CreateDeviceResources();
+            CreateWindowSizeDependentResources();
+        }
     }
 }
 
@@ -1159,7 +1210,12 @@ void D2DRenderer::RenderContinuous(
         CreateDeviceResources();
         CreateWindowSizeDependentResources();
     } else {
-        m_swapChain->Present(1, 0);
+        HRESULT hrPres = m_swapChain->Present(1, 0);
+        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
+            DiscardDeviceResources();
+            CreateDeviceResources();
+            CreateWindowSizeDependentResources();
+        }
     }
 }
 

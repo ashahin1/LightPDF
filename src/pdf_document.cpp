@@ -20,17 +20,62 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         DWORD len = GetFullPathNameW(filePath.c_str(), _countof(fullPath), fullPath, nullptr);
         std::wstring resolvedPath = (len > 0) ? fullPath : filePath;
 
-        auto file = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(resolvedPath).get();
-        if (!file) {
+        // Primary: Load via Win32 stream (CreateRandomAccessStreamOnFile)
+        // This bypasses WinRT StorageFile restrictions on network UNC paths, Administrator elevation, and 8.3 paths.
+        winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
+        try {
+            winrt::Windows::Storage::Streams::IRandomAccessStream stream{ nullptr };
+            HRESULT hrStream = CreateRandomAccessStreamOnFile(
+                resolvedPath.c_str(),
+                static_cast<DWORD>(winrt::Windows::Storage::FileAccessMode::Read),
+                winrt::guid_of<winrt::Windows::Storage::Streams::IRandomAccessStream>(),
+                winrt::put_abi(stream)
+            );
+            if (SUCCEEDED(hrStream) && stream) {
+                doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromStreamAsync(stream).get();
+            }
+        } catch (...) {
+            doc = nullptr;
+        }
+
+        // Secondary fallback: Try StorageFile::GetFileFromPathAsync
+        if (!doc) {
+            try {
+                auto file = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(resolvedPath).get();
+                if (file) {
+                    doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file).get();
+                }
+            } catch (...) {
+                doc = nullptr;
+            }
+        }
+
+        if (!doc) {
             return false;
         }
 
-        m_doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file).get();
-        if (!m_doc) {
+        uint32_t pageCount = doc.PageCount();
+        if (pageCount == 0) {
             return false;
         }
 
-        m_pageCount = m_doc.PageCount();
+        // Verify that page 0 can be queried and loaded successfully
+        // (prevents accepting encrypted, password-protected, or corrupted files as "loaded")
+        try {
+            auto testPage = doc.GetPage(0);
+            if (!testPage) {
+                return false;
+            }
+            auto sz = testPage.Size();
+            if (sz.Width <= 0.0f || sz.Height <= 0.0f) {
+                return false;
+            }
+        } catch (...) {
+            return false;
+        }
+
+        m_doc = doc;
+        m_pageCount = pageCount;
         m_filePath = resolvedPath;
 
         // Extract filename
