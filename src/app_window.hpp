@@ -170,6 +170,7 @@ private:
     bool HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar);
     std::vector<SelectionHighlightSpan> GetSelectionSpans() const;
     void CopySelectionToClipboard();
+    void ClampCanvasOffsets(DocumentTab* pTab);
 
     HelpOverlayRenderInfo GetHelpInfo() const;
 
