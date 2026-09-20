@@ -65,20 +65,31 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PWSTR lpCm
     // 2. Initialize COM & WinRT Apartment
     winrt::init_apartment();
 
-    // 3. Parse optional command line argument for direct file invocation
-    std::wstring cmdStr = (lpCmdLine && lpCmdLine[0] != L'\0') ? lpCmdLine : L"";
+    // 3. Parse command line arguments safely with CommandLineToArgvW
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     std::wstring initialFile;
-    if (!cmdStr.empty()) {
-        size_t start = cmdStr.find_first_not_of(L" \t\"");
-        size_t end = cmdStr.find_last_not_of(L" \t\"");
-        if (start != std::wstring::npos && end != std::wstring::npos && end >= start) {
-            initialFile = cmdStr.substr(start, end - start + 1);
+    bool isSilent = false;
+    bool doRegister = false;
+    bool doUnregister = false;
+
+    if (argv) {
+        for (int i = 1; i < argc; ++i) {
+            std::wstring arg = argv[i];
+            if (_wcsicmp(arg.c_str(), L"/silent") == 0 || _wcsicmp(arg.c_str(), L"-silent") == 0) {
+                isSilent = true;
+            } else if (_wcsicmp(arg.c_str(), L"/register") == 0 || _wcsicmp(arg.c_str(), L"-register") == 0) {
+                doRegister = true;
+            } else if (_wcsicmp(arg.c_str(), L"/unregister") == 0 || _wcsicmp(arg.c_str(), L"-unregister") == 0) {
+                doUnregister = true;
+            } else if (initialFile.empty() && !arg.empty() && arg[0] != L'-' && arg[0] != L'/') {
+                initialFile = arg;
+            }
         }
+        LocalFree(argv);
     }
 
-    bool isSilent = (cmdStr.find(L"/silent") != std::wstring::npos || cmdStr.find(L"-silent") != std::wstring::npos);
-
-    if (cmdStr.find(L"/register") != std::wstring::npos || cmdStr.find(L"-register") != std::wstring::npos) {
+    if (doRegister) {
         RegisterFileAssociation();
         if (!isSilent) {
             MessageBoxW(nullptr, L"LightPDF has been registered as a PDF viewer in your user profile.\nYou can now select it in Windows 'Open with' or Default Apps.", L"LightPDF Registration", MB_OK | MB_ICONINFORMATION);
@@ -86,7 +97,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PWSTR lpCm
         return 0;
     }
 
-    if (cmdStr.find(L"/unregister") != std::wstring::npos || cmdStr.find(L"-unregister") != std::wstring::npos) {
+    if (doUnregister) {
         UnregisterFileAssociation();
         if (!isSilent) {
             MessageBoxW(nullptr, L"LightPDF file associations removed.", L"LightPDF Registration", MB_OK | MB_ICONINFORMATION);
