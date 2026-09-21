@@ -356,6 +356,50 @@ SPECIALIZED_TERMS = {
     "cache coherence": ("اتساق الذاكرة المخبأة / تناسق الكاش", CAT_ARCHITECTURE),
     "cache miss": ("إخفاق الذاكرة المخبأة", CAT_ARCHITECTURE),
     "cache hit": ("إصابة الذاكرة المخبأة", CAT_ARCHITECTURE),
+
+    # Performance Evaluation Metrics
+    "cpi": ("عدد دورات الساعة لكل تعليمة (Cycles Per Instruction - المقياس المحوري لكفاءة المعالج)", CAT_ARCHITECTURE),
+    "cycles per instruction": ("متوسط عدد دورات الساعة اللازمة لتنفيذ تعليمة واحدة (CPI)", CAT_ARCHITECTURE),
+    "instructions per cycle": ("عدد التعليمات المنفذة في دورة الساعة الواحدة (IPC = 1/CPI)", CAT_ARCHITECTURE),
+    "mflops": ("مليون عملية فاصلة عائمة في الثانية (Mega FLOPS)", CAT_ARCHITECTURE),
+    "gflops": ("مليار عملية فاصلة عائمة في الثانية (Giga FLOPS)", CAT_ARCHITECTURE),
+    "tflops": ("تريليون عملية فاصلة عائمة في الثانية (Tera FLOPS)", CAT_ARCHITECTURE),
+    "spec benchmark": ("معايير منظمة SPEC لتقييم أداء المعالجات الحسابية موضوعياً", CAT_ARCHITECTURE),
+
+    # Cache Organization & Mapping
+    "direct-mapped cache": ("الذاكرة المخبأة ذات المطابقة المباشرة (كل كتلة تقابل سطراً وحيداً)", CAT_ARCHITECTURE),
+    "set-associative cache": ("الذاكرة المخبأة التجميعية بالمجموعات (كل كتلة تقابل مجموعة أسطر)", CAT_ARCHITECTURE),
+    "fully associative cache": ("الذاكرة المخبأة التجميعية الكلية (الكتلة تُخزَّن في أي سطر)", CAT_ARCHITECTURE),
+    "cache associativity": ("درجة الاقتران والتجميع في الكاش (عدد الأسطر في المجموعة)", CAT_ARCHITECTURE),
+    "l1 cache": ("ذاكرة المستوى الأول المخبأة الأسرع والأصغر المدمجة في نواة المعالج", CAT_ARCHITECTURE),
+    "l2 cache": ("ذاكرة المستوى الثاني المخبأة الأكبر حجماً على مستوى النواة أو المعالج", CAT_ARCHITECTURE),
+    "l3 cache": ("ذاكرة المستوى الثالث المخبأة المشتركة بين جميع أنوية المعالج", CAT_ARCHITECTURE),
+
+    # Cache Miss Classification
+    "compulsory miss": ("إخفاق إجباري / أولي عند أول وصول لكتلة لم تُحمَّل مسبقاً (Cold Miss)", CAT_ARCHITECTURE),
+    "capacity miss": ("إخفاق السعة عند نفاد حجم الذاكرة المخبأة وعدم استيعابها لكل البيانات", CAT_ARCHITECTURE),
+    "conflict miss": ("إخفاق التعارض بسبب تنافس كتل متعددة على نفس مواقع الكاش", CAT_ARCHITECTURE),
+    "hit rate": ("معدل الإصابة في الذاكرة المخبأة (نسبة الطلبات المخدومة من الكاش)", CAT_ARCHITECTURE),
+    "miss rate": ("معدل الإخفاق في الذاكرة المخبأة (نسبة الطلبات غير الموجودة)", CAT_ARCHITECTURE),
+    "miss penalty": ("غرامة / كلفة إخفاق الكاش بعدد دورات الساعة الإضافية للوصول لمستوى أدنى", CAT_ARCHITECTURE),
+    "hit time": ("زمن الإصابة اللازم للوصول للبيانات الموجودة في الكاش", CAT_ARCHITECTURE),
+
+    # Cache Write Policies
+    "write-through": ("سياسة الكتابة المباشرة الفورية لكل من الكاش والذاكرة الرئيسية معاً", CAT_ARCHITECTURE),
+    "write allocate": ("تخصيص الكاش عند إخفاق الكتابة بتحميل الكتلة أولاً ثم تعديلها", CAT_ARCHITECTURE),
+    "dirty bit": ("بت التعديل الدال على تغيير محتوى خط الكاش ووجوب إعادة كتابته", CAT_ARCHITECTURE),
+    "valid bit": ("بت الصحة الدال على صلاحية البيانات المخزنة في سطر الكاش", CAT_ARCHITECTURE),
+    "cache tag": ("وسم العنوان في الكاش للمطابقة مع عنوان الطلب", CAT_ARCHITECTURE),
+
+    # Advanced Branch Prediction & Scheduling
+    "branch history table": ("جدول تاريخ التفرعات لتسجيل سلوك القفزات الشرطية السابقة (BHT)", CAT_ARCHITECTURE),
+    "return address stack": ("مكدس عناوين العودة للتنبؤ بقفزات العودة من الدوال (RAS)", CAT_ARCHITECTURE),
+    "scoreboarding": ("تقنية لوحة التسجيل لجدولة التعليمات عتادياً واكتشاف التبعيات", CAT_ARCHITECTURE),
+
+    # Compiler ILP Techniques
+    "loop unrolling": ("فك الحلقات التكرارية لزيادة فرص الجدولة المتوازية وتقليل حمل التحكم", CAT_ARCHITECTURE),
+    "software pipelining": ("خط الأنابيب البرمجي بالمترجم لتداخل تكرارات الحلقة زمنياً", CAT_ARCHITECTURE),
+    "predicated execution": ("التنفيذ المشروط / الموصوف لإلغاء قفزات التفرع باستخدام تعليمات مشروطة", CAT_ARCHITECTURE),
     "pipeline hazard": ("تعارض مسار البيانات في خط التوجيه", CAT_ARCHITECTURE),
     "pipeline stall": ("توقف مسار خط المعالجة المجمعة / إدخال فقاعة تأخير", CAT_ARCHITECTURE),
     "pipeline bubble": ("فقاعة خط الأنابيب / دورة فارغة في المعالج", CAT_ARCHITECTURE),
@@ -380,6 +424,61 @@ SPECIALIZED_TERMS = {
     "alu": ("وحدة الحساب والمنطق (Arithmetic Logic Unit)", CAT_ARCHITECTURE),
     "control unit": ("وحدة التحكم في المعالج", CAT_ARCHITECTURE),
     "micro-operation": ("عملية صغرية (Micro-op)", CAT_ARCHITECTURE),
+
+    # Foundational Architecture Models
+    "von neumann architecture": ("معمارية فون نيومان ذات الذاكرة الموحدة للبيانات والتعليمات", CAT_ARCHITECTURE),
+    "harvard architecture": ("معمارية هارفارد بفصل ذاكرة التعليمات عن ذاكرة البيانات", CAT_ARCHITECTURE),
+    "modified harvard architecture": ("معمارية هارفارد المعدلة بدمج مزايا فصل الذاكرة والمرونة", CAT_ARCHITECTURE),
+    "stored-program concept": ("مفهوم البرنامج المخزن في الذاكرة كبيانات قابلة للتعديل", CAT_ARCHITECTURE),
+    "stored program computer": ("حاسوب البرنامج المخزن (مفهوم فون نيومان الأساسي)", CAT_ARCHITECTURE),
+
+    # Memory Technologies
+    "sram": ("الذاكرة العشوائية الساكنة فائقة السرعة بالقلابات (Static RAM)", CAT_ARCHITECTURE),
+    "static ram": ("الذاكرة العشوائية الساكنة بالقلابات دون الحاجة لإنعاش دوري", CAT_ARCHITECTURE),
+    "dram": ("الذاكرة العشوائية الديناميكية بمكثفات تحتاج إنعاشاً دورياً (Dynamic RAM)", CAT_ARCHITECTURE),
+    "dynamic ram": ("الذاكرة العشوائية الديناميكية ذات الإنعاش الدوري", CAT_ARCHITECTURE),
+    "sdram": ("ذاكرة الوصول العشوائي الديناميكية المتزامنة مع ناقل النظام (SDRAM)", CAT_ARCHITECTURE),
+    "ddr": ("تقنية معدل نقل البيانات المزدوج في الذاكرة (Double Data Rate)", CAT_ARCHITECTURE),
+    "ddr4": ("ذاكرة DDR4 بتردد وعرض نطاق أعلى وطاقة أقل", CAT_ARCHITECTURE),
+    "ddr5": ("ذاكرة DDR5 بمضاعفة قنوات البيانات والتصحيح المدمج للأخطاء", CAT_ARCHITECTURE),
+    "rom": ("ذاكرة القراءة فقط الدائمة (Read-Only Memory)", CAT_ARCHITECTURE),
+    "prom": ("ذاكرة القراءة القابلة للبرمجة مرة واحدة فقط (Programmable ROM)", CAT_ARCHITECTURE),
+    "eprom": ("ذاكرة القراءة القابلة للمسح والبرمجة بالأشعة فوق البنفسجية (EPROM)", CAT_ARCHITECTURE),
+    "eeprom": ("ذاكرة القراءة القابلة للمسح والبرمجة كهربائياً (EEPROM)", CAT_ARCHITECTURE),
+    "flash memory": ("ذاكرة الفلاش غير المتطايرة القابلة للمسح والكتابة بكتل (Flash Memory)", CAT_ARCHITECTURE),
+    "nand flash": ("ذاكرة فلاش ناند عالية الكثافة التخزينية لأقراص SSD وبطاقات الذاكرة", CAT_ARCHITECTURE),
+    "nor flash": ("ذاكرة فلاش نور ذات القراءة العشوائية السريعة للبرامج الثابتة", CAT_ARCHITECTURE),
+    "memory bank": ("بنك الذاكرة المستقل لتوزيع طلبات الوصول وتحسين الأداء", CAT_ARCHITECTURE),
+    "memory refresh": ("إنعاش الذاكرة لإعادة شحن المكثفات في DRAM دورياً", CAT_ARCHITECTURE),
+    "memory controller": ("متحكم الذاكرة العتادي المنظم لعمليات القراءة والكتابة والإنعاش", CAT_ARCHITECTURE),
+
+    # Bus Architecture & I/O Organization
+    "system bus": ("ناقل النظام الرئيسي الرابط بين المعالج والذاكرة والطرفيات", CAT_ARCHITECTURE),
+    "address bus": ("ناقل العناوين أحادي الاتجاه لتحديد موقع البيانات في الذاكرة", CAT_ARCHITECTURE),
+    "data bus": ("ناقل البيانات ثنائي الاتجاه لنقل البيانات بين مكونات النظام", CAT_ARCHITECTURE),
+    "control bus": ("ناقل التحكم والإشارات لتنسيق عمليات القراءة والكتابة والمقاطعة", CAT_ARCHITECTURE),
+    "bus width": ("عرض الناقل بعدد البتات المنقولة في كل دورة", CAT_ARCHITECTURE),
+    "bus arbitration": ("تحكيم الناقل وحل نزاع الوصول بين عدة أجهزة متنافسة", CAT_ARCHITECTURE),
+    "memory-mapped i/o": ("الإدخال والإخراج المعنون بالذاكرة عبر فضاء عنونة مشترك (MMIO)", CAT_ARCHITECTURE),
+    "port-mapped i/o": ("الإدخال والإخراج المعزول بمنافذ مستقلة عن فضاء الذاكرة (PMIO)", CAT_ARCHITECTURE),
+    "pcie": ("واجهة الربط السريع للطرفيات من الجيل الحديث (PCI Express)", CAT_ARCHITECTURE),
+    "pci express": ("واجهة PCI Express التسلسلية السريعة لربط بطاقات التوسعة", CAT_ARCHITECTURE),
+    "cycle stealing": ("سرقة الدورات في نقل DMA دون توقف المعالج الكامل", CAT_ARCHITECTURE),
+    "burst mode": ("وضع النقل المتدفق المتواصل لكتل البيانات عبر الناقل", CAT_ARCHITECTURE),
+
+    # Control Unit Design
+    "hardwired control unit": ("وحدة التحكم السلكية المنطقية الثابتة بالبوابات المنطقية", CAT_ARCHITECTURE),
+    "microprogrammed control unit": ("وحدة التحكم المبرمجة صغرياً بالشيفرة الصغرية في ROM", CAT_ARCHITECTURE),
+    "control store": ("مخزن تعليمات التحكم الصغرية في ذاكرة ROM الداخلية", CAT_ARCHITECTURE),
+
+    # Arithmetic Hardware Algorithms
+    "booth's algorithm": ("خوارزمية بوث للضرب الثنائي الفعال للأعداد الموقعة بالمكمل الثنائي", CAT_ARCHITECTURE),
+    "booth's multiplication algorithm": ("خوارزمية ضرب بوث بتقليل عدد الجمع والإزاحات", CAT_ARCHITECTURE),
+    "carry-save adder": ("جامع حفظ المحمول السريع لتسريع الضرب متعدد المعاملات (CSA)", CAT_ARCHITECTURE),
+    "wallace tree": ("شجرة والاس لتسريع ضرب المصفوفات الثنائية بالجوامع المتوازية", CAT_ARCHITECTURE),
+    "barrel shifter": ("مزاح الأسطوانة لتنفيذ الإزاحات المتعددة في دورة ساعة واحدة", CAT_ARCHITECTURE),
+    "restoring division": ("خوارزمية القسمة الثنائية الاسترجاعية باسترداد القيمة عند الناتج السالب", CAT_ARCHITECTURE),
+    "non-restoring division": ("خوارزمية القسمة الثنائية غير الاسترجاعية الأكفأ بإلغاء خطوة الاسترداد", CAT_ARCHITECTURE),
     "microarchitecture": ("المعمارية الصغرية للعتاد", CAT_ARCHITECTURE),
     "register file": ("ملف السجلات في المعالج", CAT_ARCHITECTURE),
     "program counter": ("عداد البرنامج (مؤشر التعليمة الحالية)", CAT_ARCHITECTURE),
@@ -393,6 +492,51 @@ SPECIALIZED_TERMS = {
     "indirect addressing": ("العنونة غير المباشرة", CAT_ARCHITECTURE),
     "opcode": ("رمز العملية البرمجية في لغة التجميع", CAT_ARCHITECTURE),
     "operand": ("المعامل / القيمة المُجرى عليها العملية", CAT_ARCHITECTURE),
+
+    # Assembler Toolchain & Build Process
+    "assembler": ("المُجمّع / محول شيفرة لغة التجميع الرمزية إلى لغة الآلة الثنائية", CAT_ARCHITECTURE),
+    "disassembler": ("مفكك لغة الآلة الثنائية إلى كود تجميع رمزي مقروء", CAT_ARCHITECTURE),
+    "linker": ("الرابط لدمج ملفات الكائنات والمكتبات في ملف تنفيذي واحد", CAT_ARCHITECTURE),
+    "loader": ("المُحمّل لرفع البرنامج التنفيذي إلى ذاكرة RAM وتهيئة بيئة التشغيل", CAT_ARCHITECTURE),
+    "object file": ("ملف الكائن الثنائي القابل لإعادة التوطين الناتج من التجميع (Object File)", CAT_ARCHITECTURE),
+    "object code": ("كود الكائن الثنائي المترجم من لغة التجميع أو لغة عالية المستوى", CAT_ARCHITECTURE),
+    "symbol table": ("جدول الرموز والعناوين المعرفة في ملف التجميع للربط والتصحيح", CAT_ARCHITECTURE),
+    "relocation": ("إعادة التوطين وتعديل العناوين المطلقة عند تحميل البرنامج في الذاكرة", CAT_ARCHITECTURE),
+    "assembler directive": ("توجيه المجمع غير المنفذ عتادياً لتنظيم الشيفرة والبيانات (.data, .text)", CAT_ARCHITECTURE),
+    "two-pass assembler": ("المجمع ثنائي المسارات لحل المراجع الأمامية ببناء جدول الرموز أولاً", CAT_ARCHITECTURE),
+    "macro": ("الماكرو / التوسيع النصي للاختصار في لغة التجميع عبر قوالب قابلة لإعادة الاستخدام", CAT_ARCHITECTURE),
+    "inline assembly": ("التجميع المضمن داخل لغات عالية المستوى كـ C/C++ للتحكم العتادي المباشر", CAT_ARCHITECTURE),
+
+    # Additional Addressing Modes
+    "register addressing": ("العنونة بالسجلات مباشرة (المعامل مخزن في سجل المعالج)", CAT_ARCHITECTURE),
+    "indexed addressing": ("العنونة المفهرسة بإضافة سجل الفهرس إلى العنوان الأساسي", CAT_ARCHITECTURE),
+    "base-plus-index addressing": ("العنونة بالقاعدة والفهرس لحساب العنوان من سجلين", CAT_ARCHITECTURE),
+    "pc-relative addressing": ("العنونة النسبية لعداد البرنامج للقفزات والتفرعات القريبة", CAT_ARCHITECTURE),
+    "relative addressing": ("العنونة النسبية بإزاحة عن الموقع الحالي للتنفيذ", CAT_ARCHITECTURE),
+    "displacement addressing": ("عنونة الإزاحة بإضافة ثابت إزاحة إلى محتوى سجل الأساس", CAT_ARCHITECTURE),
+    "effective address": ("العنوان الفعلي المحسوب في الذاكرة الناتج من نمط العنونة", CAT_ARCHITECTURE),
+
+    # Assembly Mnemonics & Instructions
+    "mov": ("تعليمة نقل البيانات بين السجلات أو الذاكرة أو القيم الفورية (Move)", CAT_ARCHITECTURE),
+    "lea": ("تعليمة تحميل العنوان الفعلي في سجل دون الوصول للذاكرة (Load Effective Address)", CAT_ARCHITECTURE),
+    "push": ("تعليمة دفع قيمة إلى قمة المكدس مع إنقاص مؤشر المكدس", CAT_ARCHITECTURE),
+    "pop": ("تعليمة سحب قيمة من قمة المكدس مع زيادة مؤشر المكدس", CAT_ARCHITECTURE),
+    "call": ("تعليمة استدعاء إجراء / دالة بدفع عنوان العودة والقفز لعنوان الدالة", CAT_ARCHITECTURE),
+    "ret": ("تعليمة العودة من الدالة بسحب عنوان العودة من المكدس (Return)", CAT_ARCHITECTURE),
+    "jmp": ("تعليمة القفز غير المشروط إلى عنوان محدد في الشيفرة (Jump)", CAT_ARCHITECTURE),
+    "conditional jump": ("القفزات الشرطية المعتمدة على حالة أعلام المعالج (JE, JNE, JG, JL, JZ)", CAT_ARCHITECTURE),
+    "cmp": ("تعليمة المقارنة بطرح ضمني دون تعديل المعاملات وتحديث الأعلام فقط", CAT_ARCHITECTURE),
+    "nop": ("تعليمة عدم التشغيل / دورة فارغة لا تنفذ أي عملية (No Operation)", CAT_ARCHITECTURE),
+    "int": ("تعليمة المقاطعة البرمجية لاستدعاء خدمات النظام (Software Interrupt)", CAT_ARCHITECTURE),
+
+    # Calling Convention Details
+    "prologue": ("مقدمة الدالة لحفظ إطار المكدس السابق وتهيئة الإطار الجديد في التجميع", CAT_ARCHITECTURE),
+    "epilogue": ("خاتمة الدالة لاستعادة إطار المكدس والسجلات المحفوظة قبل العودة", CAT_ARCHITECTURE),
+    "activation record": ("سجل تنشيط الدالة في المكدس المتضمن للمعاملات والمتغيرات المحلية والعودة", CAT_ARCHITECTURE),
+    "caller-saved registers": ("السجلات المتطايرة التي يلتزم المستدعي بحفظها قبل استدعاء الدالة", CAT_ARCHITECTURE),
+    "callee-saved registers": ("السجلات غير المتطايرة التي يلتزم التابع بحفظها واستعادتها عند العودة", CAT_ARCHITECTURE),
+    "general-purpose registers": ("السجلات العامة متعددة الاستخدام في المعالج (GPR)", CAT_ARCHITECTURE),
+
     "endianness": ("ترتيب ترتيب بايتات الكلمة في الذاكرة", CAT_ARCHITECTURE),
     "little-endian": ("ترتيب البايتات ذو النهاية الصغرى", CAT_ARCHITECTURE),
     "big-endian": ("ترتيب البايتات ذو النهاية الكبرى", CAT_ARCHITECTURE),
@@ -756,6 +900,120 @@ SPECIALIZED_TERMS = {
     "glbp": ("بروتوكول موازنة حمل البوابة الافتراضية من سيسكو (GLBP)", CAT_NETWORKS_IOT),
     "default gateway": ("البوابة الافتراضية لتمرير الحزم خارج نطاق الشبكة المحلية", CAT_NETWORKS_IOT),
 
+    # OSI Model & Layer Architecture
+    "osi model": ("نموذج ربط الأنظمة المفتوحة السباعي المرجعي (OSI Model)", CAT_NETWORKS_IOT),
+    "physical layer": ("الطبقة الفيزيائية المسؤولة عن نقل البتات عبر الوسط المادي (L1)", CAT_NETWORKS_IOT),
+    "data link layer": ("طبقة وصل البيانات المسؤولة عن الإطارات وعنونة MAC (L2)", CAT_NETWORKS_IOT),
+    "network layer": ("طبقة الشبكة المسؤولة عن العنونة المنطقية والتوجيه (L3)", CAT_NETWORKS_IOT),
+    "transport layer": ("طبقة النقل المسؤولة عن الاتصال الموثوق ومنفذ التطبيق (L4)", CAT_NETWORKS_IOT),
+    "session layer": ("طبقة الجلسة لإدارة وتنسيق الحوار بين التطبيقات (L5)", CAT_NETWORKS_IOT),
+    "presentation layer": ("طبقة العرض والتهيئة لتشفير وضغط وتنسيق البيانات (L6)", CAT_NETWORKS_IOT),
+    "application layer": ("طبقة التطبيقات المتاحة مباشرة للمستخدم والبرامج (L7)", CAT_NETWORKS_IOT),
+    "protocol data unit": ("وحدة بيانات البروتوكول في كل طبقة من طبقات الشبكة (PDU)", CAT_NETWORKS_IOT),
+    "pdu": ("وحدة بيانات البروتوكول (Protocol Data Unit)", CAT_NETWORKS_IOT),
+    "frame": ("إطار طبقة وصل البيانات المحتوي على العنونة الفيزيائية والحمولة", CAT_NETWORKS_IOT),
+    "packet": ("حزمة طبقة الشبكة المحتوية على العنونة المنطقية IP", CAT_NETWORKS_IOT),
+    "datagram": ("مخطط بيانات غير متصل المسار في بروتوكول UDP وطبقة الشبكة", CAT_NETWORKS_IOT),
+    "segment": ("قطاع بيانات طبقة النقل TCP المتضمن لرقم التسلسل والإقرار", CAT_NETWORKS_IOT),
+
+    # Core Internet Protocols
+    "ipv4": ("بروتوكول الإنترنت الإصدار الرابع بعناوين 32 بت (IPv4)", CAT_NETWORKS_IOT),
+    "ipv6": ("بروتوكول الإنترنت الإصدار السادس بعناوين 128 بت لحل نضوب العناوين (IPv6)", CAT_NETWORKS_IOT),
+    "tcp": ("بروتوكول التحكم في النقل الموثوق الموجه للاتصال (TCP)", CAT_NETWORKS_IOT),
+    "transmission control protocol": ("بروتوكول التحكم في النقل الموثوق بالإقرار وإعادة الإرسال (TCP)", CAT_NETWORKS_IOT),
+    "udp": ("بروتوكول مخطط بيانات المستخدم غير المتصل السريع (UDP)", CAT_NETWORKS_IOT),
+    "user datagram protocol": ("بروتوكول بيانات المستخدم عديم الاتصال وغير الموثوق (UDP)", CAT_NETWORKS_IOT),
+    "icmp": ("بروتوكول رسائل التحكم في الإنترنت للتشخيص والإبلاغ عن الأخطاء (ICMP)", CAT_NETWORKS_IOT),
+    "ping": ("أداة فحص الاتصالية الشبكية بإرسال طلب صدى ICMP", CAT_NETWORKS_IOT),
+    "traceroute": ("أداة تتبع مسار القفزات الشبكية وقياس زمن كل عقدة وسيطة", CAT_NETWORKS_IOT),
+    "http": ("بروتوكول نقل النص الفائق لتصفح الويب (HTTP)", CAT_NETWORKS_IOT),
+    "https": ("بروتوكول نقل النص الفائق الآمن عبر التشفير TLS (HTTPS)", CAT_NETWORKS_IOT),
+    "ftp": ("بروتوكول نقل الملفات القياسي بين العميل والخادم (FTP)", CAT_NETWORKS_IOT),
+    "ssh": ("بروتوكول الوصول الطرفي المشفر الآمن عن بعد (Secure Shell)", CAT_NETWORKS_IOT),
+    "telnet": ("بروتوكول الوصول الطرفي عن بعد بنص واضح غير مشفر (Telnet)", CAT_NETWORKS_IOT),
+    "smtp": ("بروتوكول إرسال البريد الإلكتروني البسيط (SMTP)", CAT_NETWORKS_IOT),
+    "snmp": ("بروتوكول إدارة الشبكات البسيط لمراقبة الأجهزة والخدمات (SNMP)", CAT_NETWORKS_IOT),
+    "ntp": ("بروتوكول مزامنة توقيت الشبكة بدقة عالية (NTP)", CAT_NETWORKS_IOT),
+
+    # TCP Internals & Congestion
+    "tcp flags": ("رايات التحكم في ترويسة TCP لإدارة الاتصال والتدفق", CAT_NETWORKS_IOT),
+    "syn": ("راية المزامنة لبدء الاتصال في المصافحة الثلاثية (SYN)", CAT_NETWORKS_IOT),
+    "ack": ("راية الإقرار بالاستلام في بروتوكول TCP (ACK)", CAT_NETWORKS_IOT),
+    "fin": ("راية الإنهاء لإغلاق الاتصال بشكل منظم في TCP (FIN)", CAT_NETWORKS_IOT),
+    "sequence number": ("رقم التسلسل لترتيب البيانات في بروتوكول TCP", CAT_NETWORKS_IOT),
+    "acknowledgment number": ("رقم الإقرار المشير للبايت التالي المتوقع استلامه في TCP", CAT_NETWORKS_IOT),
+    "slow start": ("مرحلة البداية البطيئة في التحكم بازدحام TCP بمضاعفة النافذة أسياً", CAT_NETWORKS_IOT),
+    "congestion window": ("نافذة الازدحام لتحديد حجم البيانات المسموح إرسالها بلا إقرار (cwnd)", CAT_NETWORKS_IOT),
+    "rtt": ("زمن الرحلة ذهاباً وإياباً للحزمة الشبكية (Round-Trip Time)", CAT_NETWORKS_IOT),
+    "round-trip time": ("زمن ذهاب وعودة الحزمة بين المرسل والمستقبل (RTT)", CAT_NETWORKS_IOT),
+    "mss": ("الحجم الأقصى لقطاع البيانات المفيدة في TCP (Maximum Segment Size)", CAT_NETWORKS_IOT),
+    "fast retransmit": ("إعادة الإرسال السريع عند تكرار ثلاث إقرارات مكررة بدل انتظار المهلة", CAT_NETWORKS_IOT),
+
+    # Addressing Types
+    "private ip address": ("العناوين الخاصة غير القابلة للتوجيه عبر الإنترنت (RFC 1918)", CAT_NETWORKS_IOT),
+    "public ip address": ("العناوين العامة الفريدة القابلة للتوجيه على شبكة الإنترنت", CAT_NETWORKS_IOT),
+    "loopback address": ("عنوان الاسترجاع الذاتي للمضيف المحلي (127.0.0.1 أو ::1)", CAT_NETWORKS_IOT),
+    "unicast": ("الإرسال الفردي الموجه من مصدر لوجهة واحدة محددة", CAT_NETWORKS_IOT),
+    "broadcast": ("البث العام لجميع الأجهزة في الشبكة المحلية", CAT_NETWORKS_IOT),
+    "multicast": ("الإرسال المتعدد لمجموعة محددة من المستقبلين المشتركين", CAT_NETWORKS_IOT),
+    "anycast": ("الإرسال لأقرب عقدة من مجموعة عقد تحمل نفس العنوان", CAT_NETWORKS_IOT),
+    "vlsm": ("قناع الشبكة الفرعية متغير الطول لاستخدام أحجام شبكات مختلفة (VLSM)", CAT_NETWORKS_IOT),
+
+    # IoT Low-Power Protocols
+    "6lowpan": ("بروتوكول نقل IPv6 عبر الشبكات اللاسلكية الشخصية منخفضة الطاقة (6LoWPAN)", CAT_NETWORKS_IOT),
+    "rpl": ("بروتوكول التوجيه للشبكات منخفضة الطاقة والمعرضة للفقد (RPL)", CAT_NETWORKS_IOT),
+    "lora": ("طبقة التضمين الراديوي الفيزيائية لتقنية لورا بعيدة المدى منخفضة الطاقة", CAT_NETWORKS_IOT),
+    "thread protocol": ("بروتوكول ثريد الشبكي اللاسلكي الآمن للأجهزة الذكية المنزلية", CAT_NETWORKS_IOT),
+    "nb-iot": ("إنترنت الأشياء بالنطاق الضيق عبر الشبكات الخلوية المرخصة (NB-IoT)", CAT_NETWORKS_IOT),
+    "amqp": ("بروتوكول طوابير الرسائل المتقدم للأنظمة الموزعة والوسطاء (AMQP)", CAT_NETWORKS_IOT),
+
+    # IoT Architectural Paradigms
+    "iot gateway": ("بوابة إنترنت الأشياء لربط بروتوكولات المستشعرات بالسحابة والإنترنت", CAT_NETWORKS_IOT),
+    "digital twin": ("التوأم الرقمي / النموذج البرمجي المحاكي للأصل الفيزيائي في الزمن الحقيقي", CAT_NETWORKS_IOT),
+    "cyber-physical systems": ("الأنظمة السيبرانية-الفيزيائية المدمجة بالتحكم الحسابي (CPS)", CAT_NETWORKS_IOT),
+    "cps": ("الأنظمة السيبرانية-الفيزيائية (Cyber-Physical Systems)", CAT_NETWORKS_IOT),
+    "scada": ("أنظمة المراقبة والتحكم واكتساب البيانات الصناعية (SCADA)", CAT_NETWORKS_IOT),
+    "iiot": ("إنترنت الأشياء الصناعي للمصانع والتحكم الذكي (Industrial IoT)", CAT_NETWORKS_IOT),
+    "industrial iot": ("إنترنت الأشياء الصناعي لأتمتة التصنيع والمراقبة الذكية", CAT_NETWORKS_IOT),
+    "smart grid": ("الشبكة الكهربائية الذكية المدارة بالاتصال الرقمي ومستشعرات التوزيع", CAT_NETWORKS_IOT),
+    "smart city": ("المدينة الذكية القائمة على مستشعرات البيانات الحضرية وإنترنت الأشياء", CAT_NETWORKS_IOT),
+    "telemetry": ("القياس عن بعد ونقل بيانات المستشعرات والأداء عبر الشبكة تلقائياً", CAT_NETWORKS_IOT),
+
+    # IoT Device Management
+    "ota update": ("التحديث البرمجي اللاسلكي عن بعد للأجهزة المدمجة (Over-The-Air)", CAT_NETWORKS_IOT),
+    "provisioning": ("تهيئة وتجهيز الجهاز وربطه بالشبكة واعتماد شهادته الأمنية", CAT_NETWORKS_IOT),
+    "mqtt broker": ("وسيط رسائل MQTT المشرف على توجيه الاشتراكات والنشر بين العملاء", CAT_NETWORKS_IOT),
+    "publish-subscribe": ("نمط معمارية النشر والاشتراك غير المتزامن لفصل المنتج عن المستهلك", CAT_NETWORKS_IOT),
+    "pub-sub": ("نمط النشر والاشتراك (Publish-Subscribe) في أنظمة الرسائل الموزعة", CAT_NETWORKS_IOT),
+
+    # WSN Classic Routing Protocols
+    "leach": ("بروتوكول التسلسل الهرمي التجميعي التكيفي منخفض الطاقة - الأهم تعليمياً في WSN (LEACH)", CAT_NETWORKS_IOT),
+    "pegasis": ("بروتوكول جمع البيانات في سلاسل شبكات المستشعرات القائم على السلسلة (PEGASIS)", CAT_NETWORKS_IOT),
+    "directed diffusion": ("بروتوكول الانتشار الموجه القائم على الاستعلام والاهتمامات في WSN", CAT_NETWORKS_IOT),
+    "spin": ("بروتوكولات التفاوض وتبادل البيانات الوصفية لتفادي التكرار في WSN (SPIN)", CAT_NETWORKS_IOT),
+    "geographic routing": ("التوجيه الجغرافي القائم على الإحداثيات المكانية للعقد في WSN", CAT_NETWORKS_IOT),
+    "cluster head": ("رأس العنقود المشرف على جمع وضغط وتمرير بيانات مجموعته في WSN", CAT_NETWORKS_IOT),
+    "cluster formation": ("عملية تشكيل العناقيد وانتخاب رؤوس العناقيد دورياً في WSN", CAT_NETWORKS_IOT),
+
+    # WSN MAC Layer
+    "s-mac": ("بروتوكول التحكم بالنفاذ الموفر للطاقة بجدولة النوم والاستيقاظ (S-MAC)", CAT_NETWORKS_IOT),
+    "t-mac": ("بروتوكول النفاذ بالمهلة المتكيفة مع حجم حركة المرور (T-MAC)", CAT_NETWORKS_IOT),
+    "idle listening": ("الاستماع الخامل كأبرز مسببات هدر الطاقة في شبكات المستشعرات", CAT_NETWORKS_IOT),
+
+    # WSN Localization & Coverage
+    "node localization": ("تحديد المواقع الجغرافية لعقد المستشعرات في الشبكة", CAT_NETWORKS_IOT),
+    "anchor node": ("عقدة المرساة معلومة الموقع المسبق لمساعدة العقد الأخرى في التحديد", CAT_NETWORKS_IOT),
+    "trilateration": ("التثليث المساحي لتحديد موقع العقدة بناءً على المسافات من ثلاث عقد مرساة", CAT_NETWORKS_IOT),
+    "range-based localization": ("تحديد المواقع المعتمد على قياس المسافة الفعلية (RSSI, ToA)", CAT_NETWORKS_IOT),
+    "network coverage": ("تغطية الشبكة لضمان مراقبة المنطقة المستهدفة بالكامل", CAT_NETWORKS_IOT),
+    "network lifetime": ("العمر التشغيلي لشبكة المستشعرات حتى نفاد طاقة العقد الحرجة", CAT_NETWORKS_IOT),
+    "energy hole problem": ("معضلة فجوة الطاقة واستنزاف العقد المجاورة للمصب بسبب كثافة النقل", CAT_NETWORKS_IOT),
+
+    # Related Ad-Hoc Networks
+    "manet": ("الشبكات اللاسلكية المخصصة المتنقلة بدون بنية تحتية ثابتة (MANET)", CAT_NETWORKS_IOT),
+    "vanet": ("شبكات المركبات اللاسلكية المخصصة للتنقل الذكي والسلامة المرورية (VANET)", CAT_NETWORKS_IOT),
+    "wban": ("شبكات المستشعرات اللاسلكية المحمولة على جسم الإنسان للرعاية الطبية (WBAN)", CAT_NETWORKS_IOT),
+
     # Switching & Core Layer 2 Services
     "switch": ("مبدل الشبكة / سويتش (جهاز توجيه الإطارات في الطبقة الثانية L2)", CAT_NETWORKS_IOT),
     "switches": ("مبدلات شبكية (Network Switches)", CAT_NETWORKS_IOT),
@@ -1040,6 +1298,150 @@ SPECIALIZED_TERMS = {
     "bilinear interpolation": ("الاستيفاء الثنائي الخطي", CAT_AI_IMAGE),
     "bicubic interpolation": ("الاستيفاء التكعيبي المزدوج", CAT_AI_IMAGE),
 
+    # Image Representation & Color Models
+    "pixel": ("البكسل / أصغر عنصر صوري في الصورة الرقمية (Picture Element)", CAT_AI_IMAGE),
+    "grayscale image": ("صورة التدرج الرمادي أحادية القناة بمستويات 0-255", CAT_AI_IMAGE),
+    "binary image": ("الصورة الثنائية بقيمتي أبيض وأسود فقط (0 و 1)", CAT_AI_IMAGE),
+    "rgb": ("نموذج الألوان الجمعي أحمر-أخضر-أزرق للشاشات (RGB)", CAT_AI_IMAGE),
+    "rgb color model": ("نموذج ألوان RGB المعتمد على مزج الأحمر والأخضر والأزرق", CAT_AI_IMAGE),
+    "hsv": ("نموذج ألوان صبغة-تشبع-قيمة الأقرب للإدراك البشري (HSV)", CAT_AI_IMAGE),
+    "color depth": ("عمق الألوان بعدد البتات لكل بكسل (مثلاً 8 بت = 256 لوناً)", CAT_AI_IMAGE),
+    "image resolution": ("دقة الصورة المكانية بعدد البكسلات أفقياً وعمودياً", CAT_AI_IMAGE),
+    "spatial resolution": ("الدقة المكانية وأدق تفصيل يمكن تمييزه في الصورة", CAT_AI_IMAGE),
+
+    # Filtering & Denoising
+    "median filter": ("مرشح الوسيط الإحصائي غير الخطي الفعال في إزالة ضوضاء الملح والفلفل", CAT_AI_IMAGE),
+    "gaussian filter": ("مرشح غاوس للتنعيم وإزالة التشويش بتوزيع طبيعي متماثل", CAT_AI_IMAGE),
+    "gaussian blur": ("ضبابية غاوسية لتنعيم الصورة وتقليل التفاصيل والضوضاء", CAT_AI_IMAGE),
+    "bilateral filter": ("المرشح ثنائي الجانب للتنعيم مع الحفاظ على الحواف الحادة", CAT_AI_IMAGE),
+    "wiener filter": ("مرشح وينر للاستعادة المثلى للصور المشوهة بالضوضاء", CAT_AI_IMAGE),
+    "salt-and-pepper noise": ("ضوضاء الملح والفلفل النقطية النبضية ببكسلات بيضاء وسوداء عشوائية", CAT_AI_IMAGE),
+    "gaussian noise": ("الضوضاء الغاوسية العشوائية الموزعة توزيعاً طبيعياً على الصورة", CAT_AI_IMAGE),
+    "unsharp masking": ("قناع زيادة الحدة لتحسين وضوح الحواف بطرح النسخة المنعمة", CAT_AI_IMAGE),
+    "gamma correction": ("تصحيح غاما لتعويض استجابة الشاشات غير الخطية للسطوع", CAT_AI_IMAGE),
+    "contrast stretching": ("تمديد التباين لملء النطاق الديناميكي الكامل للصورة", CAT_AI_IMAGE),
+
+    # Frequency Domain & Transforms
+    "discrete fourier transform": ("تحويل فورييه المتقطع لتحليل المركبات الترددية للبيانات الرقمية (DFT)", CAT_AI_IMAGE),
+    "dft": ("تحويل فورييه المتقطع (Discrete Fourier Transform)", CAT_AI_IMAGE),
+    "fast fourier transform": ("خوارزمية تحويل فورييه السريع بتعقيد O(N log N) (FFT)", CAT_AI_IMAGE),
+    "fft": ("تحويل فورييه السريع (Fast Fourier Transform)", CAT_AI_IMAGE),
+    "discrete cosine transform": ("تحويل جيب التمام المتقطع المعتمد في ضغط JPEG (DCT)", CAT_AI_IMAGE),
+    "dct": ("تحويل جيب التمام المتقطع (Discrete Cosine Transform)", CAT_AI_IMAGE),
+    "wavelet transform": ("تحويل المويجات لتحليل الإشارة في المجالين الزمني والترددي معاً", CAT_AI_IMAGE),
+
+    # Morphological Operations
+    "opening": ("الفتح المورفولوجي (حت يليه تمدد) لإزالة الشوائب الصغيرة من الصورة", CAT_AI_IMAGE),
+    "closing": ("الإغلاق المورفولوجي (تمدد يليه حت) لسد الفجوات والثقوب الصغيرة", CAT_AI_IMAGE),
+    "structuring element": ("العنصر الهيكلي المشكل في العمليات المورفولوجية (قرص، مربع، صليب)", CAT_AI_IMAGE),
+
+    # Feature Detection & Extraction
+    "hough transform": ("تحويل هاف لاكتشاف الخطوط والدوائر والأشكال الهندسية في الصور", CAT_AI_IMAGE),
+    "harris corner detector": ("كاشف هاريس لزوايا الأجسام بالاعتماد على مصفوفة التغير الهيكلية", CAT_AI_IMAGE),
+    "sift": ("تحويل الميزات الثابتة أمام تغير المقياس والدوران (SIFT)", CAT_AI_IMAGE),
+    "otsu's method": ("طريقة أوتسو الإحصائية لحساب العتبة المثلى تلقائياً بتقليل التباين داخل الفئات", CAT_AI_IMAGE),
+    "adaptive thresholding": ("العتبة التكيفية المتغيرة محلياً للتعامل مع اختلاف الإضاءة", CAT_AI_IMAGE),
+    "watershed algorithm": ("خوارزمية خط تقسيم المياه لتجزئة الأجسام المتلامسة في الصورة", CAT_AI_IMAGE),
+    "connected component labeling": ("تسمية وترقيم المكونات المتصلة لعد وفرز الأجسام", CAT_AI_IMAGE),
+
+    # Image Quality Metrics
+    "psnr": ("نسبة ذروة الإشارة إلى الضوضاء لتقييم جودة ضغط الصورة (PSNR)", CAT_AI_IMAGE),
+    "peak signal-to-noise ratio": ("نسبة ذروة الإشارة إلى الضوضاء بالديسبل (PSNR)", CAT_AI_IMAGE),
+    "ssim": ("مؤشر التشابه البنيوي الإدراكي لمقارنة الصور (SSIM)", CAT_AI_IMAGE),
+
+    # Supervised Learning Algorithms
+    "linear regression": ("الانحدار الخطي لنمذجة العلاقة بين المتغيرات بخط أمثل (Linear Regression)", CAT_AI_IMAGE),
+    "logistic regression": ("الانحدار اللوجستي لتصنيف الاحتمالات الثنائية بالدالة السيجمويدية", CAT_AI_IMAGE),
+    "decision tree": ("شجرة القرار لتصنيف وانحدار البيانات بقواعد تفرعية تسلسلية", CAT_AI_IMAGE),
+    "support vector machine": ("آلة المتجهات الداعمة لإيجاد المستوي الفائق الفاصل الأمثل (SVM)", CAT_AI_IMAGE),
+    "svm": ("آلة المتجهات الداعمة (Support Vector Machine)", CAT_AI_IMAGE),
+    "hyperplane": ("المستوي الفائق الفاصل بين الفئات في فضاء الميزات", CAT_AI_IMAGE),
+    "support vectors": ("المتجهات الداعمة الأقرب للمستوي الفاصل والمحددة لهامش الفصل", CAT_AI_IMAGE),
+    "kernel trick": ("حيلة النواة لنقل البيانات لفضاء أعلى أبعاداً لفصلها خطياً", CAT_AI_IMAGE),
+    "k-nearest neighbors": ("خوارزمية الجيران الأقرب غير المعلمية للتصنيف والانحدار (k-NN)", CAT_AI_IMAGE),
+    "knn": ("خوارزمية الجيران الأقرب (k-Nearest Neighbors)", CAT_AI_IMAGE),
+    "naive bayes": ("مصنف بايز البسيط المبني على استقلالية الاحتمالات الشرطية", CAT_AI_IMAGE),
+    "entropy": ("الإنتروبيا / الاعتلاج كمقياس لعدم انتظام البيانات واللايقين", CAT_AI_IMAGE),
+    "information gain": ("مكسب المعلومات لاختيار أفضل ميزة انقسام في أشجار القرار", CAT_AI_IMAGE),
+    "gini impurity": ("مقياس شوائب جيني لتقييم نقاء العقد في الأشجار", CAT_AI_IMAGE),
+
+    # Ensemble Methods
+    "ensemble learning": ("التعلم الجماعي بدمج نماذج متعددة لرفع الدقة وتقليل التباين", CAT_AI_IMAGE),
+    "bagging": ("تجميع التمهيد لتدريب نماذج متوازية على عينات عشوائية (Bootstrap Aggregating)", CAT_AI_IMAGE),
+    "random forest": ("الغابات العشوائية المعتمدة على أشجار قرار متعددة عشوائية الميزات", CAT_AI_IMAGE),
+    "boosting": ("التعزيز التتابعي لتقوية النماذج الضعيفة بالتركيز على الأخطاء", CAT_AI_IMAGE),
+    "adaboost": ("التعزيز التكيفي بإعادة ترجيح العينات المخطئة (Adaptive Boosting)", CAT_AI_IMAGE),
+    "gradient boosting": ("تعزيز الانحدار التدريجي ببناء أشجار متتالية لتصحيح بقايا الخطأ", CAT_AI_IMAGE),
+    "xgboost": ("مكتبة تعزيز الأشجار التدرجية فائقة الكفاءة والانتشار (XGBoost)", CAT_AI_IMAGE),
+
+    # Unsupervised Learning & Dimensionality Reduction
+    "k-means": ("التجميع العنقودي بطريقة ك-متوسطات لتقسيم البيانات لعناقيد (k-Means)", CAT_AI_IMAGE),
+    "k-means clustering": ("تجميع ك-متوسطات بتكرار تعيين النقاط لأقرب مركز ثم تحديث المراكز", CAT_AI_IMAGE),
+    "hierarchical clustering": ("التجميع الهرمي التصاعدي أو التنازلي لبناء شجرة المسافات", CAT_AI_IMAGE),
+    "dbscan": ("التجميع القائم على الكثافة المكانية للبيانات ذات الضوضاء (DBSCAN)", CAT_AI_IMAGE),
+    "principal component analysis": ("تحليل المكونات الرئيسية لتقليص الأبعاد مع الحفاظ على أكبر تباين (PCA)", CAT_AI_IMAGE),
+    "pca": ("تحليل المكونات الرئيسية (Principal Component Analysis)", CAT_AI_IMAGE),
+    "t-sne": ("تقنية تضمين الجوار العشوائي t الموزع لخفض الأبعاد والتصور (t-SNE)", CAT_AI_IMAGE),
+
+    # Data Preprocessing & Validation
+    "cross-validation": ("التحقق المتقاطع لتقييم أداء النموذج بتقسيم البيانات دورياً", CAT_AI_IMAGE),
+    "k-fold cross-validation": ("التحقق المتقاطع المقسم إلى k طيّة لتقليل تحيز التقييم", CAT_AI_IMAGE),
+    "bias-variance tradeoff": ("معضلة المفاضلة بين الانحياز والتباين في دقة النموذج", CAT_AI_IMAGE),
+    "feature engineering": ("هندسة الميزات واستخلاص خصائص المدخلات لتحسين أداء النموذج", CAT_AI_IMAGE),
+    "feature scaling": ("تحجيم الميزات لتوحيد النطاقات العددية بين المتغيرات", CAT_AI_IMAGE),
+    "normalization": ("التطبيع لتحويل القيم إلى نطاق موحد مثل [0, 1]", CAT_AI_IMAGE),
+    "standardization": ("التقييس المعياري بتحويل البيانات لمتوسط 0 وانحراف معياري 1 (Z-score)", CAT_AI_IMAGE),
+    "one-hot encoding": ("الترميز الأحادي للمتغيرات الفئوية بمتجهات ثنائية", CAT_AI_IMAGE),
+    "data augmentation": ("تعزيز وتكثير البيانات بتعديلات عشوائية كالتدوير والقص والانعكاس", CAT_AI_IMAGE),
+    "curse of dimensionality": ("لعنة الأبعاد وتشتت البيانات مع زيادة عدد المتغيرات", CAT_AI_IMAGE),
+
+    # DL Architectures
+    "perceptron": ("البيرسبترون / الخلية العصبية الاصطناعية المفردة أساس الشبكات العصبية", CAT_AI_IMAGE),
+    "multilayer perceptron": ("المستقبل متعدد الطبقات / شبكة التغذية الأمامية الكثيفة (MLP)", CAT_AI_IMAGE),
+    "mlp": ("المستقبل متعدد الطبقات (Multilayer Perceptron)", CAT_AI_IMAGE),
+    "gated recurrent unit": ("الوحدة المتكررة المبوبة الأخف وزناً من LSTM (GRU)", CAT_AI_IMAGE),
+    "gru": ("الوحدة المتكررة المبوبة (Gated Recurrent Unit)", CAT_AI_IMAGE),
+    "resnet": ("الشبكة المتبقية ذات الاتصالات العابرة لتسهيل تدريب الشبكات العميقة (ResNet)", CAT_AI_IMAGE),
+    "residual network": ("شبكة متبقية ذات وصلات اختصار عابرة للطبقات", CAT_AI_IMAGE),
+    "skip connection": ("اتصال التخطي المباشر لتسهيل تدفق التدرجات عبر الطبقات العميقة", CAT_AI_IMAGE),
+    "autoencoder": ("المرمز التلقائي لتعلم تمثيل مضغوط للبيانات بدون إشراف", CAT_AI_IMAGE),
+    "variational autoencoder": ("المرمز التلقائي التغايري لتوليد بيانات جديدة من الفضاء الكامن (VAE)", CAT_AI_IMAGE),
+    "generative adversarial network": ("الشبكات التوليدية التنافسية المكونة من مولد ومميز (GAN)", CAT_AI_IMAGE),
+    "gan": ("الشبكات التوليدية التنافسية (Generative Adversarial Network)", CAT_AI_IMAGE),
+    "diffusion model": ("نماذج الانتشار التوليدية بإضافة وإزالة الضوضاء تدريجياً للصور", CAT_AI_IMAGE),
+    "vision transformer": ("محول الانتباه للرؤية الحاسوبية بتقسيم الصورة لرقع (ViT)", CAT_AI_IMAGE),
+    "large language model": ("النماذج اللغوية الكبيرة المبنية على الترانسفورمر كـ GPT (LLM)", CAT_AI_IMAGE),
+    "llm": ("النماذج اللغوية الكبيرة (Large Language Model)", CAT_AI_IMAGE),
+    "transfer learning": ("نقل التعلم من نموذج مدرب مسبقاً لمهمة جديدة بتدريب أقل", CAT_AI_IMAGE),
+    "fine-tuning": ("الضبط الدقيق لأوزان نموذج مدرب مسبقاً على بيانات المهمة المستهدفة", CAT_AI_IMAGE),
+
+    # CNN Internal Operations
+    "pooling layer": ("طبقة التجميع والاختزال المكاني لتقليل أبعاد خرائط المعالم", CAT_AI_IMAGE),
+    "max pooling": ("تجميع الأعلى باختيار أكبر قيمة في كل نافذة لاختزال الأبعاد", CAT_AI_IMAGE),
+    "average pooling": ("تجميع المتوسط بحساب متوسط القيم في كل نافذة اختزال", CAT_AI_IMAGE),
+    "fully connected layer": ("الطبقة كاملة الاتصال الكثيفة لربط كل خلية بكل خلايا الطبقة التالية", CAT_AI_IMAGE),
+    "dense layer": ("طبقة كثيفة كاملة الاتصال في الشبكات العصبية (Dense Layer)", CAT_AI_IMAGE),
+    "stride": ("مقدار خطوة تحرك نواة الالتفاف على الصورة المدخلة", CAT_AI_IMAGE),
+    "padding": ("الحشو الصفري لحواف الصورة للحفاظ على أبعاد المخرجات بعد الالتفاف", CAT_AI_IMAGE),
+    "feature map": ("خريطة المعالم الناتجة عن عملية الالتفاف بمرشح واحد", CAT_AI_IMAGE),
+    "receptive field": ("المجال الاستقبالي لمنطقة المدخلات المؤثرة على خلية المخرجات", CAT_AI_IMAGE),
+
+    # DL Optimization & Normalization
+    "vanishing gradient problem": ("مشكلة تلاشي واضمحلال التدرج في الطبقات العميقة", CAT_AI_IMAGE),
+    "exploding gradient problem": ("مشكلة انفجار التدرج وتشتت الأوزان في التدريب العميق", CAT_AI_IMAGE),
+    "gradient clipping": ("تقليم وقص التدرجات لمنع انفجارها أثناء التدريب", CAT_AI_IMAGE),
+    "adam optimizer": ("محسن تقدير العزم التكيفي - المحسن القياسي في التعلم العميق (Adam)", CAT_AI_IMAGE),
+    "adam": ("محسن Adam المدمج بين الزخم ومعدل التعلم التكيفي", CAT_AI_IMAGE),
+    "batch normalization": ("تطبيع الدفعات لتسريع واستقرار التدريب بتوحيد توزيع المدخلات", CAT_AI_IMAGE),
+    "layer normalization": ("تطبيع الطبقات المستخدم في المحولات والنماذج المتسلسلة (LayerNorm)", CAT_AI_IMAGE),
+    "early stopping": ("الإيقاف المبكر للتدريب عند توقف تحسن دقة التحقق لتفادي فرط المطابقة", CAT_AI_IMAGE),
+    "weight initialization": ("تهيئة الأوزان الإحصائية المنضبطة لمنع تشبع أو تلاشي الخلايا (He, Xavier)", CAT_AI_IMAGE),
+
+    # DL Activation Functions
+    "sigmoid": ("دالة التنشيط السيجمويدية اللوجستية المحصورة بين 0 و 1", CAT_AI_IMAGE),
+    "tanh": ("دالة الظل الزائدي المتناظرة حول الصفر كتنشيط عصبي [-1, 1]", CAT_AI_IMAGE),
+    "leaky relu": ("دالة ريلو المسربة بمعامل صغير للقيم السالبة لمنع موت الخلايا", CAT_AI_IMAGE),
+
     # --------------------------------------------------------------------------
     # 4. Cybersecurity, Cryptography & Hardware Security (CAT_CYBERSECURITY)
     # --------------------------------------------------------------------------
@@ -1139,6 +1541,69 @@ SPECIALIZED_TERMS = {
     "nca": ("الهيئة الوطنية للأمن السيبراني في المملكة العربية السعودية", CAT_CYBERSECURITY),
     "essential cybersecurity controls": ("الضوابط الأساسية للأمن السيبراني (ECC - NCA)", CAT_CYBERSECURITY),
 
+    # Web & Application Security
+    "sql injection": ("حقن أوامر SQL الخبيثة في قواعد البيانات عبر مدخلات التطبيق", CAT_CYBERSECURITY),
+    "sqli": ("هجوم حقن SQL (SQL Injection)", CAT_CYBERSECURITY),
+    "cross-site scripting": ("البرمجة النصية عبر المواقع لحقن سكريبتات خبيثة في صفحات الويب (XSS)", CAT_CYBERSECURITY),
+    "xss": ("هجوم البرمجة النصية عبر المواقع (Cross-Site Scripting)", CAT_CYBERSECURITY),
+    "cross-site request forgery": ("تزوير الطلبات عبر المواقع لتنفيذ إجراءات نيابة عن الضحية (CSRF)", CAT_CYBERSECURITY),
+    "csrf": ("تزوير الطلبات عبر المواقع (Cross-Site Request Forgery)", CAT_CYBERSECURITY),
+    "owasp": ("مشروع أمان تطبيقات الويب المفتوح وقائمة أبرز عشر مخاطر (OWASP)", CAT_CYBERSECURITY),
+    "owasp top 10": ("قائمة أوسب لأبرز عشرة مخاطر أمنية لتطبيقات الويب", CAT_CYBERSECURITY),
+    "command injection": ("حقن أوامر نظام التشغيل عبر مدخلات التطبيق الضعيفة", CAT_CYBERSECURITY),
+    "directory traversal": ("هجوم اجتياز الأدلة للوصول غير المصرح لملفات النظام الحساسة", CAT_CYBERSECURITY),
+
+    # Authentication, Authorization & Access Control
+    "authentication": ("المصادقة والتحقق من هوية المستخدم أو الجهاز", CAT_CYBERSECURITY),
+    "authorization": ("التخويل وتحديد صلاحيات الوصول للموارد بعد المصادقة", CAT_CYBERSECURITY),
+    "multi-factor authentication": ("المصادقة متعددة العوامل بدمج شيء تعرفه وتملكه وأنت عليه (MFA)", CAT_CYBERSECURITY),
+    "mfa": ("المصادقة متعددة العوامل (Multi-Factor Authentication)", CAT_CYBERSECURITY),
+    "two-factor authentication": ("المصادقة الثنائية بعاملين مختلفين (2FA)", CAT_CYBERSECURITY),
+    "single sign-on": ("تسجيل الدخول الأحادي عبر عدة خدمات بمصادقة واحدة (SSO)", CAT_CYBERSECURITY),
+    "sso": ("تسجيل الدخول الأحادي (Single Sign-On)", CAT_CYBERSECURITY),
+    "role-based access control": ("التحكم بالوصول القائم على الأدوار الوظيفية (RBAC)", CAT_CYBERSECURITY),
+    "rbac": ("التحكم بالوصول القائم على الأدوار (Role-Based Access Control)", CAT_CYBERSECURITY),
+    "oauth": ("بروتوكول التفويض المفتوح لمنح صلاحيات محدودة دون كشف كلمة المرور", CAT_CYBERSECURITY),
+
+    # Exploit Mitigations & Defense Tools
+    "aslr": ("التبعثر العشوائي لتوزيع فضاء العنونة في الذاكرة لمنع الاستغلال (ASLR)", CAT_CYBERSECURITY),
+    "address space layout randomization": ("عشوائية توزيع المكدس والكومة والمكتبات في الذاكرة لصد هجمات الاستغلال", CAT_CYBERSECURITY),
+    "dep": ("منع تنفيذ البيانات لحظر تشغيل الشيفرات الخبيثة في مناطق البيانات (DEP)", CAT_CYBERSECURITY),
+    "data execution prevention": ("تقنية منع تنفيذ الشيفرة في صفحات البيانات (DEP / NX bit)", CAT_CYBERSECURITY),
+    "stack canary": ("طائر الكناري في المكدس لاكتشاف تجاوز المخزن المؤقت قبل العودة من الدالة", CAT_CYBERSECURITY),
+    "sandboxing": ("العزل الرملي لتشغيل البرامج في بيئة محصورة آمنة", CAT_CYBERSECURITY),
+    "honeypot": ("مصيدة الاختراق / فخ جذب المهاجمين لدراسة سلوكهم وأساليبهم", CAT_CYBERSECURITY),
+    "web application firewall": ("جدار حماية تطبيقات الويب المتخصص بفلترة HTTP الخبيثة (WAF)", CAT_CYBERSECURITY),
+    "waf": ("جدار حماية تطبيقات الويب (Web Application Firewall)", CAT_CYBERSECURITY),
+    "edr": ("كشف واستجابة تهديدات الأجهزة الطرفية (Endpoint Detection and Response)", CAT_CYBERSECURITY),
+    "endpoint detection and response": ("نظام كشف واستجابة تهديدات النقاط الطرفية", CAT_CYBERSECURITY),
+
+    # Symmetric & Asymmetric Ciphers
+    "block cipher": ("شيفرة الكتلة لتشفير البيانات بكتل ثابتة الحجم (مثل AES)", CAT_CYBERSECURITY),
+    "stream cipher": ("شيفرة التدفق لتشفير البيانات بتاً ببت أو بايتاً ببايت", CAT_CYBERSECURITY),
+    "advanced encryption standard": ("معيار التشفير المتقدم بكتل 128 بت ومفاتيح 128/192/256 بت (AES)", CAT_CYBERSECURITY),
+    "des": ("معيار تشفير البيانات القديم بمفتاح 56 بت (DES)", CAT_CYBERSECURITY),
+    "diffie-hellman": ("بروتوكول تبادل المفاتيح ديفي-هلمان لإنشاء مفتاح سري مشترك عبر قناة عامة", CAT_CYBERSECURITY),
+    "key exchange": ("تبادل المفاتيح بين الطرفين لإنشاء مفتاح مشترك آمن عبر قناة غير آمنة", CAT_CYBERSECURITY),
+
+    # Block Cipher Modes of Operation
+    "cipher mode": ("نمط تشغيل شيفرة الكتلة لمعالجة بيانات أطول من كتلة واحدة", CAT_CYBERSECURITY),
+    "cbc": ("نمط سلسلة كتل الشيفرة بربط كل كتلة بالسابقة (Cipher Block Chaining)", CAT_CYBERSECURITY),
+    "ctr": ("نمط العداد لتحويل شيفرة الكتلة لتيار بعداد متزايد (Counter Mode)", CAT_CYBERSECURITY),
+    "gcm": ("نمط عداد غالوا للتشفير المعتمد والمصادق عليه (Galois/Counter Mode)", CAT_CYBERSECURITY),
+
+    # Certificates & PKI
+    "digital certificate": ("الشهادة الرقمية لربط المفتاح العام بهوية مالكه الموثقة", CAT_CYBERSECURITY),
+    "certificate authority": ("سلطة إصدار الشهادات الرقمية الموثوقة (CA)", CAT_CYBERSECURITY),
+    "pki": ("البنية التحتية للمفاتيح العامة لإدارة الشهادات والتشفير (PKI)", CAT_CYBERSECURITY),
+    "public key infrastructure": ("البنية التحتية للمفاتيح العامة لإصدار وإدارة الشهادات الرقمية", CAT_CYBERSECURITY),
+    "key pair": ("زوج المفاتيح العام والخاص المرتبطين رياضياً في التشفير غير المتماثل", CAT_CYBERSECURITY),
+
+    # Hashing & Key Derivation
+    "md5": ("خوارزمية ملخص الرسالة 5 بمخرجات 128 بت - غير آمنة حالياً للتشفير (MD5)", CAT_CYBERSECURITY),
+    "salt": ("الملح العشوائي المضاف لكلمات المرور قبل التجزئة لمنع هجمات جداول قوس قزح", CAT_CYBERSECURITY),
+    "key derivation function": ("دالة اشتقاق المفاتيح لتوليد مفاتيح تشفير قوية من كلمات مرور (KDF)", CAT_CYBERSECURITY),
+
     # --------------------------------------------------------------------------
     # 5. Faculty, Teaching, Higher Education & Accreditation (CAT_ACADEMIC_ABET_NCAAA)
     # --------------------------------------------------------------------------
@@ -1210,6 +1675,14 @@ SPECIALIZED_TERMS = {
     "peer review": ("التحكيم العلمي للأبحاث والمقررات من الأقران", CAT_ACADEMIC_ABET_NCAAA),
     "formative assessment": ("التقييم البنائي / التكويني المستمر للطلاب", CAT_ACADEMIC_ABET_NCAAA),
     "summative assessment": ("التقييم النهائي الشامل لتحصيل الطلاب", CAT_ACADEMIC_ABET_NCAAA),
+    "bloom's taxonomy": ("تصنيف بلوم للأهداف التعليمية بمستوياته الستة المعرفية", CAT_ACADEMIC_ABET_NCAAA),
+    "performance indicator": ("مؤشر الأداء القابل للقياس لتقييم تحقق مخرجات التعلم", CAT_ACADEMIC_ABET_NCAAA),
+    "site visit": ("زيارة الموقع الميدانية من فريق مراجعي هيئة الاعتماد", CAT_ACADEMIC_ABET_NCAAA),
+    "accreditation cycle": ("دورة الاعتماد الأكاديمي ومدتها الزمنية المحددة", CAT_ACADEMIC_ABET_NCAAA),
+    "curriculum mapping": ("خريطة المنهج الدراسي لربط المقررات بمخرجات التعلم المستهدفة", CAT_ACADEMIC_ABET_NCAAA),
+    "course specification": ("توصيف المقرر الدراسي بأهدافه ومحتواه وطرق تقييمه", CAT_ACADEMIC_ABET_NCAAA),
+    "program specification": ("توصيف البرنامج الأكاديمي الشامل بمخرجاته وخطته الدراسية", CAT_ACADEMIC_ABET_NCAAA),
+    "stakeholder": ("أصحاب المصلحة المعنيون بالبرنامج الأكاديمي (طلاب، أساتذة، صناعة، خريجون)", CAT_ACADEMIC_ABET_NCAAA),
 
     # --------------------------------------------------------------------------
     # 6. Quality Assurance & Software Testing (CAT_QA_TESTING)
@@ -1248,8 +1721,15 @@ SPECIALIZED_TERMS = {
     "internal audit": ("التدقيق الداخلي على الجودة والعمليات", CAT_QA_TESTING),
     "external audit": ("التدقيق الخارجي المحايد للاعتماد", CAT_QA_TESTING),
     "non-conformance": ("عدم المطابقة للمواصفات والمعايير (حالة حيود)", CAT_QA_TESTING),
-    "corrective action": ("الإجراء التصحيحي لمعالجة الخلل الجذري (CAPA)", CAT_QA_TESTING),
-    "preventive action": ("الإجراء الوقائي لمنع تكرار حدوث الخلل", CAT_QA_TESTING),
+    "corrective action": ("الإجراء التصحيحي لمعالجة عدم المطابقة ومنع تكراره", CAT_QA_TESTING),
+    "preventive action": ("الإجراء الوقائي لمنع حدوث عدم المطابقة المحتملة مسبقاً", CAT_QA_TESTING),
+    "pdca cycle": ("دورة التخطيط والتنفيذ والتحقق والتصحيح لديمينغ في التحسين المستمر (PDCA)", CAT_QA_TESTING),
+    "plan-do-check-act": ("دورة التحسين المستمر: خطط، نفذ، تحقق، صحح (PDCA)", CAT_QA_TESTING),
+    "six sigma": ("منهجية ستة سيغما لتقليل العيوب والتباين في العمليات", CAT_QA_TESTING),
+    "iso 9001": ("المعيار الدولي لنظام إدارة الجودة من منظمة الأيزو (ISO 9001)", CAT_QA_TESTING),
+    "total quality management": ("إدارة الجودة الشاملة كفلسفة مؤسسية متكاملة (TQM)", CAT_QA_TESTING),
+    "tqm": ("إدارة الجودة الشاملة (Total Quality Management)", CAT_QA_TESTING),
+    "capa": ("الإجراءات التصحيحية والوقائية (Corrective and Preventive Actions)", CAT_QA_TESTING),
 
     # --------------------------------------------------------------------------
     # 7. Algorithms, Optimization, Operations Research & Linear Programming (CAT_ALGORITHMS_OPTIMIZATION)
