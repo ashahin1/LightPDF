@@ -147,6 +147,39 @@ int main() {
         { L"elliptic curve cryptography", L"Cybersecurity", L"الاهليلجي" },
         { L"buffer overflow", L"Cybersecurity", L"المخزن" },
         { L"hash collision", L"Cybersecurity", L"تصادم" },
+        { L"sql injection", L"Cybersecurity", L"حقن" },
+        { L"cross-site scripting", L"Cybersecurity", L"البرمجة" },
+        { L"aes", L"Cybersecurity", L"معيار" },
+        { L"digital signature", L"Cybersecurity", L"التوقيع" },
+
+        // New Hardware & Organization
+        { L"von neumann architecture", L"Architecture", L"فون" },
+        { L"sram", L"Architecture", L"الساكنة" },
+        { L"system bus", L"Architecture", L"ناقل" },
+        { L"write-through", L"Architecture", L"الكتابة" },
+        { L"assembler", L"Architecture", L"المُجمّع" },
+
+        // New Networks, IoT, WSN
+        { L"osi model", L"Networks", L"الأنظمة" },
+        { L"tcp", L"Networks", L"التحكم" },
+        { L"ipv6", L"Networks", L"الإصدار" },
+        { L"6lowpan", L"IoT", L"طاقة" },
+        { L"mqtt broker", L"IoT", L"وسيط" },
+        { L"leach", L"WSN", L"هرمي" },
+
+        // New ML, DL, Image Processing
+        { L"support vector machine", L"AI & Vision", L"الداعمة" },
+        { L"random forest", L"AI & Vision", L"عشوائية" },
+        { L"k-means", L"AI & Vision", L"متوسطات" },
+        { L"vision transformer", L"AI & Vision", L"محول" },
+        { L"adam optimizer", L"AI & Vision", L"مقدر" },
+        { L"hough transform", L"AI & Vision", L"هاف" },
+
+        // New Accreditation & QA
+        { L"bloom's taxonomy", L"Accreditation", L"بلوم" },
+        { L"kpi", L"Accreditation", L"مؤشر" },
+        { L"pdca cycle", L"QA", L"دورة" },
+        { L"six sigma", L"QA", L"سيغما" },
 
         // Academic Accreditation (ABET & NCAAA)
         { L"ABET", L"Accreditation", L"الهندسة" },
