@@ -124,7 +124,25 @@ int main() {
         // QA & Testing
         { L"quality assurance", L"QA", L"الجودة" },
         { L"regression testing", L"QA", L"الانحدار" },
-        { L"unit test", L"QA", L"الوحدة" }
+        { L"unit test", L"QA", L"الوحدة" },
+
+        // Microprocessors, Microcontrollers & Pipelining
+        { L"microprocessor", L"Embedded & Arch", L"دقيق" },
+        { L"microcontroller", L"Embedded & Arch", L"دقيق" },
+        { L"pipelining", L"Embedded & Arch", L"المعالجة" },
+        { L"data forwarding", L"Embedded & Arch", L"توجيه" },
+        { L"gpio", L"Embedded & Arch", L"الإدخال" },
+        { L"firmware", L"Embedded & Arch", L"البرمجيات" },
+
+        // Algorithms, Operations Research, Optimization & Linear Programming
+        { L"algorithms", L"Algorithms & OR", L"خوارزميات" },
+        { L"optimization", L"Algorithms & OR", L"الاستمثال" },
+        { L"operations research", L"Algorithms & OR", L"العمليات" },
+        { L"linear programming", L"Algorithms & OR", L"الخطية" },
+        { L"simplex method", L"Algorithms & OR", L"السمبلكس" },
+        { L"branch and bound", L"Algorithms & OR", L"التفرع" },
+        { L"convex optimization", L"Algorithms & OR", L"المحدب" },
+        { L"objective function", L"Algorithms & OR", L"الهدف" }
     };
 
     std::wcout << L"[TEST 3] Specialized Academic & Technical Domain Lookups:\n";
