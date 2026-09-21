@@ -490,9 +490,23 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
         L"en-us",
         &m_textFormatDictHint
     );
-    if (FAILED(hr)) return false;
     m_textFormatDictHint->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     m_textFormatDictHint->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Presenter Bar Text Format: Segoe UI, 12.0pt, Semi-Bold, Center
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.0f,
+        L"en-us",
+        &m_textFormatPresenter
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatPresenter->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatPresenter->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
     return true;
 }
@@ -600,6 +614,15 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.75f, 1.0f, 1.0f), &m_brushDictTagText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.94f, 0.94f, 0.96f, 1.0f), &m_brushDictDefText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.60f, 0.62f, 0.66f, 0.85f), &m_brushDictHintText);
+
+    // Laser Pointer Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.12f, 0.12f, 0.30f), &m_brushLaserOuter);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.20f, 0.20f, 0.85f), &m_brushLaserMiddle);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.95f, 0.95f, 0.98f), &m_brushLaserCore);
+
+    // Presenter Bar Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), &m_brushPresenterBtnHover);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f), &m_brushPresenterBtnActive);
 
     return true;
 }
@@ -727,6 +750,11 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushDictTagText = nullptr;
     m_brushDictDefText = nullptr;
     m_brushDictHintText = nullptr;
+    m_brushLaserOuter = nullptr;
+    m_brushLaserMiddle = nullptr;
+    m_brushLaserCore = nullptr;
+    m_brushPresenterBtnHover = nullptr;
+    m_brushPresenterBtnActive = nullptr;
     m_pageCache = PageBitmapCache();
     m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
@@ -751,7 +779,9 @@ void D2DRenderer::RenderBlank(
     const std::wstring& goToPageBuffer,
     const SearchBarRenderInfo& searchBar,
     const DocumentPropertiesRenderInfo& docProps,
-    const DictionaryCardRenderInfo& dictCard
+    const DictionaryCardRenderInfo& dictCard,
+    const LaserPointerRenderInfo& laser,
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -776,7 +806,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -812,7 +842,9 @@ void D2DRenderer::RenderPage(
     const std::vector<SearchHighlight>& highlights,
     const DocumentPropertiesRenderInfo& docProps,
     const std::vector<SelectionHighlightSpan>& selectionSpans,
-    const DictionaryCardRenderInfo& dictCard
+    const DictionaryCardRenderInfo& dictCard,
+    const LaserPointerRenderInfo& laser,
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -841,7 +873,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1050,7 +1082,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1084,7 +1116,9 @@ void D2DRenderer::RenderContinuous(
     const std::vector<SearchHighlight>& highlights,
     const DocumentPropertiesRenderInfo& docProps,
     const std::vector<SelectionHighlightSpan>& selectionSpans,
-    const DictionaryCardRenderInfo& dictCard
+    const DictionaryCardRenderInfo& dictCard,
+    const LaserPointerRenderInfo& laser,
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1316,7 +1350,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1343,7 +1377,9 @@ void D2DRenderer::DrawOverlays(
     const SearchBarRenderInfo& searchBar,
     const HelpOverlayRenderInfo& help,
     const DocumentPropertiesRenderInfo& docProps,
-    const DictionaryCardRenderInfo* pDictCard
+    const DictionaryCardRenderInfo* pDictCard,
+    const LaserPointerRenderInfo* pLaser,
+    const PresenterBarRenderInfo* pPresenterBar
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1378,6 +1414,16 @@ void D2DRenderer::DrawOverlays(
     // 7. Draw Dictionary Card if visible
     if (pDictCard && pDictCard->visible) {
         DrawDictionaryCard(*pDictCard);
+    }
+
+    // 8. Draw Fullscreen Presenter Bar if visible
+    if (pPresenterBar && pPresenterBar->visible) {
+        DrawPresenterBar(*pPresenterBar);
+    }
+
+    // 9. Draw Laser Pointer if active (topmost element)
+    if (pLaser && pLaser->active) {
+        DrawLaserPointer(*pLaser);
     }
 }
 
@@ -1960,6 +2006,8 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
+        { L"L",                     L"Toggle Presentation Laser Pointer" },
+        { L"C",                     L"Cycle Laser Color (Red/Green/Cyan/Gold)" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
         { L"D / Double-Click",      L"Offline English-Arabic Dictionary" },
         { L"Ctrl + P",              L"Print document (All / Current / Range)" },
@@ -2605,4 +2653,134 @@ void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
         hintRect,
         m_brushDictHintText.Get()
     );
+}
+
+void D2DRenderer::DrawLaserPointer(const LaserPointerRenderInfo& laser) {
+    if (!laser.active || !m_d2dContext || !m_brushLaserOuter) return;
+
+    D2D1_COLOR_F outerColor, middleColor, coreColor;
+    switch (laser.color) {
+    case LaserColor::Red:
+        outerColor = D2D1::ColorF(1.0f, 0.12f, 0.12f, 0.32f);
+        middleColor = D2D1::ColorF(1.0f, 0.20f, 0.20f, 0.85f);
+        coreColor = D2D1::ColorF(1.0f, 0.95f, 0.95f, 0.98f);
+        break;
+    case LaserColor::Green:
+        outerColor = D2D1::ColorF(0.0f, 1.0f, 0.35f, 0.32f);
+        middleColor = D2D1::ColorF(0.1f, 1.0f, 0.40f, 0.85f);
+        coreColor = D2D1::ColorF(0.92f, 1.0f, 0.92f, 0.98f);
+        break;
+    case LaserColor::Cyan:
+        outerColor = D2D1::ColorF(0.0f, 0.85f, 1.0f, 0.32f);
+        middleColor = D2D1::ColorF(0.2f, 0.90f, 1.0f, 0.85f);
+        coreColor = D2D1::ColorF(0.92f, 0.98f, 1.0f, 0.98f);
+        break;
+    case LaserColor::Gold:
+        outerColor = D2D1::ColorF(1.0f, 0.72f, 0.0f, 0.32f);
+        middleColor = D2D1::ColorF(1.0f, 0.82f, 0.1f, 0.85f);
+        coreColor = D2D1::ColorF(1.0f, 1.0f, 0.92f, 0.98f);
+        break;
+    }
+
+    m_brushLaserOuter->SetColor(outerColor);
+    m_brushLaserMiddle->SetColor(middleColor);
+    m_brushLaserCore->SetColor(coreColor);
+
+    // Three concentric glowing ellipses for optical laser bloom
+    m_d2dContext->FillEllipse(D2D1::Ellipse(laser.position, 15.0f, 15.0f), m_brushLaserOuter.Get());
+    m_d2dContext->FillEllipse(D2D1::Ellipse(laser.position, 7.0f, 7.0f), m_brushLaserMiddle.Get());
+    m_d2dContext->FillEllipse(D2D1::Ellipse(laser.position, 3.0f, 3.0f), m_brushLaserCore.Get());
+}
+
+void D2DRenderer::DrawPresenterBar(const PresenterBarRenderInfo& presenterBar) {
+    if (!presenterBar.visible || !m_d2dContext) return;
+
+    float dipScale = 96.0f / m_dpi;
+    float dipW = (float)m_width * dipScale;
+    float dipH = (float)m_height * dipScale;
+
+    D2D1_RECT_F barRect = PresenterBarLayout::GetBarRect(dipW, dipH);
+    D2D1_ROUNDED_RECT roundedBar = D2D1::RoundedRect(barRect, 22.0f, 22.0f);
+
+    // Drop shadow
+    D2D1_RECT_F shadowRect = D2D1::RectF(barRect.left + 3.0f, barRect.top + 3.0f, barRect.right + 4.0f, barRect.bottom + 4.0f);
+    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 22.0f, 22.0f), m_brushPageShadow.Get());
+
+    // Background & border
+    m_d2dContext->FillRoundedRectangle(roundedBar, m_brushHudBg.Get());
+    m_d2dContext->DrawRoundedRectangle(roundedBar, m_brushHudBorder.Get(), 1.0f);
+
+    // Buttons
+    D2D1_RECT_F btnPrev = PresenterBarLayout::GetPrevBtnRect(barRect);
+    D2D1_RECT_F pageInfoRect = PresenterBarLayout::GetPageInfoRect(barRect);
+    D2D1_RECT_F btnNext = PresenterBarLayout::GetNextBtnRect(barRect);
+    D2D1_RECT_F btnLaser = PresenterBarLayout::GetLaserBtnRect(barRect);
+    D2D1_RECT_F btnColor = PresenterBarLayout::GetColorBtnRect(barRect);
+    D2D1_RECT_F btnExit = PresenterBarLayout::GetExitBtnRect(barRect);
+
+    // Highlight hovered / active buttons
+    auto drawButtonBg = [&](const D2D1_RECT_F& r, int btnIdx, bool isActive = false) {
+        if (isActive) {
+            m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 14.0f, 14.0f), m_brushPresenterBtnActive.Get());
+        } else if (presenterBar.hoveredBtn == btnIdx) {
+            m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 14.0f, 14.0f), m_brushPresenterBtnHover.Get());
+        }
+    };
+
+    drawButtonBg(btnPrev, 0);
+    drawButtonBg(btnNext, 1);
+    drawButtonBg(btnLaser, 2, presenterBar.isLaserActive);
+    drawButtonBg(btnColor, 3);
+    drawButtonBg(btnExit, 4);
+
+    // Button Labels
+    m_d2dContext->DrawText(L"◀", 1, m_textFormatPresenter.Get(), btnPrev, m_brushHudText.Get());
+
+    wchar_t pageBuf[32];
+    swprintf_s(pageBuf, L"%u / %u", presenterBar.currentPage + 1, presenterBar.totalPages);
+    m_d2dContext->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatPresenter.Get(), pageInfoRect, m_brushHudText.Get());
+
+    m_d2dContext->DrawText(L"▶", 1, m_textFormatPresenter.Get(), btnNext, m_brushHudText.Get());
+    m_d2dContext->DrawText(L"Laser", 5, m_textFormatPresenter.Get(), btnLaser, m_brushHudText.Get());
+
+    // Color indicator dot
+    D2D1_POINT_2F dotCenter = D2D1::Point2F((btnColor.left + btnColor.right) * 0.5f, (btnColor.top + btnColor.bottom) * 0.5f);
+    D2D1_COLOR_F dotColor = D2D1::ColorF(1.0f, 0.2f, 0.2f);
+    switch (presenterBar.laserColor) {
+    case LaserColor::Red:   dotColor = D2D1::ColorF(1.0f, 0.2f, 0.2f); break;
+    case LaserColor::Green: dotColor = D2D1::ColorF(0.0f, 1.0f, 0.35f); break;
+    case LaserColor::Cyan:  dotColor = D2D1::ColorF(0.0f, 0.85f, 1.0f); break;
+    case LaserColor::Gold:  dotColor = D2D1::ColorF(1.0f, 0.75f, 0.0f); break;
+    }
+    if (m_brushLaserCore) {
+        m_brushLaserCore->SetColor(dotColor);
+        m_d2dContext->FillEllipse(D2D1::Ellipse(dotCenter, 6.0f, 6.0f), m_brushLaserCore.Get());
+    }
+
+    m_d2dContext->DrawText(L"⛶", 1, m_textFormatPresenter.Get(), btnExit, m_brushHudText.Get());
+}
+
+int D2DRenderer::HitTestPresenterBar(POINT pt) const {
+    float dipScale = 96.0f / m_dpi;
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipW = (float)m_width * dipScale;
+    float dipH = (float)m_height * dipScale;
+
+    D2D1_RECT_F bar = PresenterBarLayout::GetBarRect(dipW, dipH);
+    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
+        return -1;
+    }
+
+    auto inRect = [&](const D2D1_RECT_F& r) {
+        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
+    };
+
+    if (inRect(PresenterBarLayout::GetPrevBtnRect(bar))) return 0;
+    if (inRect(PresenterBarLayout::GetNextBtnRect(bar))) return 1;
+    if (inRect(PresenterBarLayout::GetLaserBtnRect(bar))) return 2;
+    if (inRect(PresenterBarLayout::GetColorBtnRect(bar))) return 3;
+    if (inRect(PresenterBarLayout::GetExitBtnRect(bar))) return 4;
+
+    return 100; // Inside bar body
 }

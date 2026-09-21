@@ -138,6 +138,8 @@ private:
     uint32_t GetPageAtScrollOffset(const DocumentTab* pTab) const;
 
     void ToggleFullscreen();
+    void ToggleLaserPointer();
+    void CycleLaserColor();
 
     float GetTopOffset() const { return (m_tabs.size() > 1) ? 34.0f : 0.0f; }
     int HitTestTab(POINT pt, bool& outClose, bool& outAdd) const;
@@ -210,6 +212,13 @@ private:
     // Fullscreen state
     bool m_isFullscreen = false;
     WINDOWPLACEMENT m_prevPlacement = { sizeof(WINDOWPLACEMENT) };
+
+    // Presenter Mode & Laser Pointer state
+    bool m_isLaserActive = false;
+    LaserColor m_laserColor = LaserColor::Red;
+    POINT m_laserPos = { 0, 0 };
+    bool m_showPresenterBar = false;
+    int m_presenterBarHoveredBtn = -1;
 
     // Help Overlay state
     bool m_showHelp = false;

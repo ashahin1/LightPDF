@@ -268,6 +268,23 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
 
+        // 0a. If Presenter Bar is visible in fullscreen, handle button clicks
+        if (msg == WM_LBUTTONDOWN && m_isFullscreen && m_showPresenterBar) {
+            int presHit = m_renderer.HitTestPresenterBar(pt);
+            if (presHit >= 0 && presHit <= 4) {
+                switch (presHit) {
+                case 0: PrevPage(); break;
+                case 1: NextPage(); break;
+                case 2: ToggleLaserPointer(); break;
+                case 3: CycleLaserColor(); break;
+                case 4: ToggleFullscreen(); break;
+                }
+                return 0;
+            } else if (presHit == 100) {
+                return 0; // Clicked on bar body
+            }
+        }
+
         // 0. If Document Properties is open, handle clicks
         if (m_showProperties) {
             int propHit = m_renderer.HitTestDocumentProperties(pt);
@@ -468,6 +485,15 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT && m_isLaserActive) {
+            if (!m_isFullscreen || !m_showPresenterBar || m_presenterBarHoveredBtn < 0 || m_presenterBarHoveredBtn > 4) {
+                SetCursor(NULL);
+                return TRUE;
+            }
+        }
+        break;
+
     case WM_MOUSEMOVE: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float dipScale = 96.0f / m_renderer.GetDpi();
@@ -475,6 +501,40 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipY = (float)pt.y * dipScale;
         float dipW = (float)m_renderer.GetWidth() * dipScale;
         float topOffset = GetTopOffset();
+
+        // 00a. Presenter Bar hover detection in fullscreen
+        if (m_isFullscreen) {
+            float dipH = (float)m_renderer.GetHeight() * dipScale;
+            bool nearBottom = (dipY >= dipH - 58.0f);
+            if (nearBottom != m_showPresenterBar) {
+                m_showPresenterBar = nearBottom;
+                if (!m_showPresenterBar) m_presenterBarHoveredBtn = -1;
+                Render();
+            }
+            if (m_showPresenterBar) {
+                int hit = m_renderer.HitTestPresenterBar(pt);
+                int newBtn = (hit >= 0 && hit <= 4) ? hit : -1;
+                if (newBtn != m_presenterBarHoveredBtn) {
+                    m_presenterBarHoveredBtn = newBtn;
+                    Render();
+                }
+                if (newBtn >= 0) {
+                    SetCursor(m_cursorHand);
+                    return 0;
+                }
+            }
+        } else if (m_showPresenterBar) {
+            m_showPresenterBar = false;
+            m_presenterBarHoveredBtn = -1;
+        }
+
+        // 00b. Laser pointer tracking
+        if (m_isLaserActive) {
+            m_laserPos = pt;
+            SetCursor(NULL);
+            Render();
+            return 0;
+        }
 
         // 0. Document Properties hover detection
         if (m_showProperties) {
@@ -960,6 +1020,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             break;
+        case 'L':
+            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+                ToggleLaserPointer();
+                return 0;
+            }
+            break;
         case 'S':
             if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
                 SetToolMode(ToolMode::TextSelect);
@@ -997,6 +1063,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     CopySelectionToClipboard();
                     return 0;
                 }
+            } else if (m_isLaserActive && !m_showSearch && !m_showGoToPage) {
+                CycleLaserColor();
+                return 0;
             }
             break;
         case 'D':
@@ -1258,6 +1327,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             ToggleFullscreen();
             return 0;
         case VK_ESCAPE:
+            if (m_isLaserActive) {
+                ToggleLaserPointer();
+                return 0;
+            }
             if (m_showProperties) {
                 CloseDocumentProperties();
                 return 0;
@@ -2127,8 +2200,55 @@ void AppWindow::ToggleFullscreen() {
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
         );
         m_isFullscreen = false;
+        m_showPresenterBar = false;
+        m_presenterBarHoveredBtn = -1;
     }
     RecalculateLayout();
+    Render();
+}
+
+void AppWindow::ToggleLaserPointer() {
+    m_isLaserActive = !m_isLaserActive;
+    if (m_isLaserActive) {
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(m_hwnd, &pt);
+        m_laserPos = pt;
+        SetCursor(NULL);
+
+        const wchar_t* colorName = L"Laser: Red";
+        switch (m_laserColor) {
+        case LaserColor::Red:   colorName = L"Laser: Red"; break;
+        case LaserColor::Green: colorName = L"Laser: Emerald Green"; break;
+        case LaserColor::Cyan:  colorName = L"Laser: Electric Cyan"; break;
+        case LaserColor::Gold:  colorName = L"Laser: Amber Gold"; break;
+        }
+        m_hudToastText = colorName;
+        m_hudToastTime = GetTickCount64();
+    } else {
+        m_hudToastText = L"Laser: OFF";
+        m_hudToastTime = GetTickCount64();
+        SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
+    }
+    Render();
+}
+
+void AppWindow::CycleLaserColor() {
+    switch (m_laserColor) {
+    case LaserColor::Red:   m_laserColor = LaserColor::Green; break;
+    case LaserColor::Green: m_laserColor = LaserColor::Cyan;  break;
+    case LaserColor::Cyan:  m_laserColor = LaserColor::Gold;  break;
+    case LaserColor::Gold:  m_laserColor = LaserColor::Red;   break;
+    }
+    const wchar_t* colorName = L"Laser: Red";
+    switch (m_laserColor) {
+    case LaserColor::Red:   colorName = L"Laser: Red"; break;
+    case LaserColor::Green: colorName = L"Laser: Emerald Green"; break;
+    case LaserColor::Cyan:  colorName = L"Laser: Electric Cyan"; break;
+    case LaserColor::Gold:  colorName = L"Laser: Amber Gold"; break;
+    }
+    m_hudToastText = colorName;
+    m_hudToastTime = GetTickCount64();
     Render();
 }
 
@@ -2140,6 +2260,20 @@ void AppWindow::Render() {
     m_docPropsInfo.visible = m_showProperties;
     m_docPropsInfo.hoveredBtn = m_propsHoveredBtn;
     m_docPropsInfo.copyFeedback = (m_propsCopiedFeedbackTime > 0 && (GetTickCount64() - m_propsCopiedFeedbackTime < 2000));
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    LaserPointerRenderInfo laserInfo;
+    laserInfo.active = m_isLaserActive;
+    laserInfo.position = D2D1::Point2F((float)m_laserPos.x * dipScale, (float)m_laserPos.y * dipScale);
+    laserInfo.color = m_laserColor;
+
+    PresenterBarRenderInfo presenterBarInfo;
+    presenterBarInfo.visible = m_isFullscreen && m_showPresenterBar;
+    presenterBarInfo.hoveredBtn = m_presenterBarHoveredBtn;
+    presenterBarInfo.currentPage = pTab ? pTab->currentPage : 0;
+    presenterBarInfo.totalPages = pTab ? pTab->document.GetPageCount() : 0;
+    presenterBarInfo.isLaserActive = m_isLaserActive;
+    presenterBarInfo.laserColor = m_laserColor;
 
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
@@ -2212,7 +2346,9 @@ void AppWindow::Render() {
                 GetSearchHighlights(),
                 m_docPropsInfo,
                 selectionSpans,
-                m_dictCardInfo
+                m_dictCardInfo,
+                laserInfo,
+                presenterBarInfo
             );
             return;
         }
@@ -2240,7 +2376,9 @@ void AppWindow::Render() {
                 GetSearchHighlights(),
                 m_docPropsInfo,
                 selectionSpans,
-                m_dictCardInfo
+                m_dictCardInfo,
+                laserInfo,
+                presenterBarInfo
             );
             return;
         }
@@ -2255,7 +2393,9 @@ void AppWindow::Render() {
         m_goToPageBuffer,
         GetSearchBarInfo(),
         m_docPropsInfo,
-        m_dictCardInfo
+        m_dictCardInfo,
+        laserInfo,
+        presenterBarInfo
     );
 }
 

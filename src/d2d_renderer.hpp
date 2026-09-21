@@ -206,6 +206,59 @@ struct DocumentPropertiesLayout {
     }
 };
 
+enum class LaserColor {
+    Red,
+    Green,
+    Cyan,
+    Gold
+};
+
+struct LaserPointerRenderInfo {
+    bool active = false;
+    D2D1_POINT_2F position = { 0.0f, 0.0f }; // in DIPs
+    LaserColor color = LaserColor::Red;
+};
+
+struct PresenterBarRenderInfo {
+    bool visible = false;
+    int hoveredBtn = -1; // -1 = none, 0 = Prev, 1 = Next, 2 = Laser, 3 = Color, 4 = ExitFullscreen
+    uint32_t currentPage = 0;
+    uint32_t totalPages = 0;
+    bool isLaserActive = false;
+    LaserColor laserColor = LaserColor::Red;
+};
+
+struct PresenterBarLayout {
+    static constexpr float WIDTH = 340.0f;
+    static constexpr float HEIGHT = 44.0f;
+    static constexpr float BOTTOM_MARGIN = 20.0f;
+
+    static inline D2D1_RECT_F GetBarRect(float dipWidth, float dipHeight) {
+        float left = (dipWidth - WIDTH) * 0.5f;
+        float top = dipHeight - HEIGHT - BOTTOM_MARGIN;
+        return D2D1::RectF(left, top, left + WIDTH, top + HEIGHT);
+    }
+
+    static inline D2D1_RECT_F GetPrevBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 6.0f, bar.top + 6.0f, bar.left + 46.0f, bar.bottom - 6.0f);
+    }
+    static inline D2D1_RECT_F GetPageInfoRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 48.0f, bar.top + 6.0f, bar.left + 148.0f, bar.bottom - 6.0f);
+    }
+    static inline D2D1_RECT_F GetNextBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 150.0f, bar.top + 6.0f, bar.left + 190.0f, bar.bottom - 6.0f);
+    }
+    static inline D2D1_RECT_F GetLaserBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 196.0f, bar.top + 6.0f, bar.left + 246.0f, bar.bottom - 6.0f);
+    }
+    static inline D2D1_RECT_F GetColorBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 250.0f, bar.top + 6.0f, bar.left + 290.0f, bar.bottom - 6.0f);
+    }
+    static inline D2D1_RECT_F GetExitBtnRect(const D2D1_RECT_F& bar) {
+        return D2D1::RectF(bar.left + 294.0f, bar.top + 6.0f, bar.right - 6.0f, bar.bottom - 6.0f);
+    }
+};
+
 struct HelpOverlayRenderInfo {
     bool visible = false;
     int activeCategory = 0; // 0=All, 1=Navigation, 2=Zoom & View, 3=Tabs & Files, 4=Search & Tools
@@ -258,7 +311,9 @@ public:
         const std::wstring& goToPageBuffer = L"",
         const SearchBarRenderInfo& searchBar = {},
         const DocumentPropertiesRenderInfo& docProps = {},
-        const DictionaryCardRenderInfo& dictCard = {}
+        const DictionaryCardRenderInfo& dictCard = {},
+        const LaserPointerRenderInfo& laser = {},
+        const PresenterBarRenderInfo& presenterBar = {}
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -279,7 +334,9 @@ public:
         const std::vector<SearchHighlight>& highlights = {},
         const DocumentPropertiesRenderInfo& docProps = {},
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
-        const DictionaryCardRenderInfo& dictCard = {}
+        const DictionaryCardRenderInfo& dictCard = {},
+        const LaserPointerRenderInfo& laser = {},
+        const PresenterBarRenderInfo& presenterBar = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -298,13 +355,18 @@ public:
         const std::vector<SearchHighlight>& highlights = {},
         const DocumentPropertiesRenderInfo& docProps = {},
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
-        const DictionaryCardRenderInfo& dictCard = {}
+        const DictionaryCardRenderInfo& dictCard = {},
+        const LaserPointerRenderInfo& laser = {},
+        const PresenterBarRenderInfo& presenterBar = {}
     );
 
     void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
+    void DrawLaserPointer(const LaserPointerRenderInfo& laser);
+    void DrawPresenterBar(const PresenterBarRenderInfo& presenterBar);
 
     int HitTestDocumentProperties(POINT pt) const;
     int HitTestHelpOverlay(POINT pt) const;
+    int HitTestPresenterBar(POINT pt) const;
 
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -345,7 +407,9 @@ private:
         const SearchBarRenderInfo& searchBar,
         const HelpOverlayRenderInfo& help,
         const DocumentPropertiesRenderInfo& docProps,
-        const DictionaryCardRenderInfo* pDictCard = nullptr
+        const DictionaryCardRenderInfo* pDictCard = nullptr,
+        const LaserPointerRenderInfo* pLaser = nullptr,
+        const PresenterBarRenderInfo* pPresenterBar = nullptr
     );
 
     HWND m_hwnd = nullptr;
@@ -455,6 +519,14 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushDictTagText;
     ComPtr<ID2D1SolidColorBrush> m_brushDictDefText;
     ComPtr<ID2D1SolidColorBrush> m_brushDictHintText;
+
+    // Laser Pointer & Presenter Bar Brushes & Formats
+    ComPtr<IDWriteTextFormat> m_textFormatPresenter;
+    ComPtr<ID2D1SolidColorBrush> m_brushLaserOuter;
+    ComPtr<ID2D1SolidColorBrush> m_brushLaserMiddle;
+    ComPtr<ID2D1SolidColorBrush> m_brushLaserCore;
+    ComPtr<ID2D1SolidColorBrush> m_brushPresenterBtnHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushPresenterBtnActive;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;
