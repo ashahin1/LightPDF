@@ -177,9 +177,58 @@ int main() {
 
         // New Accreditation & QA
         { L"bloom's taxonomy", L"Accreditation", L"بلوم" },
-        { L"kpi", L"Accreditation", L"مؤشر" },
         { L"pdca cycle", L"QA", L"دورة" },
         { L"six sigma", L"QA", L"سيغما" },
+
+        // Department Curriculum: Logic Design, VLSI & VHDL
+        { L"boolean algebra", L"Logic Design", L"بول" },
+        { L"karnaugh map", L"Logic Design", L"كارنوف" },
+        { L"finite state machine", L"Logic Design", L"المنتهية" },
+        { L"vlsi", L"VLSI", L"التكامل" },
+        { L"cmos", L"VLSI", L"المتممة" },
+        { L"vhdl", L"VLSI", L"توصيف" },
+        { L"verilog", L"VLSI", L"فيريلوغ" },
+
+        // Department Curriculum: Embedded, RTOS & Robotics/Control
+        { L"arm cortex", L"Embedded", L"كورتكس" },
+        { L"priority inversion", L"RTOS", L"الأولوية" },
+        { L"pid controller", L"Robotics & Control", L"تناسبي" },
+        { L"kinematics", L"Robotics & Control", L"الحركة" },
+
+        // Department Curriculum: AI & Expert Systems
+        { L"expert system", L"Expert Systems", L"الخبير" },
+        { L"fuzzy logic", L"Expert Systems", L"الضبابي" },
+        { L"a* algorithm", L"AI", L"أ*" },
+
+        // Department Curriculum: Communications & Cloud
+        { L"modulation", L"Communications", L"التضمين" },
+        { L"qam", L"Communications", L"المتعامد" },
+        { L"shannon capacity", L"Communications", L"شانون" },
+        { L"cloud computing", L"Cloud", L"السحابية" },
+        { L"hypervisor", L"Cloud", L"المشرف" },
+        { L"kubernetes", L"Cloud", L"كوبرنيتيس" },
+
+        // Department Curriculum: DSP, Signals & Circuits
+        { L"lti system", L"DSP & Signals", L"خطي" },
+        { L"z-transform", L"DSP & Signals", L"تحويل" },
+        { L"fir filter", L"DSP & Signals", L"المنتهية" },
+        { L"nyquist rate", L"DSP & Signals", L"نايكويست" },
+        { L"ohm's law", L"Circuits", L"أوم" },
+        { L"kvl", L"Circuits", L"كيرشوف" },
+        { L"operational amplifier", L"Electronics", L"العمليات" },
+        { L"bjt", L"Electronics", L"القطبية" },
+
+        // Department Curriculum: Software Engineering & Data Structures
+        { L"sdlc", L"Software Eng", L"تطوير" },
+        { L"agile", L"Software Eng", L"الرشيقة" },
+        { L"binary search tree", L"Data Structures", L"الثنائية" },
+        { L"linked list", L"Data Structures", L"المترابطة" },
+
+        // Department Curriculum: HCI, Research & Capstone
+        { L"human-computer interaction", L"HCI", L"الإنسان" },
+        { L"usability", L"HCI", L"الاستخدام" },
+        { L"intellectual property", L"Research & Ethics", L"الملكية" },
+        { L"graduation project", L"Graduation Project", L"التخرج" },
 
         // Academic Accreditation (ABET & NCAAA)
         { L"ABET", L"Accreditation", L"الهندسة" },
