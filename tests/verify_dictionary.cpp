@@ -67,6 +67,17 @@ int main() {
     };
 
     const std::vector<TestQuery> testCases = {
+        // Numbering Systems & Computer Arithmetic
+        { L"numbering systems", L"Number Systems", L"العد" },
+        { L"binary number", L"Number Systems", L"ثنائي" },
+        { L"hexadecimal", L"Number Systems", L"عشري" },
+        { L"two's complement", L"Number Systems", L"متمم" },
+        { L"floating-point", L"Number Systems", L"العائمة" },
+        { L"ieee 754", L"Number Systems", L"العائمة" },
+        { L"binary-coded decimal", L"Number Systems", L"العشري" },
+        { L"gray code", L"Number Systems", L"غراي" },
+        { L"most significant bit", L"Number Systems", L"وزناً" },
+
         // Architecture & Assembly
         { L"branch predictor", L"Architecture", L"متنبئ" },
         { L"pipeline stall", L"Architecture", L"توقف" },
