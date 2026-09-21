@@ -91,7 +91,15 @@ int main() {
         { L"numa", L"Parallel Proc", L"الذاكرة" },
         { L"barrier synchronization", L"Parallel Proc", L"حاجز" },
 
-        // Networks & IoT & WSN
+        // Networks, CCNA/CCNP, Wireless & IoT
+        { L"network", L"Networks & CCNA", L"شبكة" },
+        { L"ccna", L"Networks & CCNA", L"سيسكو" },
+        { L"ccnp", L"Networks & CCNA", L"سيسكو" },
+        { L"wireless networks", L"Networks & Wireless", L"لاسلكية" },
+        { L"routing", L"Networks & Routing", L"توجيه" },
+        { L"vlan", L"Networks & CCNA", L"افتراضية" },
+        { L"spanning tree protocol", L"Networks & CCNA", L"الامتداد" },
+        { L"access point", L"Networks & Wireless", L"الوصول" },
         { L"lorawan", L"Networks & IoT", L"شبكة" },
         { L"ad hoc network", L"Networks & IoT", L"مخصصة" },
         { L"packet loss", L"Networks & IoT", L"حزم" },
