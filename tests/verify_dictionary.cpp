@@ -75,6 +75,22 @@ int main() {
         { L"cache coherence", L"Architecture", L"تماسك" },
         { L"speculative execution", L"Architecture", L"تخميني" },
 
+        // Parallel Processing & Multicore & High Performance Computing
+        { L"core", L"Parallel Proc", L"نواة" },
+        { L"cores", L"Parallel Proc", L"أنوية" },
+        { L"multicore", L"Parallel Proc", L"متعدد" },
+        { L"manycore", L"Parallel Proc", L"الأنوية" },
+        { L"parallel processing", L"Parallel Proc", L"المعالجة" },
+        { L"amdahl's law", L"Parallel Proc", L"أمدال" },
+        { L"race condition", L"Parallel Proc", L"التسابق" },
+        { L"deadlock", L"Parallel Proc", L"الجمود" },
+        { L"openmp", L"Parallel Proc", L"المتوازية" },
+        { L"mpi", L"Parallel Proc", L"الرسائل" },
+        { L"cuda core", L"Parallel Proc", L"كودا" },
+        { L"tensor core", L"Parallel Proc", L"الموترات" },
+        { L"numa", L"Parallel Proc", L"الذاكرة" },
+        { L"barrier synchronization", L"Parallel Proc", L"حاجز" },
+
         // Networks & IoT & WSN
         { L"lorawan", L"Networks & IoT", L"شبكة" },
         { L"ad hoc network", L"Networks & IoT", L"مخصصة" },
