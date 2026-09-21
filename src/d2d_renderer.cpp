@@ -2546,6 +2546,10 @@ void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
             textColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 1.0f);
             bgColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 0.18f);
             break;
+        case 7: // Algorithms & Optimization: Mint / Cyan Teal
+            textColor = D2D1::ColorF(0.12f, 0.88f, 0.72f, 1.0f);
+            bgColor = D2D1::ColorF(0.12f, 0.88f, 0.72f, 0.18f);
+            break;
         default: // General
             textColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 1.0f);
             bgColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 0.15f);

@@ -18,7 +18,8 @@ enum class DictionaryCategory : uint16_t {
     AIMachineLearning = 3,
     Cybersecurity = 4,
     AcademicAccreditation = 5,
-    QualityAssurance = 6
+    QualityAssurance = 6,
+    AlgorithmsOptimization = 7
 };
 
 struct DictionaryResult {
@@ -40,6 +41,8 @@ struct DictionaryResult {
             return L"Academic · ABET / NCAAA";
         case DictionaryCategory::QualityAssurance:
             return L"Quality Assurance & Testing";
+        case DictionaryCategory::AlgorithmsOptimization:
+            return L"Algorithms & Optimization";
         default:
             return L"General Lexicon";
         }
