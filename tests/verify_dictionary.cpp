@@ -78,13 +78,29 @@ int main() {
         { L"gray code", L"Number Systems", L"غراي" },
         { L"most significant bit", L"Number Systems", L"وزناً" },
 
-        // Architecture & Assembly
+        // Architecture, ISA & Assembly
         { L"branch predictor", L"Architecture", L"متنبئ" },
         { L"pipeline stall", L"Architecture", L"توقف" },
         { L"out of order execution", L"Architecture", L"الترتيب" },
         { L"instruction set architecture", L"Architecture", L"المعمارية" },
+        { L"instruction set", L"Architecture", L"التعليمات" },
+        { L"isa", L"Architecture", L"المعمارية" },
         { L"cache coherence", L"Architecture", L"تماسك" },
         { L"speculative execution", L"Architecture", L"تخميني" },
+
+        // Operating Systems, Kernels & Virtual Memory
+        { L"operating system", L"OS & Kernel", L"التشغيل" },
+        { L"operating systems", L"OS & Kernel", L"التشغيل" },
+        { L"kernel", L"OS & Kernel", L"نواة" },
+        { L"process", L"OS & Kernel", L"عملية" },
+        { L"scheduler", L"OS & Kernel", L"مجدول" },
+        { L"system call", L"OS & Kernel", L"النظام" },
+        { L"virtual memory", L"OS & Kernel", L"الافتراضية" },
+        { L"paging", L"OS & Kernel", L"صفحات" },
+        { L"page fault", L"OS & Kernel", L"الصفحة" },
+        { L"tlb", L"OS & Kernel", L"الترجمة" },
+        { L"mutex", L"OS & Kernel", L"الاستبعاد" },
+        { L"semaphore", L"OS & Kernel", L"السيمافور" },
 
         // Parallel Processing & Multicore & High Performance Computing
         { L"core", L"Parallel Proc", L"نواة" },
