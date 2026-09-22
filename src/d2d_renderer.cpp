@@ -1913,11 +1913,11 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
     // 4. Category Tabs
     static const wchar_t* tabLabels[5] = {
-        L"All (27)",
-        L"Navigation (6)",
+        L"All (34)",
+        L"Navigation (8)",
         L"Zoom & View (8)",
-        L"Tabs & Files (7)",
-        L"Search & Tools (6)"
+        L"Tabs & Files (8)",
+        L"Search & Tools (10)"
     };
 
     for (int i = 0; i < 5; ++i) {
@@ -2018,28 +2018,28 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     };
 
     if (help.activeCategory == 0) {
-        // Mode 0: All (30) shortcuts in balanced 2-column layout
+        // Mode 0: All (34) shortcuts in balanced 2-column layout
         float col1Left = card.left + 24.0f;
-        float col2Left = card.left + 354.0f;
-        float keyColW = 136.0f;
-        float gap = 8.0f;
-        float descColW = 158.0f;
-        float rowH = 16.5f;
+        float col2Left = card.left + 434.0f;
+        float keyColW = 165.0f;
+        float gap = 12.0f;
+        float descColW = 205.0f;
+        float rowH = 19.5f;
         float headerH = 18.0f;
 
         // Vertical divider line between columns
         m_d2dContext->DrawLine(
-            D2D1::Point2F(card.left + 340.0f, card.top + 88.0f),
-            D2D1::Point2F(card.left + 340.0f, card.top + 406.0f),
+            D2D1::Point2F(card.left + 420.0f, card.top + 88.0f),
+            D2D1::Point2F(card.left + 420.0f, card.top + 508.0f),
             m_brushTabBorder.Get(),
             1.0f
         );
 
         auto drawSection = [&](float colX, float startY, const wchar_t* title, const ShortcutItem* items, size_t count) -> float {
-            D2D1_RECT_F headRect = D2D1::RectF(colX, startY, colX + 302.0f, startY + headerH);
+            D2D1_RECT_F headRect = D2D1::RectF(colX, startY, colX + 382.0f, startY + headerH);
             m_d2dContext->DrawText(title, (UINT32)wcslen(title), m_textFormatHelpSection.Get(), headRect, m_brushPropsAccent.Get());
 
-            float y = startY + headerH + 2.0f;
+            float y = startY + headerH + 3.0f;
             for (size_t i = 0; i < count; ++i) {
                 D2D1_RECT_F keyRect = D2D1::RectF(colX, y, colX + keyColW, y + rowH);
                 D2D1_RECT_F descRect = D2D1::RectF(colX + keyColW + gap, y, colX + keyColW + gap + descColW, y + rowH);
@@ -2051,13 +2051,13 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
             return y;
         };
 
-        // Left Column: Navigation (6) + Tabs & Files (7)
-        float curY1 = drawSection(col1Left, card.top + 86.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
-        drawSection(col1Left, curY1 + 10.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
+        // Left Column: Navigation (8) + Tabs & Files (8)
+        float curY1 = drawSection(col1Left, card.top + 88.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
+        drawSection(col1Left, curY1 + 12.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
 
-        // Right Column: Zoom & View (8) + Search & Tools (6)
-        float curY2 = drawSection(col2Left, card.top + 86.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
-        drawSection(col2Left, curY2 + 10.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
+        // Right Column: Zoom & View (8) + Search & Tools (10)
+        float curY2 = drawSection(col2Left, card.top + 88.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
+        drawSection(col2Left, curY2 + 12.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
     } else {
         // Modes 1..4: Single category view with spacious row badges
         const ShortcutItem* catItems = nullptr;
@@ -2084,7 +2084,7 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
         if (catItems && catCount > 0) {
             float startY = card.top + 92.0f;
-            float rowH = 36.0f;
+            float rowH = 38.0f;
             float rowW = card.right - card.left - 48.0f;
 
             for (size_t i = 0; i < catCount; ++i) {
@@ -2092,15 +2092,15 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
                 // Subtle alternating row background
                 if (i % 2 == 1) {
-                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + 32.0f);
+                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + 33.0f);
                     m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(altRect, 4.0f, 4.0f), m_brushHelpRowAlt.Get());
                 }
 
                 // Keycap badge
                 float keycapX = card.left + 32.0f;
                 float keycapY = y + 3.0f;
-                float keycapW = 180.0f;
-                float keycapH = 26.0f;
+                float keycapW = 200.0f;
+                float keycapH = 27.0f;
                 D2D1_RECT_F keycapRect = D2D1::RectF(keycapX, keycapY, keycapX + keycapW, keycapY + keycapH);
                 D2D1_ROUNDED_RECT rKeycap = D2D1::RoundedRect(keycapRect, 4.0f, 4.0f);
 
@@ -2116,9 +2116,9 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
                 );
 
                 // Description
-                float descX = keycapX + keycapW + 18.0f;
+                float descX = keycapX + keycapW + 20.0f;
                 float descW = card.right - 32.0f - descX;
-                D2D1_RECT_F descRect = D2D1::RectF(descX, y, descX + descW, y + 32.0f);
+                D2D1_RECT_F descRect = D2D1::RectF(descX, y, descX + descW, y + 33.0f);
 
                 m_d2dContext->DrawText(
                     catItems[i].desc,
@@ -2133,17 +2133,17 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
     // 5. Footer: Divider line and Keyboard Hints
     m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 412.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 412.0f),
+        D2D1::Point2F(card.left + 24.0f, card.top + 518.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 518.0f),
         m_brushHelpCardBorder.Get(),
         1.0f
     );
 
-    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, card.top + 414.0f, card.left + 380.0f, card.top + 434.0f);
+    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, card.top + 524.0f, card.left + 420.0f, card.top + 546.0f);
     const wchar_t* footLeftStr = L"Switch tabs: 1\x2013\x0035, Tab / Shift+Tab, or \x2190 \x2192";
     m_d2dContext->DrawText(footLeftStr, (UINT32)wcslen(footLeftStr), m_textFormatHelpFooterLeft.Get(), footLeftRect, m_brushHelpSubText.Get());
 
-    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 200.0f, card.top + 414.0f, card.right - 24.0f, card.top + 434.0f);
+    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 240.0f, card.top + 524.0f, card.right - 24.0f, card.top + 546.0f);
     const wchar_t* footRightStr = L"Press Esc or F1 to close";
     m_d2dContext->DrawText(footRightStr, (UINT32)wcslen(footRightStr), m_textFormatHelpFooterRight.Get(), footRightRect, m_brushHelpSubText.Get());
 }

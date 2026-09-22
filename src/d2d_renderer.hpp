@@ -267,13 +267,15 @@ struct HelpOverlayRenderInfo {
 };
 
 struct HelpOverlayLayout {
-    static constexpr float WIDTH = 680.0f;
-    static constexpr float HEIGHT = 440.0f;
+    static constexpr float WIDTH = 840.0f;
+    static constexpr float HEIGHT = 560.0f;
 
     static inline D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight) {
-        float left = (std::max)(10.0f, (dipWidth - WIDTH) * 0.5f);
-        float top = (std::max)(10.0f, (dipHeight - HEIGHT) * 0.5f);
-        return D2D1::RectF(left, top, left + WIDTH, top + HEIGHT);
+        float w = (std::min)(WIDTH, dipWidth - 24.0f);
+        float h = (std::min)(HEIGHT, dipHeight - 32.0f);
+        float left = (std::max)(12.0f, (dipWidth - w) * 0.5f);
+        float top = (std::max)(16.0f, (dipHeight - h) * 0.5f);
+        return D2D1::RectF(left, top, left + w, top + h);
     }
 
     static inline D2D1_RECT_F GetCloseBtnRect(const D2D1_RECT_F& card) {
@@ -281,8 +283,8 @@ struct HelpOverlayLayout {
     }
 
     static inline D2D1_RECT_F GetCategoryTabRect(const D2D1_RECT_F& card, int index) {
-        static const float widths[5] = { 72.0f, 126.0f, 138.0f, 134.0f, 146.0f };
-        static const float gap = 4.0f;
+        static const float widths[5] = { 80.0f, 122.0f, 132.0f, 126.0f, 152.0f };
+        static const float gap = 6.0f;
         float x = card.left + 24.0f;
         for (int i = 0; i < index && i < 5; ++i) {
             x += widths[i] + gap;

@@ -222,8 +222,14 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
         } else if (status == 2) {
             ShowToast(L"Searchable PDF generation cancelled.");
+        } else if (status == 3) {
+            if (wasOverwrite) {
+                ShowToast(L"Document already contains digital text on all pages.");
+            } else {
+                ShowToast(L"PDF saved successfully! (Document is already digital)");
+            }
         } else {
-            ShowToast(L"Failed to generate searchable PDF.");
+            ShowToast(L"Failed to save searchable PDF.");
         }
         Render();
         return 0;
@@ -2045,50 +2051,12 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
     uint32_t totalPages = pTab->document.GetPageCount();
     HWND hwnd = m_hwnd;
 
-    ShowToast(L"Starting bilingual OCR baking...");
+    ShowToast(L"Processing searchable PDF...");
 
     m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages]() {
         try {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
         } catch (...) {}
-
-        winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
-        try {
-            auto storageFile = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(srcPath).get();
-            if (storageFile) {
-                doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(storageFile).get();
-            }
-        } catch (...) {
-            doc = nullptr;
-        }
-
-        winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
-        try {
-            auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
-            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
-                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
-            }
-            if (!ocrEngine) {
-                auto arGen = winrt::Windows::Globalization::Language(L"ar");
-                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
-                }
-            }
-            if (!ocrEngine) {
-                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
-            }
-            if (!ocrEngine) {
-                auto enLang = winrt::Windows::Globalization::Language(L"en-US");
-                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(enLang)) {
-                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
-                }
-            }
-        } catch (...) {}
-
-        if (!ocrEngine || !doc) {
-            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 0, 0);
-            return;
-        }
 
         PdfParser parser;
         if (!parser.Load(srcPath)) {
@@ -2097,6 +2065,9 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         }
 
         std::vector<OcrPageItem> ocrPages;
+        winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
+        winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+        bool ocrInitAttempted = false;
 
         for (uint32_t p = 0; p < totalPages; ++p) {
             if (m_cancelBakingPdf) {
@@ -2108,6 +2079,45 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
             parser.ExtractPageText(p, pageText);
 
             if (!pageText.hasDigitalText) {
+                if (!ocrInitAttempted) {
+                    ocrInitAttempted = true;
+                    try {
+                        auto storageFile = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(srcPath).get();
+                        if (storageFile) {
+                            doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(storageFile).get();
+                        }
+                    } catch (...) {
+                        doc = nullptr;
+                    }
+
+                    try {
+                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+                        }
+                        if (!ocrEngine) {
+                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
+                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+                            }
+                        }
+                        if (!ocrEngine) {
+                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+                        }
+                        if (!ocrEngine) {
+                            auto enLang = winrt::Windows::Globalization::Language(L"en-US");
+                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(enLang)) {
+                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
+                            }
+                        }
+                    } catch (...) {}
+                }
+
+                if (!ocrEngine || !doc) {
+                    PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 0, 0);
+                    return;
+                }
+
                 try {
                     auto page = doc.GetPage(p);
                     if (page) {
@@ -2154,7 +2164,12 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         }
 
         if (ocrPages.empty()) {
-            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 1, 0);
+            if (!overwriteOriginal) {
+                bool copyOk = CopyFileW(srcPath.c_str(), targetPath.c_str(), FALSE) != 0;
+                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, copyOk ? 3 : 0, 0);
+            } else {
+                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 3, 1);
+            }
             return;
         }
 
