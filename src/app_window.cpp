@@ -166,6 +166,30 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_APP_BAKE_PDF_START: {
+        std::wstring* pPath = (std::wstring*)lParam;
+        bool isOverwrite = (wParam != 0);
+        if (pPath) {
+            StartBakingSearchablePdf(*pPath, isOverwrite);
+            delete pPath;
+        }
+        return 0;
+    }
+
+    case WM_APP_BAKE_PDF_PROGRESS: {
+        uint32_t cur = (uint32_t)wParam;
+        uint32_t tot = (uint32_t)lParam;
+        if (cur == 0) {
+            ShowToast(L"Writing searchable PDF to disk...");
+        } else {
+            wchar_t progText[128];
+            swprintf_s(progText, L"Baking Searchable PDF... Page %u of %u (Esc to cancel)", cur, tot);
+            ShowToast(progText);
+        }
+        Render();
+        return 0;
+    }
+
     case WM_APP_BAKE_PDF_DONE: {
         m_isBakingPdf = false;
         int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled
@@ -1865,132 +1889,142 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
 
     std::wstring origPath = pTab->document.GetFilePath();
     std::wstring origName = pTab->document.GetFileName();
+    HWND hwnd = m_hwnd;
 
-    bool doSaveAs = forceSaveAs;
-    bool doOverwrite = false;
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
 
-    if (!forceSaveAs) {
-        typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
-        HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
-        PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
+    m_dialogThread = std::thread([this, hwnd, origPath, origName, forceSaveAs]() {
+        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-        bool handled = false;
-        if (pfnTaskDialogIndirect) {
-            TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
-            tdc.hwndParent = m_hwnd;
-            tdc.hInstance = m_hInstance;
-            tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-            tdc.pszWindowTitle = L"Save Searchable PDF";
-            tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
-            tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
+        bool doSaveAs = forceSaveAs;
+        bool doOverwrite = false;
 
-            TASKDIALOG_BUTTON buttons[] = {
-                { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
-                { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
-            };
-            tdc.pButtons = buttons;
-            tdc.cButtons = ARRAYSIZE(buttons);
-            tdc.nDefaultButton = 101;
+        if (!forceSaveAs) {
+            typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+            HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
+            PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
 
-            int nButton = 0;
-            HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
-            if (SUCCEEDED(hrTd)) {
-                handled = true;
-                if (nButton == 101) {
-                    doSaveAs = true;
-                } else if (nButton == 102) {
+            bool handled = false;
+            if (pfnTaskDialogIndirect) {
+                TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
+                tdc.hwndParent = hwnd;
+                tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+                tdc.pszWindowTitle = L"Save Searchable PDF";
+                tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
+                tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
+
+                TASKDIALOG_BUTTON buttons[] = {
+                    { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
+                    { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
+                };
+                tdc.pButtons = buttons;
+                tdc.cButtons = ARRAYSIZE(buttons);
+                tdc.nDefaultButton = 101;
+
+                int nButton = 0;
+                HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
+                if (SUCCEEDED(hrTd)) {
+                    handled = true;
+                    if (nButton == 101) {
+                        doSaveAs = true;
+                    } else if (nButton == 102) {
+                        doOverwrite = true;
+                    } else {
+                        if (SUCCEEDED(hrCo)) CoUninitialize();
+                        return;
+                    }
+                }
+            }
+
+            if (!handled) {
+                int res = MessageBoxW(
+                    hwnd,
+                    L"Do you want to overwrite the original file?\n\n"
+                    L"Click 'Yes' to overwrite the original file.\n"
+                    L"Click 'No' to save as a new file.\n"
+                    L"Click 'Cancel' to abort.",
+                    L"Save Searchable PDF",
+                    MB_YESNOCANCEL | MB_ICONQUESTION
+                );
+                if (res == IDYES) {
                     doOverwrite = true;
+                } else if (res == IDNO) {
+                    doSaveAs = true;
                 } else {
-                    if (hComCtl) FreeLibrary(hComCtl);
+                    if (SUCCEEDED(hrCo)) CoUninitialize();
                     return;
                 }
             }
         }
 
-        if (hComCtl) {
-            FreeLibrary(hComCtl);
-            hComCtl = nullptr;
+        if (doOverwrite) {
+            std::wstring* pPath = new std::wstring(origPath);
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_START, (WPARAM)1, (LPARAM)pPath);
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+            return;
         }
 
-        if (!handled) {
-            int res = MessageBoxW(
-                m_hwnd,
-                L"Do you want to overwrite the original file?\n\n"
-                L"Click 'Yes' to overwrite the original file.\n"
-                L"Click 'No' to save as a new file.\n"
-                L"Click 'Cancel' to abort.",
-                L"Save Searchable PDF",
-                MB_YESNOCANCEL | MB_ICONQUESTION
-            );
-            if (res == IDYES) {
-                doOverwrite = true;
-            } else if (res == IDNO) {
-                doSaveAs = true;
+        if (doSaveAs) {
+            std::wstring defaultName = origName;
+            size_t dotPos = defaultName.rfind(L'.');
+            if (dotPos != std::string::npos) {
+                defaultName = defaultName.substr(0, dotPos) + L"_searchable.pdf";
             } else {
-                return;
+                defaultName += L"_searchable.pdf";
             }
-        }
-    }
 
-    if (doOverwrite) {
-        StartBakingSearchablePdf(origPath, true);
-        return;
-    }
-
-    if (doSaveAs) {
-        std::wstring defaultName = origName;
-        size_t dotPos = defaultName.rfind(L'.');
-        if (dotPos != std::string::npos) {
-            defaultName = defaultName.substr(0, dotPos) + L"_searchable.pdf";
-        } else {
-            defaultName += L"_searchable.pdf";
-        }
-
-        ComPtr<IFileSaveDialog> pFileSave;
-        HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
-        if (SUCCEEDED(hr)) {
-            COMDLG_FILTERSPEC filterSpecs[] = {
-                { L"PDF Documents (*.pdf)", L"*.pdf" },
-                { L"All Files (*.*)", L"*.*" }
-            };
-            pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
-            pFileSave->SetDefaultExtension(L"pdf");
-            pFileSave->SetFileName(defaultName.c_str());
-            pFileSave->SetTitle(L"Save Searchable PDF As");
-
-            hr = pFileSave->Show(m_hwnd);
+            ComPtr<IFileSaveDialog> pFileSave;
+            HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
             if (SUCCEEDED(hr)) {
-                ComPtr<IShellItem> pItem;
-                hr = pFileSave->GetResult(&pItem);
-                if (SUCCEEDED(hr) && pItem) {
-                    PWSTR pszFilePath = nullptr;
-                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
-                    if (SUCCEEDED(hr) && pszFilePath) {
-                        std::wstring targetPath(pszFilePath);
-                        CoTaskMemFree(pszFilePath);
-                        bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                        StartBakingSearchablePdf(targetPath, isSame);
+                COMDLG_FILTERSPEC filterSpecs[] = {
+                    { L"PDF Documents (*.pdf)", L"*.pdf" },
+                    { L"All Files (*.*)", L"*.*" }
+                };
+                pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
+                pFileSave->SetDefaultExtension(L"pdf");
+                pFileSave->SetFileName(defaultName.c_str());
+                pFileSave->SetTitle(L"Save Searchable PDF As");
+
+                hr = pFileSave->Show(hwnd);
+                if (SUCCEEDED(hr)) {
+                    ComPtr<IShellItem> pItem;
+                    hr = pFileSave->GetResult(&pItem);
+                    if (SUCCEEDED(hr) && pItem) {
+                        PWSTR pszFilePath = nullptr;
+                        hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+                        if (SUCCEEDED(hr) && pszFilePath) {
+                            std::wstring targetPath(pszFilePath);
+                            CoTaskMemFree(pszFilePath);
+                            bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+                            std::wstring* pPath = new std::wstring(targetPath);
+                            PostMessageW(hwnd, WM_APP_BAKE_PDF_START, isSame ? 1 : 0, (LPARAM)pPath);
+                        }
                     }
                 }
-            }
-        } else {
-            wchar_t szFile[MAX_PATH * 2] = { 0 };
-            wcsncpy_s(szFile, defaultName.c_str(), _TRUNCATE);
-            OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
-            ofn.hwndOwner = m_hwnd;
-            ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = szFile;
-            ofn.nMaxFile = _countof(szFile);
-            ofn.lpstrDefExt = L"pdf";
-            ofn.lpstrTitle = L"Save Searchable PDF As";
-            ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-            if (GetSaveFileNameW(&ofn)) {
-                std::wstring targetPath(szFile);
-                bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                StartBakingSearchablePdf(targetPath, isSame);
+            } else {
+                wchar_t szFile[MAX_PATH * 2] = { 0 };
+                wcsncpy_s(szFile, defaultName.c_str(), _TRUNCATE);
+                OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
+                ofn.hwndOwner = hwnd;
+                ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
+                ofn.lpstrFile = szFile;
+                ofn.nMaxFile = _countof(szFile);
+                ofn.lpstrDefExt = L"pdf";
+                ofn.lpstrTitle = L"Save Searchable PDF As";
+                ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+                if (GetSaveFileNameW(&ofn)) {
+                    std::wstring targetPath(szFile);
+                    bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+                    std::wstring* pPath = new std::wstring(targetPath);
+                    PostMessageW(hwnd, WM_APP_BAKE_PDF_START, isSame ? 1 : 0, (LPARAM)pPath);
+                }
             }
         }
-    }
+
+        if (SUCCEEDED(hrCo)) CoUninitialize();
+    });
 }
 
 void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal) {
@@ -2009,15 +2043,24 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
 
     std::wstring srcPath = pTab->document.GetFilePath();
     uint32_t totalPages = pTab->document.GetPageCount();
-    auto doc = pTab->document.GetDoc();
     HWND hwnd = m_hwnd;
 
     ShowToast(L"Starting bilingual OCR baking...");
 
-    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages, doc]() {
+    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages]() {
         try {
-            winrt::init_apartment(winrt::apartment_type::single_threaded);
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
         } catch (...) {}
+
+        winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
+        try {
+            auto storageFile = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(srcPath).get();
+            if (storageFile) {
+                doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(storageFile).get();
+            }
+        } catch (...) {
+            doc = nullptr;
+        }
 
         winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
         try {
@@ -2102,10 +2145,7 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                 } catch (...) {}
             }
 
-            wchar_t progText[128];
-            swprintf_s(progText, L"Baking Searchable PDF... Page %u of %u (Esc to cancel)", p + 1, totalPages);
-            ShowToast(progText);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_PROGRESS, p + 1, totalPages);
         }
 
         if (m_cancelBakingPdf) {
@@ -2114,13 +2154,11 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         }
 
         if (ocrPages.empty()) {
-            ShowToast(L"Document already contains digital text on all pages.");
             PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 1, 0);
             return;
         }
 
-        ShowToast(L"Writing searchable PDF to disk...");
-        InvalidateRect(hwnd, nullptr, FALSE);
+        PostMessageW(hwnd, WM_APP_BAKE_PDF_PROGRESS, 0, totalPages);
 
         bool ok = PdfSearchableWriter::WriteSearchablePdf(srcPath, targetPath, ocrPages, nullptr);
         PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, ok ? 1 : 0, overwriteOriginal ? 1 : 0);
