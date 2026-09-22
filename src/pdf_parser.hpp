@@ -152,13 +152,18 @@ private:
         D2D1_RECT_F localClip = { -1e9f, -1e9f, 1e9f, 1e9f }
     );
 
+    friend class PdfSearchableWriter;
+
     HANDLE m_hFile = INVALID_HANDLE_VALUE;
     HANDLE m_hMapping = nullptr;
     const char* m_mappedData = nullptr;
     size_t m_fileSize = 0;
     std::string_view m_bufferView;
     std::string m_pdfVersion = "1.4";
+    uint32_t m_rootObjNum = 0;
     uint32_t m_infoObjNum = 0;
+    size_t m_startXrefOffset = 0;
+    std::string m_idString;
     std::vector<uint32_t> m_pageObjectNums;
     std::map<uint32_t, PdfXRefEntry> m_xref;
     mutable std::map<uint32_t, std::map<uint32_t, std::string>> m_objStmCache;

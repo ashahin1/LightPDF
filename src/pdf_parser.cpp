@@ -706,6 +706,12 @@ bool PdfParser::ParseXRefStream(size_t offset, std::string& outTrailerDict) {
         if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
         visitedOffsets.push_back(curOffset);
 
+        size_t p = curOffset;
+        while (p < m_bufferView.size() && (m_bufferView[p] == ' ' || m_bufferView[p] == '\t' || m_bufferView[p] == '\r' || m_bufferView[p] == '\n')) p++;
+        if (p + 4 <= m_bufferView.size() && m_bufferView.compare(p, 4, "xref") == 0) {
+            return ParseClassicXRef(p, outTrailerDict);
+        }
+
         size_t stStart = m_bufferView.find("stream", curOffset);
         if (stStart == std::string_view::npos) break;
 
@@ -855,7 +861,12 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
 
         const char* p = m_bufferView.data() + curOffset;
         while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-        if (strncmp(p, "xref", 4) != 0) break;
+        if (strncmp(p, "xref", 4) != 0) {
+            if (*p >= '0' && *p <= '9') {
+                return ParseXRefStream(curOffset, outTrailerDict);
+            }
+            break;
+        }
         p += 4;
 
         while (p < m_bufferView.data() + m_bufferView.size()) {
@@ -979,6 +990,7 @@ bool PdfParser::Load(const std::wstring& filePath) {
         if (numPos < fileSize && m_bufferView[numPos] >= '0' && m_bufferView[numPos] <= '9') {
             size_t xrefOffset = (size_t)strtoull(m_bufferView.data() + numPos, nullptr, 10);
             if (xrefOffset < fileSize) {
+                m_startXrefOffset = xrefOffset;
                 size_t p = xrefOffset;
                 while (p < fileSize && (m_bufferView[p] == ' ' || m_bufferView[p] == '\t' || m_bufferView[p] == '\r' || m_bufferView[p] == '\n')) p++;
                 if (p + 4 <= fileSize && m_bufferView.compare(p, 4, "xref") == 0) {
@@ -1025,6 +1037,15 @@ bool PdfParser::Load(const std::wstring& filePath) {
     if (!trailerDict.empty()) {
         FindIndirectRef(trailerDict, "/Root", rootObj);
         FindIndirectRef(trailerDict, "/Info", m_infoObjNum);
+
+        size_t idPos = trailerDict.find("/ID");
+        if (idPos != std::string::npos) {
+            size_t b1 = trailerDict.find('[', idPos);
+            size_t b2 = trailerDict.find(']', b1);
+            if (b1 != std::string::npos && b2 != std::string::npos) {
+                m_idString = trailerDict.substr(b1, b2 - b1 + 1);
+            }
+        }
     }
     if (rootObj == 0) {
         size_t rootPos = m_bufferView.find("/Root");
@@ -1034,6 +1055,7 @@ bool PdfParser::Load(const std::wstring& filePath) {
             rootObj = (uint32_t)strtoul(m_bufferView.data() + afterRoot, nullptr, 10);
         }
     }
+    m_rootObjNum = rootObj;
     if (m_infoObjNum == 0) {
         size_t infoPos = m_bufferView.rfind("/Info");
         if (infoPos != std::string_view::npos) {
@@ -1113,7 +1135,10 @@ void PdfParser::Close() {
     m_fileSize = 0;
     m_bufferView = {};
     m_pdfVersion = "1.4";
+    m_rootObjNum = 0;
     m_infoObjNum = 0;
+    m_startXrefOffset = 0;
+    m_idString.clear();
     m_pageObjectNums.clear();
     m_xref.clear();
     m_objStmCache.clear();
