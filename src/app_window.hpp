@@ -19,6 +19,8 @@
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 #define WM_APP_BAKE_PDF_DONE (WM_APP + 4)
+#define WM_APP_BAKE_PDF_START (WM_APP + 5)
+#define WM_APP_BAKE_PDF_PROGRESS (WM_APP + 6)
 
 extern const wchar_t* WINDOW_CLASS_NAME;
 
