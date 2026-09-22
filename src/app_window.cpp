@@ -1870,33 +1870,49 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     bool doOverwrite = false;
 
     if (!forceSaveAs) {
-        TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
-        tdc.hwndParent = m_hwnd;
-        tdc.hInstance = m_hInstance;
-        tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-        tdc.pszWindowTitle = L"Save Searchable PDF";
-        tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
-        tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
+        typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+        HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
+        PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
 
-        TASKDIALOG_BUTTON buttons[] = {
-            { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
-            { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
-        };
-        tdc.pButtons = buttons;
-        tdc.cButtons = ARRAYSIZE(buttons);
-        tdc.nDefaultButton = 101;
+        bool handled = false;
+        if (pfnTaskDialogIndirect) {
+            TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
+            tdc.hwndParent = m_hwnd;
+            tdc.hInstance = m_hInstance;
+            tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+            tdc.pszWindowTitle = L"Save Searchable PDF";
+            tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
+            tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
 
-        int nButton = 0;
-        HRESULT hrTd = TaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
-        if (SUCCEEDED(hrTd)) {
-            if (nButton == 101) {
-                doSaveAs = true;
-            } else if (nButton == 102) {
-                doOverwrite = true;
-            } else {
-                return;
+            TASKDIALOG_BUTTON buttons[] = {
+                { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
+                { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
+            };
+            tdc.pButtons = buttons;
+            tdc.cButtons = ARRAYSIZE(buttons);
+            tdc.nDefaultButton = 101;
+
+            int nButton = 0;
+            HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
+            if (SUCCEEDED(hrTd)) {
+                handled = true;
+                if (nButton == 101) {
+                    doSaveAs = true;
+                } else if (nButton == 102) {
+                    doOverwrite = true;
+                } else {
+                    if (hComCtl) FreeLibrary(hComCtl);
+                    return;
+                }
             }
-        } else {
+        }
+
+        if (hComCtl) {
+            FreeLibrary(hComCtl);
+            hComCtl = nullptr;
+        }
+
+        if (!handled) {
             int res = MessageBoxW(
                 m_hwnd,
                 L"Do you want to overwrite the original file?\n\n"

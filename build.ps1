@@ -80,7 +80,6 @@ $clArgs = @(
     "ole32.lib",
     "shcore.lib",
     "comdlg32.lib",
-    "comctl32.lib",
     "advapi32.lib",
     "/OUT:bin\LightPDF.exe"
 )
