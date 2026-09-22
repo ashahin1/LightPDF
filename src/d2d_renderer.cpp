@@ -1995,6 +1995,7 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
     static const ShortcutItem tabItems[] = {
         { L"Ctrl + O / Ctrl + T",    L"Open PDF document in new tab" },
+        { L"Ctrl + S / Shift+S",    L"Save as Searchable PDF (Bake OCR)" },
         { L"Ctrl + W",              L"Close active tab" },
         { L"Ctrl + Tab",            L"Switch to next tab" },
         { L"Ctrl + Shift + Tab",    L"Switch to previous tab" },

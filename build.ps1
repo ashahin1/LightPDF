@@ -34,7 +34,8 @@ $sources = @(
     "src\pdf_document.cpp",
     "src\pdf_parser.cpp",
     "src\pdf_search.cpp",
-    "src\dictionary_engine.cpp"
+    "src\dictionary_engine.cpp",
+    "src\pdf_searchable_writer.cpp"
 )
 
 Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Green
@@ -79,6 +80,7 @@ $clArgs = @(
     "ole32.lib",
     "shcore.lib",
     "comdlg32.lib",
+    "comctl32.lib",
     "advapi32.lib",
     "/OUT:bin\LightPDF.exe"
 )

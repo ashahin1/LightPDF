@@ -15,8 +15,10 @@
 #include "pdf_search.hpp"
 #include "pdf_parser.hpp"
 #include "dictionary_engine.hpp"
+#include "pdf_searchable_writer.hpp"
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
+#define WM_APP_BAKE_PDF_DONE (WM_APP + 4)
 
 extern const wchar_t* WINDOW_CLASS_NAME;
 
@@ -119,6 +121,9 @@ private:
     void OpenFile(const std::wstring& path) { OpenTab(path); }
     void PromptOpenFile();
     void PromptPrint();
+    void PromptSaveSearchablePdf(bool forceSaveAs = false);
+    void StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal);
+    void CancelBakingSearchablePdf();
     void Render();
     void UpdateTitle();
 
@@ -275,6 +280,11 @@ private:
     std::atomic<bool> m_isPrinting{ false };
     std::atomic<bool> m_cancelPrint{ false };
     std::thread m_printThread;
+
+    // Searchable PDF Baking state
+    std::atomic<bool> m_isBakingPdf{ false };
+    std::atomic<bool> m_cancelBakingPdf{ false };
+    std::thread m_bakePdfThread;
 
     // Tab rendering cache
     mutable std::vector<TabRenderInfo> m_cachedTabInfos;

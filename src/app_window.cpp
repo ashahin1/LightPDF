@@ -3,15 +3,26 @@
 #include <windowsx.h>
 #include <shobjidl.h>
 #include <commdlg.h>
+#include <commctrl.h>
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Media.Ocr.h>
+#include <winrt/Windows.Globalization.h>
+#include <winrt/Windows.Graphics.Imaging.h>
+#include <winrt/Windows.Storage.Streams.h>
 
 const wchar_t* WINDOW_CLASS_NAME = L"LightPDF_WindowClass";
 
 AppWindow::AppWindow() = default;
 
 AppWindow::~AppWindow() {
+    m_cancelBakingPdf = true;
+    if (m_bakePdfThread.joinable()) {
+        m_bakePdfThread.join();
+    }
     m_cancelPrint = true;
     if (m_printThread.joinable()) {
         m_printThread.join();
@@ -152,6 +163,45 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             Render();
         }
+        return 0;
+    }
+
+    case WM_APP_BAKE_PDF_DONE: {
+        m_isBakingPdf = false;
+        int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled
+        bool wasOverwrite = (lParam != 0);
+        if (status == 1) {
+            if (wasOverwrite) {
+                auto* pTab = GetActiveTab();
+                if (pTab) {
+                    std::wstring curPath = pTab->document.GetFilePath();
+                    uint32_t curPage = pTab->currentPage;
+                    pTab->document.Close();
+                    if (pTab->parser) pTab->parser->Close();
+
+                    if (pTab->document.Open(curPath, m_hwnd)) {
+                        pTab->parser = std::make_unique<PdfParser>();
+                        pTab->parser->Load(curPath);
+                        pTab->textCache = std::make_shared<PageTextCache>();
+                        pTab->textCache->pages.resize(pTab->document.GetPageCount());
+                        pTab->currentPage = std::min(curPage, pTab->document.GetPageCount() - 1);
+                        m_renderer.InvalidatePageCache();
+                        RecalculateLayout();
+                        UpdateTitle();
+                        ShowToast(L"Searchable PDF saved! (Original file updated)");
+                    } else {
+                        ShowToast(L"Searchable PDF saved, please reopen the file.");
+                    }
+                }
+            } else {
+                ShowToast(L"Searchable PDF saved successfully!");
+            }
+        } else if (status == 2) {
+            ShowToast(L"Searchable PDF generation cancelled.");
+        } else {
+            ShowToast(L"Failed to generate searchable PDF.");
+        }
+        Render();
         return 0;
     }
 
@@ -1027,7 +1077,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             break;
         case 'S':
-            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+            if (isCtrlDown) {
+                PromptSaveSearchablePdf(isShiftDown);
+                return 0;
+            } else if (!m_showSearch && !m_showGoToPage) {
                 SetToolMode(ToolMode::TextSelect);
                 return 0;
             }
@@ -1327,6 +1380,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             ToggleFullscreen();
             return 0;
         case VK_ESCAPE:
+            if (m_isBakingPdf) {
+                CancelBakingSearchablePdf();
+                ShowToast(L"Cancelling Searchable PDF generation...");
+                return 0;
+            }
             if (m_isLaserActive) {
                 ToggleLaserPointer();
                 return 0;
@@ -1786,6 +1844,270 @@ void AppWindow::PromptPrint() {
         }
 
         m_isPrinting = false;
+    });
+}
+
+void AppWindow::CancelBakingSearchablePdf() {
+    m_cancelBakingPdf = true;
+}
+
+void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+        ShowToast(L"No document is currently loaded.");
+        return;
+    }
+
+    if (m_isBakingPdf) {
+        ShowToast(L"Searchable PDF generation is already in progress...");
+        return;
+    }
+
+    std::wstring origPath = pTab->document.GetFilePath();
+    std::wstring origName = pTab->document.GetFileName();
+
+    bool doSaveAs = forceSaveAs;
+    bool doOverwrite = false;
+
+    if (!forceSaveAs) {
+        TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
+        tdc.hwndParent = m_hwnd;
+        tdc.hInstance = m_hInstance;
+        tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+        tdc.pszWindowTitle = L"Save Searchable PDF";
+        tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
+        tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
+
+        TASKDIALOG_BUTTON buttons[] = {
+            { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
+            { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
+        };
+        tdc.pButtons = buttons;
+        tdc.cButtons = ARRAYSIZE(buttons);
+        tdc.nDefaultButton = 101;
+
+        int nButton = 0;
+        HRESULT hrTd = TaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
+        if (SUCCEEDED(hrTd)) {
+            if (nButton == 101) {
+                doSaveAs = true;
+            } else if (nButton == 102) {
+                doOverwrite = true;
+            } else {
+                return;
+            }
+        } else {
+            int res = MessageBoxW(
+                m_hwnd,
+                L"Do you want to overwrite the original file?\n\n"
+                L"Click 'Yes' to overwrite the original file.\n"
+                L"Click 'No' to save as a new file.\n"
+                L"Click 'Cancel' to abort.",
+                L"Save Searchable PDF",
+                MB_YESNOCANCEL | MB_ICONQUESTION
+            );
+            if (res == IDYES) {
+                doOverwrite = true;
+            } else if (res == IDNO) {
+                doSaveAs = true;
+            } else {
+                return;
+            }
+        }
+    }
+
+    if (doOverwrite) {
+        StartBakingSearchablePdf(origPath, true);
+        return;
+    }
+
+    if (doSaveAs) {
+        std::wstring defaultName = origName;
+        size_t dotPos = defaultName.rfind(L'.');
+        if (dotPos != std::string::npos) {
+            defaultName = defaultName.substr(0, dotPos) + L"_searchable.pdf";
+        } else {
+            defaultName += L"_searchable.pdf";
+        }
+
+        ComPtr<IFileSaveDialog> pFileSave;
+        HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
+        if (SUCCEEDED(hr)) {
+            COMDLG_FILTERSPEC filterSpecs[] = {
+                { L"PDF Documents (*.pdf)", L"*.pdf" },
+                { L"All Files (*.*)", L"*.*" }
+            };
+            pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
+            pFileSave->SetDefaultExtension(L"pdf");
+            pFileSave->SetFileName(defaultName.c_str());
+            pFileSave->SetTitle(L"Save Searchable PDF As");
+
+            hr = pFileSave->Show(m_hwnd);
+            if (SUCCEEDED(hr)) {
+                ComPtr<IShellItem> pItem;
+                hr = pFileSave->GetResult(&pItem);
+                if (SUCCEEDED(hr) && pItem) {
+                    PWSTR pszFilePath = nullptr;
+                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+                    if (SUCCEEDED(hr) && pszFilePath) {
+                        std::wstring targetPath(pszFilePath);
+                        CoTaskMemFree(pszFilePath);
+                        bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+                        StartBakingSearchablePdf(targetPath, isSame);
+                    }
+                }
+            }
+        } else {
+            wchar_t szFile[MAX_PATH * 2] = { 0 };
+            wcsncpy_s(szFile, defaultName.c_str(), _TRUNCATE);
+            OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
+            ofn.hwndOwner = m_hwnd;
+            ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
+            ofn.lpstrFile = szFile;
+            ofn.nMaxFile = _countof(szFile);
+            ofn.lpstrDefExt = L"pdf";
+            ofn.lpstrTitle = L"Save Searchable PDF As";
+            ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+            if (GetSaveFileNameW(&ofn)) {
+                std::wstring targetPath(szFile);
+                bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+                StartBakingSearchablePdf(targetPath, isSame);
+            }
+        }
+    }
+}
+
+void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal) {
+    if (m_isBakingPdf.exchange(true)) return;
+    m_cancelBakingPdf = false;
+
+    if (m_bakePdfThread.joinable()) {
+        m_bakePdfThread.join();
+    }
+
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) {
+        m_isBakingPdf = false;
+        return;
+    }
+
+    std::wstring srcPath = pTab->document.GetFilePath();
+    uint32_t totalPages = pTab->document.GetPageCount();
+    auto doc = pTab->document.GetDoc();
+    HWND hwnd = m_hwnd;
+
+    ShowToast(L"Starting bilingual OCR baking...");
+
+    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages, doc]() {
+        try {
+            winrt::init_apartment(winrt::apartment_type::single_threaded);
+        } catch (...) {}
+
+        winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+        try {
+            auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+            }
+            if (!ocrEngine) {
+                auto arGen = winrt::Windows::Globalization::Language(L"ar");
+                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+                }
+            }
+            if (!ocrEngine) {
+                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+            }
+            if (!ocrEngine) {
+                auto enLang = winrt::Windows::Globalization::Language(L"en-US");
+                if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(enLang)) {
+                    ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
+                }
+            }
+        } catch (...) {}
+
+        if (!ocrEngine || !doc) {
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 0, 0);
+            return;
+        }
+
+        PdfParser parser;
+        if (!parser.Load(srcPath)) {
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 0, 0);
+            return;
+        }
+
+        std::vector<OcrPageItem> ocrPages;
+
+        for (uint32_t p = 0; p < totalPages; ++p) {
+            if (m_cancelBakingPdf) {
+                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 2, 0);
+                return;
+            }
+
+            PdfPageText pageText;
+            parser.ExtractPageText(p, pageText);
+
+            if (!pageText.hasDigitalText) {
+                try {
+                    auto page = doc.GetPage(p);
+                    if (page) {
+                        winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
+                        page.RenderToStreamAsync(stream).get();
+                        auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
+                        auto bitmap = decoder.GetSoftwareBitmapAsync().get();
+                        auto ocrResult = ocrEngine.RecognizeAsync(bitmap).get();
+
+                        float scaleX = (bitmap.PixelWidth() > 0) ? (pageText.pageWidth / (float)bitmap.PixelWidth()) : 1.0f;
+                        float scaleY = (bitmap.PixelHeight() > 0) ? (pageText.pageHeight / (float)bitmap.PixelHeight()) : 1.0f;
+
+                        OcrPageItem pageItem;
+                        pageItem.pageIndex = p;
+                        pageItem.pageWidthDip = pageText.pageWidth;
+                        pageItem.pageHeightDip = pageText.pageHeight;
+
+                        for (auto line : ocrResult.Lines()) {
+                            for (auto word : line.Words()) {
+                                auto r = word.BoundingRect();
+                                D2D1_RECT_F wRect = D2D1::RectF(
+                                    r.X * scaleX,
+                                    r.Y * scaleY,
+                                    (r.X + r.Width) * scaleX,
+                                    (r.Y + r.Height) * scaleY
+                                );
+                                pageItem.words.push_back({ std::wstring(word.Text()), wRect });
+                            }
+                        }
+
+                        if (!pageItem.words.empty()) {
+                            ocrPages.push_back(std::move(pageItem));
+                        }
+                    }
+                } catch (...) {}
+            }
+
+            wchar_t progText[128];
+            swprintf_s(progText, L"Baking Searchable PDF... Page %u of %u (Esc to cancel)", p + 1, totalPages);
+            ShowToast(progText);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+
+        if (m_cancelBakingPdf) {
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 2, 0);
+            return;
+        }
+
+        if (ocrPages.empty()) {
+            ShowToast(L"Document already contains digital text on all pages.");
+            PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 1, 0);
+            return;
+        }
+
+        ShowToast(L"Writing searchable PDF to disk...");
+        InvalidateRect(hwnd, nullptr, FALSE);
+
+        bool ok = PdfSearchableWriter::WriteSearchablePdf(srcPath, targetPath, ocrPages, nullptr);
+        PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, ok ? 1 : 0, overwriteOriginal ? 1 : 0);
     });
 }
 
