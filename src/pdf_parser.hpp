@@ -22,6 +22,7 @@ struct NumericTokens {
 struct PdfTextChar {
     wchar_t ch = 0;
     D2D1_RECT_F rect = { 0, 0, 0, 0 }; // Page coordinate space in DIPs (origin top-left)
+    uint32_t color = 0x000000;         // 24-bit RGB (0x00RRGGBB)
 };
 
 struct PdfPageText {
