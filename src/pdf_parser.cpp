@@ -2168,8 +2168,13 @@ void PdfParser::ParseContentStream(
     float curHScale = 100.0f;
     float curLeading = 12.0f;
 
-    std::vector<Matrix2D> ctmStack;
+    struct GraphicsState {
+        Matrix2D ctm;
+        uint32_t fillColor = 0x000000;
+    };
+    std::vector<GraphicsState> gStateStack;
     Matrix2D ctm = initialCtm;
+    uint32_t curFillColor = 0x000000;
 
     Matrix2D tm = Matrix2D::Identity();
     Matrix2D tlm = Matrix2D::Identity();
@@ -2287,6 +2292,7 @@ void PdfParser::ParseContentStream(
                 PdfTextChar tc;
                 tc.ch = wch;
                 tc.rect = charRect;
+                tc.color = curFillColor;
 
                 outPage.fullText.push_back(wch);
                 outPage.chars.push_back(tc);
@@ -2303,16 +2309,66 @@ void PdfParser::ParseContentStream(
 
         // Save graphics state 'q'
         if (pStream[i] == 'q' && (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
-            ctmStack.push_back(ctm);
+            gStateStack.push_back({ ctm, curFillColor });
             i++;
             continue;
         }
 
         // Restore graphics state 'Q'
         if (pStream[i] == 'Q' && (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
-            if (!ctmStack.empty()) {
-                ctm = ctmStack.back();
-                ctmStack.pop_back();
+            if (!gStateStack.empty()) {
+                ctm = gStateStack.back().ctm;
+                curFillColor = gStateStack.back().fillColor;
+                gStateStack.pop_back();
+            }
+            i++;
+            continue;
+        }
+
+        // RGB fill color: "r g b rg"
+        if (i + 2 <= len && pStream[i] == 'r' && pStream[i + 1] == 'g' &&
+            (i + 2 >= len || pStream[i + 2] == ' ' || pStream[i + 2] == '\t' || pStream[i + 2] == '\r' || pStream[i + 2] == '\n')) {
+            auto vals = GetPrecedingNumericTokens(pStream, i, 3);
+            if (vals.count >= 3) {
+                float r = std::clamp(vals.values[vals.count - 3], 0.0f, 1.0f);
+                float g = std::clamp(vals.values[vals.count - 2], 0.0f, 1.0f);
+                float b = std::clamp(vals.values[vals.count - 1], 0.0f, 1.0f);
+                curFillColor = ((uint32_t)(r * 255.0f + 0.5f) << 16) |
+                               ((uint32_t)(g * 255.0f + 0.5f) << 8) |
+                               ((uint32_t)(b * 255.0f + 0.5f));
+            }
+            i += 2;
+            continue;
+        }
+
+        // Grayscale fill color: "gray g"
+        if (pStream[i] == 'g' &&
+            (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
+            auto vals = GetPrecedingNumericTokens(pStream, i, 1);
+            if (vals.count >= 1) {
+                float gray = std::clamp(vals.values[vals.count - 1], 0.0f, 1.0f);
+                uint32_t c = (uint32_t)(gray * 255.0f + 0.5f);
+                curFillColor = (c << 16) | (c << 8) | c;
+            }
+            i++;
+            continue;
+        }
+
+        // CMYK fill color: "c m y k k"
+        if (pStream[i] == 'k' &&
+            (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
+            auto vals = GetPrecedingNumericTokens(pStream, i, 4);
+            if (vals.count >= 4) {
+                float c = std::clamp(vals.values[vals.count - 4], 0.0f, 1.0f);
+                float m = std::clamp(vals.values[vals.count - 3], 0.0f, 1.0f);
+                float y = std::clamp(vals.values[vals.count - 2], 0.0f, 1.0f);
+                float k = std::clamp(vals.values[vals.count - 1], 0.0f, 1.0f);
+                float r = (1.0f - c) * (1.0f - k);
+                float g = (1.0f - m) * (1.0f - k);
+                float b = (1.0f - y) * (1.0f - k);
+                curFillColor = ((uint32_t)(std::clamp(r, 0.0f, 1.0f) * 255.0f + 0.5f) << 16) |
+                               ((uint32_t)(std::clamp(g, 0.0f, 1.0f) * 255.0f + 0.5f) << 8) |
+                               ((uint32_t)(std::clamp(b, 0.0f, 1.0f) * 255.0f + 0.5f));
             }
             i++;
             continue;

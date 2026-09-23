@@ -781,7 +781,8 @@ void D2DRenderer::RenderBlank(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const WordEditRenderInfo& wordEdit
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -806,7 +807,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -844,7 +845,8 @@ void D2DRenderer::RenderPage(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const WordEditRenderInfo& wordEdit
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1082,7 +1084,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1118,7 +1120,8 @@ void D2DRenderer::RenderContinuous(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const WordEditRenderInfo& wordEdit
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1350,7 +1353,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1379,7 +1382,8 @@ void D2DRenderer::DrawOverlays(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo* pDictCard,
     const LaserPointerRenderInfo* pLaser,
-    const PresenterBarRenderInfo* pPresenterBar
+    const PresenterBarRenderInfo* pPresenterBar,
+    const WordEditRenderInfo* pWordEdit
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1414,6 +1418,11 @@ void D2DRenderer::DrawOverlays(
     // 7. Draw Dictionary Card if visible
     if (pDictCard && pDictCard->visible) {
         DrawDictionaryCard(*pDictCard);
+    }
+
+    // 7b. Draw Inline Word Edit Overlay if visible
+    if (pWordEdit && pWordEdit->visible) {
+        DrawWordEditOverlay(*pWordEdit);
     }
 
     // 8. Draw Fullscreen Presenter Bar if visible
@@ -1913,11 +1922,11 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
     // 4. Category Tabs
     static const wchar_t* tabLabels[5] = {
-        L"All (34)",
+        L"All (36)",
         L"Navigation (8)",
         L"Zoom & View (8)",
         L"Tabs & Files (8)",
-        L"Search & Tools (10)"
+        L"Search & Tools (12)"
     };
 
     for (int i = 0; i < 5; ++i) {
@@ -2007,6 +2016,8 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
+        { L"Alt + Click Word",      L"Edit / correct word inline" },
+        { L"Ctrl + Z",              L"Undo word edits (before save)" },
         { L"L",                     L"Toggle Presentation Laser Pointer" },
         { L"C",                     L"Cycle Laser Color (Red/Green/Cyan/Gold)" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
@@ -2654,6 +2665,127 @@ void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
         hintRect,
         m_brushDictHintText.Get()
     );
+}
+
+void D2DRenderer::DrawWordEditOverlay(const WordEditRenderInfo& edit) {
+    if (!edit.visible || !m_d2dContext) return;
+
+    float padX = 4.0f;
+    float padY = 2.0f;
+    float boxW = (std::max)(edit.screenRect.right - edit.screenRect.left + padX * 2.0f, 32.0f);
+    float boxH = (std::max)(edit.screenRect.bottom - edit.screenRect.top + padY * 2.0f, 18.0f);
+    D2D1_RECT_F boxRect = D2D1::RectF(
+        edit.screenRect.left - padX,
+        edit.screenRect.top - padY,
+        edit.screenRect.left - padX + boxW,
+        edit.screenRect.top - padY + boxH
+    );
+    D2D1_ROUNDED_RECT roundedBox = D2D1::RoundedRect(boxRect, 3.0f, 3.0f);
+
+    // 1. Draw opaque white background to mask original typo
+    ComPtr<ID2D1SolidColorBrush> bgBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &bgBrush);
+    if (bgBrush) {
+        m_d2dContext->FillRoundedRectangle(roundedBox, bgBrush.Get());
+    }
+
+    // 2. Draw active accent border (Fluent Blue)
+    ComPtr<ID2D1SolidColorBrush> borderBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 1.0f), &borderBrush);
+    if (borderBrush) {
+        m_d2dContext->DrawRoundedRectangle(roundedBox, borderBrush.Get(), 1.5f);
+    }
+
+    // 3. Draw replacement text in original font color
+    float r = ((edit.color >> 16) & 0xFF) / 255.0f;
+    float g = ((edit.color >> 8) & 0xFF) / 255.0f;
+    float b = (edit.color & 0xFF) / 255.0f;
+    ComPtr<ID2D1SolidColorBrush> textBrush;
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
+
+    float textH = edit.screenRect.bottom - edit.screenRect.top;
+    float fontSize = std::clamp(textH * 0.85f, 11.0f, 36.0f);
+
+    ComPtr<IDWriteTextFormat> fmt;
+    m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        fontSize,
+        L"",
+        &fmt
+    );
+
+    if (fmt) {
+        fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+        bool isArabic = false;
+        for (wchar_t c : edit.text) {
+            if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
+                isArabic = true;
+                break;
+            }
+        }
+        if (isArabic) {
+            fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
+            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        }
+
+        D2D1_RECT_F textRect = D2D1::RectF(
+            boxRect.left + 3.0f,
+            boxRect.top,
+            boxRect.right - 3.0f,
+            boxRect.bottom
+        );
+
+        if (!edit.text.empty() && textBrush) {
+            m_d2dContext->DrawText(
+                edit.text.c_str(),
+                (UINT32)edit.text.size(),
+                fmt.Get(),
+                textRect,
+                textBrush.Get()
+            );
+        }
+
+        // 4. Blinking cursor
+        uint64_t now = GetTickCount64();
+        bool showCaret = ((now / 500) % 2) == 0;
+        if (showCaret && borderBrush) {
+            float caretX = textRect.left;
+            if (!edit.text.empty()) {
+                ComPtr<IDWriteTextLayout> layout;
+                m_dwriteFactory->CreateTextLayout(
+                    edit.text.c_str(),
+                    (UINT32)edit.text.size(),
+                    fmt.Get(),
+                    10000.0f,
+                    textH,
+                    &layout
+                );
+                if (layout) {
+                    DWRITE_TEXT_METRICS tm = {};
+                    layout->GetMetrics(&tm);
+                    if (isArabic) {
+                        caretX = textRect.right - tm.width - 1.0f;
+                    } else {
+                        caretX = textRect.left + tm.width + 1.0f;
+                    }
+                }
+            } else if (isArabic) {
+                caretX = textRect.right - 2.0f;
+            }
+            caretX = std::clamp(caretX, boxRect.left + 2.0f, boxRect.right - 2.0f);
+            m_d2dContext->DrawLine(
+                D2D1::Point2F(caretX, boxRect.top + 3.0f),
+                D2D1::Point2F(caretX, boxRect.bottom - 3.0f),
+                borderBrush.Get(),
+                1.5f
+            );
+        }
+    }
 }
 
 void D2DRenderer::DrawLaserPointer(const LaserPointerRenderInfo& laser) {

@@ -16,6 +16,7 @@
 #include "pdf_parser.hpp"
 #include "dictionary_engine.hpp"
 #include "pdf_searchable_writer.hpp"
+#include "pdf_word_edit.hpp"
 
 #define WM_APP_OPEN_FILE (WM_APP + 1)
 #define WM_APP_BAKE_PDF_DONE (WM_APP + 4)
@@ -100,6 +101,9 @@ struct DocumentTab {
 
     // Parser for lazy, zero-latency single-page text extraction
     std::unique_ptr<PdfParser> parser;
+
+    // Inline word edits pending save for this tab
+    std::vector<WordEdit> pendingEdits;
 };
 
 class AppWindow {
@@ -186,6 +190,16 @@ private:
     std::wstring GetSelectedWordOrText(D2D1_RECT_F& outAnchorRect);
     void CopyDictionaryDefinitionToClipboard();
     void ClampCanvasOffsets(DocumentTab* pTab);
+
+    void StartWordEdit(uint32_t page, size_t charStart, size_t charEnd,
+                       const std::wstring& word, const std::vector<PdfTextChar>& originalChars,
+                       const D2D1_RECT_F& pageRect, uint32_t color);
+    void CommitWordEdit();
+    void CancelWordEdit();
+    void UndoLastWordEdit();
+    bool HasPendingEdits(const DocumentTab* pTab = nullptr) const;
+    WordEditRenderInfo GetWordEditInfo() const;
+    D2D1_RECT_F PageToScreenRect(uint32_t page, const D2D1_RECT_F& pageRect) const;
 
     HelpOverlayRenderInfo GetHelpInfo() const;
 
@@ -295,4 +309,15 @@ private:
     DictionaryEngine m_dictEngine;
     DictionaryCardRenderInfo m_dictCardInfo;
     D2D1_RECT_F m_dictCardBounds = { 0, 0, 0, 0 };
+
+    // Inline Word Editing state
+    bool m_isEditingWord = false;
+    std::wstring m_editWordBuffer;
+    std::wstring m_editWordOriginal;
+    std::vector<PdfTextChar> m_editWordOriginalChars;
+    uint32_t m_editWordPage = 0;
+    size_t m_editWordCharStart = 0;
+    size_t m_editWordCharEnd = 0;
+    D2D1_RECT_F m_editWordPageRect = { 0, 0, 0, 0 };
+    uint32_t m_editWordColor = 0x000000;
 };
