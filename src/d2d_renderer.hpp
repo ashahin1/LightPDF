@@ -14,6 +14,8 @@
 #include <windows.data.pdf.interop.h>
 #include <string>
 #include <mutex>
+#include <vector>
+#include "pdf_word_edit.hpp"
 
 using Microsoft::WRL::ComPtr;
 
@@ -347,7 +349,8 @@ public:
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
-        const WordEditRenderInfo& wordEdit = {}
+        const WordEditRenderInfo& wordEdit = {},
+        const std::vector<WordEdit>& pendingEdits = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -369,13 +372,21 @@ public:
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
-        const WordEditRenderInfo& wordEdit = {}
+        const WordEditRenderInfo& wordEdit = {},
+        const std::vector<WordEdit>& pendingEdits = {}
     );
 
     void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
     void DrawLaserPointer(const LaserPointerRenderInfo& laser);
     void DrawPresenterBar(const PresenterBarRenderInfo& presenterBar);
     void DrawWordEditOverlay(const WordEditRenderInfo& edit);
+    void DrawCommittedWordEdits(
+        const std::vector<WordEdit>& edits,
+        uint32_t pageIndex,
+        float pageX,
+        float pageY,
+        float zoom
+    );
 
     int HitTestDocumentProperties(POINT pt) const;
     int HitTestHelpOverlay(POINT pt) const;

@@ -1059,11 +1059,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 UndoLastWordEdit();
                 return 0;
             }
-            if (wParam == VK_TAB || wParam == VK_HOME || wParam == VK_END ||
-                wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_UP || wParam == VK_DOWN ||
-                wParam == VK_PRIOR || wParam == VK_NEXT || wParam == VK_SPACE) {
-                return 0;
-            }
+            // Swallow ALL other keys while editing word so shortcuts like 'L', 'C', 'H', 'F' don't trigger!
+            // Note: Printable characters and Backspace are processed in WM_CHAR.
+            return 0;
         }
 
         // Global Ctrl+Z to undo last word correction
@@ -1596,6 +1594,19 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_ERASEBKGND:
         return 1; // Direct2D handles entire background, avoid flicker
 
+    case WM_CLOSE: {
+        while (!m_tabs.empty()) {
+            size_t countBefore = m_tabs.size();
+            CloseTab(m_tabs.size() - 1);
+            if (m_tabs.size() == countBefore) {
+                // User cancelled closing
+                return 0;
+            }
+        }
+        DestroyWindow(m_hwnd);
+        return 0;
+    }
+
     case WM_DESTROY:
         m_renderer.Cleanup();
         PostQuitMessage(0);
@@ -1664,11 +1675,17 @@ void AppWindow::CloseTab(size_t index) {
 
     if (HasPendingEdits(&m_tabs[index])) {
         std::wstring fileName = m_tabs[index].document.GetFileName();
-        std::wstring msg = L"\"" + fileName + L"\" has unsaved word corrections.\n\nDo you want to discard your changes and close this tab?";
-        int ans = MessageBoxW(m_hwnd, msg.c_str(), L"Unsaved Changes", MB_YESNO | MB_ICONQUESTION);
-        if (ans != IDYES) {
+        std::wstring msg = L"Do you want to save changes to \"" + fileName + L"\" before closing?";
+        int ans = MessageBoxW(m_hwnd, msg.c_str(), L"LightPDF", MB_YESNOCANCEL | MB_ICONQUESTION);
+        if (ans == IDCANCEL) {
             return;
         }
+        if (ans == IDYES) {
+            SelectTab(index);
+            PromptSaveSearchablePdf(false);
+            return;
+        }
+        // ans == IDNO: discard changes and continue closing tab
     }
 
     if (m_isEditingWord) {
@@ -2882,7 +2899,8 @@ void AppWindow::Render() {
                 m_dictCardInfo,
                 laserInfo,
                 presenterBarInfo,
-                GetWordEditInfo()
+                GetWordEditInfo(),
+                pTab->pendingEdits
             );
             return;
         }
@@ -2913,7 +2931,8 @@ void AppWindow::Render() {
                 m_dictCardInfo,
                 laserInfo,
                 presenterBarInfo,
-                GetWordEditInfo()
+                GetWordEditInfo(),
+                pTab->pendingEdits
             );
             return;
         }
