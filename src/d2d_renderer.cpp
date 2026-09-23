@@ -846,7 +846,8 @@ void D2DRenderer::RenderPage(
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
-    const WordEditRenderInfo& wordEdit
+    const WordEditRenderInfo& wordEdit,
+    const std::vector<WordEdit>& pendingEdits
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1047,6 +1048,9 @@ void D2DRenderer::RenderPage(
         }
     }
 
+    // Draw committed word corrections on this page (instant live display before save)
+    DrawCommittedWordEdits(pendingEdits, currentPageIndex, offsetX, pageY, zoom);
+
     // 4. Draw 1px crisp outline around page
     m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
 
@@ -1121,7 +1125,8 @@ void D2DRenderer::RenderContinuous(
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
-    const WordEditRenderInfo& wordEdit
+    const WordEditRenderInfo& wordEdit,
+    const std::vector<WordEdit>& pendingEdits
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1314,6 +1319,9 @@ void D2DRenderer::RenderContinuous(
                 drawBox(hl.pageRect);
             }
         }
+
+        // Draw committed word corrections on this page (instant live display before save)
+        DrawCommittedWordEdits(pendingEdits, vp.pageIndex, pageX, pageY, zoom);
 
         // 4. Draw 1px crisp outline around page
         m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
@@ -2784,6 +2792,81 @@ void D2DRenderer::DrawWordEditOverlay(const WordEditRenderInfo& edit) {
                 borderBrush.Get(),
                 1.5f
             );
+        }
+    }
+}
+
+void D2DRenderer::DrawCommittedWordEdits(
+    const std::vector<WordEdit>& edits,
+    uint32_t pageIndex,
+    float pageX,
+    float pageY,
+    float zoom
+) {
+    if (edits.empty() || !m_d2dContext) return;
+
+    for (const auto& edit : edits) {
+        if (edit.pageIndex != pageIndex) continue;
+
+        float sx = pageX + edit.pageDipRect.left * zoom;
+        float sy = pageY + edit.pageDipRect.top * zoom;
+        float sw = (edit.pageDipRect.right - edit.pageDipRect.left) * zoom;
+        float sh = (edit.pageDipRect.bottom - edit.pageDipRect.top) * zoom;
+        if (sw <= 0.0f || sh <= 0.0f) continue;
+
+        D2D1_RECT_F boxRect = D2D1::RectF(sx, sy, sx + sw, sy + sh);
+
+        // 1. Draw opaque white background to cleanly mask the original typo
+        m_d2dContext->FillRectangle(boxRect, m_brushPageBg.Get());
+
+        // 2. Draw replacement text in original font color
+        if (!edit.newText.empty()) {
+            float r = ((edit.color >> 16) & 0xFF) / 255.0f;
+            float g = ((edit.color >> 8) & 0xFF) / 255.0f;
+            float b = (edit.color & 0xFF) / 255.0f;
+            ComPtr<ID2D1SolidColorBrush> textBrush;
+            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
+
+            float fontSize = std::clamp(sh * 0.85f, 10.0f, 60.0f);
+
+            ComPtr<IDWriteTextFormat> fmt;
+            m_dwriteFactory->CreateTextFormat(
+                L"Segoe UI",
+                nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                fontSize,
+                L"",
+                &fmt
+            );
+
+            if (fmt && textBrush) {
+                fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+                bool isArabic = false;
+                for (wchar_t c : edit.newText) {
+                    if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
+                        isArabic = true;
+                        break;
+                    }
+                }
+                if (isArabic) {
+                    fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
+                    fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+                } else {
+                    fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
+                    fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                }
+
+                m_d2dContext->DrawText(
+                    edit.newText.c_str(),
+                    (UINT32)edit.newText.size(),
+                    fmt.Get(),
+                    boxRect,
+                    textBrush.Get()
+                );
+            }
         }
     }
 }
