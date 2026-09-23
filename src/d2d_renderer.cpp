@@ -2678,16 +2678,84 @@ void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
 void D2DRenderer::DrawWordEditOverlay(const WordEditRenderInfo& edit) {
     if (!edit.visible || !m_d2dContext) return;
 
+    float textH = edit.screenRect.bottom - edit.screenRect.top;
+    float fontSize = (std::max)(2.0f, textH * 0.88f);
+
+    ComPtr<IDWriteTextFormat> fmt;
+    m_dwriteFactory->CreateTextFormat(
+        L"Arial",
+        nullptr,
+        DWRITE_FONT_WEIGHT_NORMAL,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        fontSize,
+        L"",
+        &fmt
+    );
+    if (!fmt) return;
+
+    fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+    bool isArabic = false;
+    for (wchar_t c : edit.text) {
+        if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
+            isArabic = true;
+            break;
+        }
+    }
+    if (isArabic) {
+        fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
+    } else {
+        fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
+    }
+
+    float textW = 0.0f;
+    DWRITE_LINE_METRICS lm = {};
+    ComPtr<IDWriteTextLayout> layout;
+    if (!edit.text.empty()) {
+        m_dwriteFactory->CreateTextLayout(
+            edit.text.c_str(),
+            (UINT32)edit.text.size(),
+            fmt.Get(),
+            10000.0f,
+            textH,
+            &layout
+        );
+        if (layout) {
+            DWRITE_TEXT_METRICS tm = {};
+            layout->GetMetrics(&tm);
+            textW = tm.width;
+            // CRITICAL for RTL: reset max width to textW so tm.left becomes 0 instead of 10000!
+            layout->SetMaxWidth(textW);
+
+            UINT32 lineCount = 0;
+            layout->GetLineMetrics(&lm, 1, &lineCount);
+        }
+    }
+
     float padX = 4.0f;
     float padY = 2.0f;
-    float boxW = (std::max)(edit.screenRect.right - edit.screenRect.left + padX * 2.0f, 32.0f);
-    float boxH = (std::max)(edit.screenRect.bottom - edit.screenRect.top + padY * 2.0f, 18.0f);
-    D2D1_RECT_F boxRect = D2D1::RectF(
-        edit.screenRect.left - padX,
-        edit.screenRect.top - padY,
-        edit.screenRect.left - padX + boxW,
-        edit.screenRect.top - padY + boxH
-    );
+    float origW = edit.screenRect.right - edit.screenRect.left;
+    float boxW = (std::max)(origW, textW) + padX * 2.0f;
+    boxW = (std::max)(boxW, 32.0f);
+    float boxH = (std::max)((std::max)(textH, lm.height) + padY * 2.0f, 18.0f);
+
+    D2D1_RECT_F boxRect;
+    if (isArabic) {
+        boxRect = D2D1::RectF(
+            edit.screenRect.right + padX - boxW,
+            edit.screenRect.top - padY,
+            edit.screenRect.right + padX,
+            edit.screenRect.top - padY + boxH
+        );
+    } else {
+        boxRect = D2D1::RectF(
+            edit.screenRect.left - padX,
+            edit.screenRect.top - padY,
+            edit.screenRect.left - padX + boxW,
+            edit.screenRect.top - padY + boxH
+        );
+    }
     D2D1_ROUNDED_RECT roundedBox = D2D1::RoundedRect(boxRect, 3.0f, 3.0f);
 
     // 1. Draw opaque white background to mask original typo
@@ -2704,95 +2772,47 @@ void D2DRenderer::DrawWordEditOverlay(const WordEditRenderInfo& edit) {
         m_d2dContext->DrawRoundedRectangle(roundedBox, borderBrush.Get(), 1.5f);
     }
 
-    // 3. Draw replacement text in original font color
+    // 3. Draw replacement text in original font color (with safety guard against white-on-white)
     float r = ((edit.color >> 16) & 0xFF) / 255.0f;
     float g = ((edit.color >> 8) & 0xFF) / 255.0f;
     float b = (edit.color & 0xFF) / 255.0f;
+    float lum = 0.299f * r + 0.587f * g + 0.114f * b;
+    if (lum > 0.92f) {
+        r = 0.0f; g = 0.0f; b = 0.0f;
+    }
     ComPtr<ID2D1SolidColorBrush> textBrush;
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
 
-    float textH = edit.screenRect.bottom - edit.screenRect.top;
-    float fontSize = std::clamp(textH * 0.85f, 11.0f, 36.0f);
-
-    ComPtr<IDWriteTextFormat> fmt;
-    m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        fontSize,
-        L"",
-        &fmt
+    D2D1_RECT_F textRect = D2D1::RectF(
+        boxRect.left + padX,
+        boxRect.top + padY,
+        boxRect.right - padX,
+        boxRect.bottom - padY
     );
 
-    if (fmt) {
-        fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    float drawY = boxRect.top + (boxH - (lm.height > 0.0f ? lm.height : textH)) * 0.5f;
+    float drawX = isArabic ? (textRect.right - textW) : textRect.left;
 
-        bool isArabic = false;
-        for (wchar_t c : edit.text) {
-            if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
-                isArabic = true;
-                break;
-            }
-        }
-        if (isArabic) {
-            fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
-            fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-        }
-
-        D2D1_RECT_F textRect = D2D1::RectF(
-            boxRect.left + 3.0f,
-            boxRect.top,
-            boxRect.right - 3.0f,
-            boxRect.bottom
+    if (layout && textBrush) {
+        m_d2dContext->DrawTextLayout(
+            D2D1::Point2F(drawX, drawY),
+            layout.Get(),
+            textBrush.Get()
         );
+    }
 
-        if (!edit.text.empty() && textBrush) {
-            m_d2dContext->DrawText(
-                edit.text.c_str(),
-                (UINT32)edit.text.size(),
-                fmt.Get(),
-                textRect,
-                textBrush.Get()
-            );
-        }
-
-        // 4. Blinking cursor
-        uint64_t now = GetTickCount64();
-        bool showCaret = ((now / 500) % 2) == 0;
-        if (showCaret && borderBrush) {
-            float caretX = textRect.left;
-            if (!edit.text.empty()) {
-                ComPtr<IDWriteTextLayout> layout;
-                m_dwriteFactory->CreateTextLayout(
-                    edit.text.c_str(),
-                    (UINT32)edit.text.size(),
-                    fmt.Get(),
-                    10000.0f,
-                    textH,
-                    &layout
-                );
-                if (layout) {
-                    DWRITE_TEXT_METRICS tm = {};
-                    layout->GetMetrics(&tm);
-                    if (isArabic) {
-                        caretX = textRect.right - tm.width - 1.0f;
-                    } else {
-                        caretX = textRect.left + tm.width + 1.0f;
-                    }
-                }
-            } else if (isArabic) {
-                caretX = textRect.right - 2.0f;
-            }
-            caretX = std::clamp(caretX, boxRect.left + 2.0f, boxRect.right - 2.0f);
-            m_d2dContext->DrawLine(
-                D2D1::Point2F(caretX, boxRect.top + 3.0f),
-                D2D1::Point2F(caretX, boxRect.bottom - 3.0f),
-                borderBrush.Get(),
-                1.5f
-            );
-        }
+    // 4. Blinking cursor
+    uint64_t now = GetTickCount64();
+    bool showCaret = ((now / 500) % 2) == 0;
+    if (showCaret && borderBrush) {
+        float caretX = isArabic ? (drawX - 1.0f) : (drawX + textW + 1.0f);
+        caretX = std::clamp(caretX, boxRect.left + 2.0f, boxRect.right - 2.0f);
+        m_d2dContext->DrawLine(
+            D2D1::Point2F(caretX, boxRect.top + 3.0f),
+            D2D1::Point2F(caretX, boxRect.bottom - 3.0f),
+            borderBrush.Get(),
+            1.5f
+        );
     }
 }
 
@@ -2814,24 +2834,29 @@ void D2DRenderer::DrawCommittedWordEdits(
         float sh = (edit.pageDipRect.bottom - edit.pageDipRect.top) * zoom;
         if (sw <= 0.0f || sh <= 0.0f) continue;
 
-        D2D1_RECT_F boxRect = D2D1::RectF(sx, sy, sx + sw, sy + sh);
-
-        // 1. Draw opaque white background to cleanly mask the original typo
-        m_d2dContext->FillRectangle(boxRect, m_brushPageBg.Get());
+        // 1. Draw exact white cover rectangle (avoid overlapping table grid lines by subtracting 0.5px like in PDF)
+        float coverH = std::max(1.0f, sh - 0.5f * zoom);
+        D2D1_RECT_F coverRect = D2D1::RectF(sx, sy, sx + sw, sy + coverH);
+        m_d2dContext->FillRectangle(coverRect, m_brushPageBg.Get());
 
         // 2. Draw replacement text in original font color
         if (!edit.newText.empty()) {
             float r = ((edit.color >> 16) & 0xFF) / 255.0f;
             float g = ((edit.color >> 8) & 0xFF) / 255.0f;
             float b = (edit.color & 0xFF) / 255.0f;
+            float lum = 0.299f * r + 0.587f * g + 0.114f * b;
+            if (lum > 0.92f) {
+                r = 0.0f; g = 0.0f; b = 0.0f;
+            }
             ComPtr<ID2D1SolidColorBrush> textBrush;
             m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
+            if (!textBrush) continue;
 
-            float fontSize = std::clamp(sh * 0.85f, 10.0f, 60.0f);
+            float fontSize = std::max(2.0f, sh * 0.88f);
 
             ComPtr<IDWriteTextFormat> fmt;
             m_dwriteFactory->CreateTextFormat(
-                L"Segoe UI",
+                L"Arial",
                 nullptr,
                 DWRITE_FONT_WEIGHT_NORMAL,
                 DWRITE_FONT_STYLE_NORMAL,
@@ -2841,31 +2866,85 @@ void D2DRenderer::DrawCommittedWordEdits(
                 &fmt
             );
 
-            if (fmt && textBrush) {
-                fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            if (!fmt) continue;
 
-                bool isArabic = false;
-                for (wchar_t c : edit.newText) {
-                    if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
-                        isArabic = true;
-                        break;
-                    }
+            // Never wrap word edit onto multiple lines!
+            fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+            bool isArabic = false;
+            for (wchar_t c : edit.newText) {
+                if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
+                    isArabic = true;
+                    break;
                 }
-                if (isArabic) {
-                    fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
-                    fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            }
+
+            if (isArabic) {
+                fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
+            } else {
+                fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
+            }
+
+            ComPtr<IDWriteTextLayout> layout;
+            m_dwriteFactory->CreateTextLayout(
+                edit.newText.c_str(),
+                (UINT32)edit.newText.size(),
+                fmt.Get(),
+                10000.0f,
+                sh,
+                &layout
+            );
+
+            if (!layout) continue;
+
+            DWRITE_TEXT_METRICS tm = {};
+            layout->GetMetrics(&tm);
+            float renderedW = tm.width;
+            // CRITICAL for RTL: reset max width to renderedW so tm.left becomes 0 instead of 10000!
+            layout->SetMaxWidth(renderedW);
+
+            DWRITE_LINE_METRICS lm = {};
+            UINT32 lineCount = 0;
+            layout->GetLineMetrics(&lm, 1, &lineCount);
+
+            // Baseline alignment: match PDF generator (textBaseline = pdfY + 0.20f * fontSize)
+            float screenBaseline = (sy + sh) - 0.20f * fontSize;
+            float drawY = screenBaseline - (lm.baseline > 0.0f ? lm.baseline : (fontSize * 0.80f));
+
+            float scaleX = 1.0f;
+            float drawX = sx;
+
+            if (isArabic) {
+                if (renderedW > sw && sw > 0.0f) {
+                    scaleX = (sw / renderedW);
+                    if (scaleX < 0.40f) scaleX = 0.40f;
+                    drawX = (sx + sw) - renderedW;
+                } else if (sw > renderedW) {
+                    drawX = sx + (sw - renderedW);
                 } else {
-                    fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
-                    fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                    drawX = sx;
                 }
+            } else {
+                if (renderedW > sw && sw > 0.0f) {
+                    scaleX = (sw / renderedW);
+                    if (scaleX < 0.40f) scaleX = 0.40f;
+                }
+                drawX = sx;
+            }
 
-                m_d2dContext->DrawText(
-                    edit.newText.c_str(),
-                    (UINT32)edit.newText.size(),
-                    fmt.Get(),
-                    boxRect,
-                    textBrush.Get()
-                );
+            if (scaleX < 0.999f) {
+                D2D1_POINT_2F anchor = isArabic ? D2D1::Point2F(sx + sw, sy) : D2D1::Point2F(sx, sy);
+                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Scale(scaleX, 1.0f, anchor));
+            }
+
+            m_d2dContext->DrawTextLayout(
+                D2D1::Point2F(drawX, drawY),
+                layout.Get(),
+                textBrush.Get()
+            );
+
+            if (scaleX < 0.999f) {
+                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
             }
         }
     }
