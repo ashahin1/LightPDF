@@ -781,8 +781,7 @@ void D2DRenderer::RenderBlank(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar,
-    const WordEditRenderInfo& wordEdit
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -807,7 +806,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -845,9 +844,7 @@ void D2DRenderer::RenderPage(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar,
-    const WordEditRenderInfo& wordEdit,
-    const std::vector<WordEdit>& pendingEdits
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1048,9 +1045,6 @@ void D2DRenderer::RenderPage(
         }
     }
 
-    // Draw committed word corrections on this page (instant live display before save)
-    DrawCommittedWordEdits(pendingEdits, currentPageIndex, offsetX, pageY, zoom);
-
     // 4. Draw 1px crisp outline around page
     m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
 
@@ -1088,7 +1082,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1124,9 +1118,7 @@ void D2DRenderer::RenderContinuous(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar,
-    const WordEditRenderInfo& wordEdit,
-    const std::vector<WordEdit>& pendingEdits
+    const PresenterBarRenderInfo& presenterBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1320,9 +1312,6 @@ void D2DRenderer::RenderContinuous(
             }
         }
 
-        // Draw committed word corrections on this page (instant live display before save)
-        DrawCommittedWordEdits(pendingEdits, vp.pageIndex, pageX, pageY, zoom);
-
         // 4. Draw 1px crisp outline around page
         m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
     }
@@ -1361,7 +1350,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &wordEdit);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1390,8 +1379,7 @@ void D2DRenderer::DrawOverlays(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo* pDictCard,
     const LaserPointerRenderInfo* pLaser,
-    const PresenterBarRenderInfo* pPresenterBar,
-    const WordEditRenderInfo* pWordEdit
+    const PresenterBarRenderInfo* pPresenterBar
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1426,11 +1414,6 @@ void D2DRenderer::DrawOverlays(
     // 7. Draw Dictionary Card if visible
     if (pDictCard && pDictCard->visible) {
         DrawDictionaryCard(*pDictCard);
-    }
-
-    // 7b. Draw Inline Word Edit Overlay if visible
-    if (pWordEdit && pWordEdit->visible) {
-        DrawWordEditOverlay(*pWordEdit);
     }
 
     // 8. Draw Fullscreen Presenter Bar if visible
@@ -1930,11 +1913,11 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
 
     // 4. Category Tabs
     static const wchar_t* tabLabels[5] = {
-        L"All (36)",
+        L"All (34)",
         L"Navigation (8)",
         L"Zoom & View (8)",
         L"Tabs & Files (8)",
-        L"Search & Tools (12)"
+        L"Search & Tools (10)"
     };
 
     for (int i = 0; i < 5; ++i) {
@@ -2024,8 +2007,6 @@ void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
-        { L"Alt + Click Word",      L"Edit / correct word inline" },
-        { L"Ctrl + Z",              L"Undo word edits (before save)" },
         { L"L",                     L"Toggle Presentation Laser Pointer" },
         { L"C",                     L"Cycle Laser Color (Red/Green/Cyan/Gold)" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
@@ -2673,281 +2654,6 @@ void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
         hintRect,
         m_brushDictHintText.Get()
     );
-}
-
-void D2DRenderer::DrawWordEditOverlay(const WordEditRenderInfo& edit) {
-    if (!edit.visible || !m_d2dContext) return;
-
-    float textH = edit.screenRect.bottom - edit.screenRect.top;
-    float fontSize = (std::max)(2.0f, textH * 0.88f);
-
-    ComPtr<IDWriteTextFormat> fmt;
-    m_dwriteFactory->CreateTextFormat(
-        L"Arial",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        fontSize,
-        L"",
-        &fmt
-    );
-    if (!fmt) return;
-
-    fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-    bool isArabic = false;
-    for (wchar_t c : edit.text) {
-        if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
-            isArabic = true;
-            break;
-        }
-    }
-    if (isArabic) {
-        fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
-    } else {
-        fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
-    }
-
-    float textW = 0.0f;
-    DWRITE_LINE_METRICS lm = {};
-    ComPtr<IDWriteTextLayout> layout;
-    if (!edit.text.empty()) {
-        m_dwriteFactory->CreateTextLayout(
-            edit.text.c_str(),
-            (UINT32)edit.text.size(),
-            fmt.Get(),
-            10000.0f,
-            textH,
-            &layout
-        );
-        if (layout) {
-            DWRITE_TEXT_METRICS tm = {};
-            layout->GetMetrics(&tm);
-            textW = tm.width;
-            // CRITICAL for RTL: reset max width to textW so tm.left becomes 0 instead of 10000!
-            layout->SetMaxWidth(textW);
-
-            UINT32 lineCount = 0;
-            layout->GetLineMetrics(&lm, 1, &lineCount);
-        }
-    }
-
-    float padX = 4.0f;
-    float padY = 2.0f;
-    float origW = edit.screenRect.right - edit.screenRect.left;
-    float boxW = (std::max)(origW, textW) + padX * 2.0f;
-    boxW = (std::max)(boxW, 32.0f);
-    float boxH = (std::max)((std::max)(textH, lm.height) + padY * 2.0f, 18.0f);
-
-    D2D1_RECT_F boxRect;
-    if (isArabic) {
-        boxRect = D2D1::RectF(
-            edit.screenRect.right + padX - boxW,
-            edit.screenRect.top - padY,
-            edit.screenRect.right + padX,
-            edit.screenRect.top - padY + boxH
-        );
-    } else {
-        boxRect = D2D1::RectF(
-            edit.screenRect.left - padX,
-            edit.screenRect.top - padY,
-            edit.screenRect.left - padX + boxW,
-            edit.screenRect.top - padY + boxH
-        );
-    }
-    D2D1_ROUNDED_RECT roundedBox = D2D1::RoundedRect(boxRect, 3.0f, 3.0f);
-
-    // 1. Draw opaque white background to mask original typo
-    ComPtr<ID2D1SolidColorBrush> bgBrush;
-    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &bgBrush);
-    if (bgBrush) {
-        m_d2dContext->FillRoundedRectangle(roundedBox, bgBrush.Get());
-    }
-
-    // 2. Draw active accent border (Fluent Blue)
-    ComPtr<ID2D1SolidColorBrush> borderBrush;
-    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.47f, 0.84f, 1.0f), &borderBrush);
-    if (borderBrush) {
-        m_d2dContext->DrawRoundedRectangle(roundedBox, borderBrush.Get(), 1.5f);
-    }
-
-    // 3. Draw replacement text in original font color (with safety guard against white-on-white)
-    float r = ((edit.color >> 16) & 0xFF) / 255.0f;
-    float g = ((edit.color >> 8) & 0xFF) / 255.0f;
-    float b = (edit.color & 0xFF) / 255.0f;
-    float lum = 0.299f * r + 0.587f * g + 0.114f * b;
-    if (lum > 0.92f) {
-        r = 0.0f; g = 0.0f; b = 0.0f;
-    }
-    ComPtr<ID2D1SolidColorBrush> textBrush;
-    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
-
-    D2D1_RECT_F textRect = D2D1::RectF(
-        boxRect.left + padX,
-        boxRect.top + padY,
-        boxRect.right - padX,
-        boxRect.bottom - padY
-    );
-
-    float drawY = boxRect.top + (boxH - (lm.height > 0.0f ? lm.height : textH)) * 0.5f;
-    float drawX = isArabic ? (textRect.right - textW) : textRect.left;
-
-    if (layout && textBrush) {
-        m_d2dContext->DrawTextLayout(
-            D2D1::Point2F(drawX, drawY),
-            layout.Get(),
-            textBrush.Get()
-        );
-    }
-
-    // 4. Blinking cursor
-    uint64_t now = GetTickCount64();
-    bool showCaret = ((now / 500) % 2) == 0;
-    if (showCaret && borderBrush) {
-        float caretX = isArabic ? (drawX - 1.0f) : (drawX + textW + 1.0f);
-        caretX = std::clamp(caretX, boxRect.left + 2.0f, boxRect.right - 2.0f);
-        m_d2dContext->DrawLine(
-            D2D1::Point2F(caretX, boxRect.top + 3.0f),
-            D2D1::Point2F(caretX, boxRect.bottom - 3.0f),
-            borderBrush.Get(),
-            1.5f
-        );
-    }
-}
-
-void D2DRenderer::DrawCommittedWordEdits(
-    const std::vector<WordEdit>& edits,
-    uint32_t pageIndex,
-    float pageX,
-    float pageY,
-    float zoom
-) {
-    if (edits.empty() || !m_d2dContext) return;
-
-    for (const auto& edit : edits) {
-        if (edit.pageIndex != pageIndex) continue;
-
-        float sx = pageX + edit.pageDipRect.left * zoom;
-        float sy = pageY + edit.pageDipRect.top * zoom;
-        float sw = (edit.pageDipRect.right - edit.pageDipRect.left) * zoom;
-        float sh = (edit.pageDipRect.bottom - edit.pageDipRect.top) * zoom;
-        if (sw <= 0.0f || sh <= 0.0f) continue;
-
-        // 1. Draw exact white cover rectangle (avoid overlapping table grid lines by subtracting 0.5px like in PDF)
-        float coverH = std::max(1.0f, sh - 0.5f * zoom);
-        D2D1_RECT_F coverRect = D2D1::RectF(sx, sy, sx + sw, sy + coverH);
-        m_d2dContext->FillRectangle(coverRect, m_brushPageBg.Get());
-
-        // 2. Draw replacement text in original font color
-        if (!edit.newText.empty()) {
-            float r = ((edit.color >> 16) & 0xFF) / 255.0f;
-            float g = ((edit.color >> 8) & 0xFF) / 255.0f;
-            float b = (edit.color & 0xFF) / 255.0f;
-            float lum = 0.299f * r + 0.587f * g + 0.114f * b;
-            if (lum > 0.92f) {
-                r = 0.0f; g = 0.0f; b = 0.0f;
-            }
-            ComPtr<ID2D1SolidColorBrush> textBrush;
-            m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(r, g, b, 1.0f), &textBrush);
-            if (!textBrush) continue;
-
-            float fontSize = std::max(2.0f, sh * 0.88f);
-
-            ComPtr<IDWriteTextFormat> fmt;
-            m_dwriteFactory->CreateTextFormat(
-                L"Arial",
-                nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                fontSize,
-                L"",
-                &fmt
-            );
-
-            if (!fmt) continue;
-
-            // Never wrap word edit onto multiple lines!
-            fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-            bool isArabic = false;
-            for (wchar_t c : edit.newText) {
-                if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0xFB50 && c <= 0xFEFF)) {
-                    isArabic = true;
-                    break;
-                }
-            }
-
-            if (isArabic) {
-                fmt->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
-            } else {
-                fmt->SetReadingDirection(DWRITE_READING_DIRECTION_LEFT_TO_RIGHT);
-            }
-
-            ComPtr<IDWriteTextLayout> layout;
-            m_dwriteFactory->CreateTextLayout(
-                edit.newText.c_str(),
-                (UINT32)edit.newText.size(),
-                fmt.Get(),
-                10000.0f,
-                sh,
-                &layout
-            );
-
-            if (!layout) continue;
-
-            DWRITE_TEXT_METRICS tm = {};
-            layout->GetMetrics(&tm);
-            float renderedW = tm.width;
-            // CRITICAL for RTL: reset max width to renderedW so tm.left becomes 0 instead of 10000!
-            layout->SetMaxWidth(renderedW);
-
-            DWRITE_LINE_METRICS lm = {};
-            UINT32 lineCount = 0;
-            layout->GetLineMetrics(&lm, 1, &lineCount);
-
-            // Baseline alignment: match PDF generator (textBaseline = pdfY + 0.20f * fontSize)
-            float screenBaseline = (sy + sh) - 0.20f * fontSize;
-            float drawY = screenBaseline - (lm.baseline > 0.0f ? lm.baseline : (fontSize * 0.80f));
-
-            float scaleX = 1.0f;
-            float drawX = sx;
-
-            if (isArabic) {
-                if (renderedW > sw && sw > 0.0f) {
-                    scaleX = (sw / renderedW);
-                    if (scaleX < 0.40f) scaleX = 0.40f;
-                    drawX = (sx + sw) - renderedW;
-                } else if (sw > renderedW) {
-                    drawX = sx + (sw - renderedW);
-                } else {
-                    drawX = sx;
-                }
-            } else {
-                if (renderedW > sw && sw > 0.0f) {
-                    scaleX = (sw / renderedW);
-                    if (scaleX < 0.40f) scaleX = 0.40f;
-                }
-                drawX = sx;
-            }
-
-            if (scaleX < 0.999f) {
-                D2D1_POINT_2F anchor = isArabic ? D2D1::Point2F(sx + sw, sy) : D2D1::Point2F(sx, sy);
-                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Scale(scaleX, 1.0f, anchor));
-            }
-
-            m_d2dContext->DrawTextLayout(
-                D2D1::Point2F(drawX, drawY),
-                layout.Get(),
-                textBrush.Get()
-            );
-
-            if (scaleX < 0.999f) {
-                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-            }
-        }
-    }
 }
 
 void D2DRenderer::DrawLaserPointer(const LaserPointerRenderInfo& laser) {

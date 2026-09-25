@@ -14,8 +14,6 @@
 #include <windows.data.pdf.interop.h>
 #include <string>
 #include <mutex>
-#include <vector>
-#include "pdf_word_edit.hpp"
 
 using Microsoft::WRL::ComPtr;
 
@@ -268,13 +266,6 @@ struct HelpOverlayRenderInfo {
     int hoveredClose = 0;   // 0=none, 1=close
 };
 
-struct WordEditRenderInfo {
-    bool visible = false;
-    D2D1_RECT_F screenRect = { 0, 0, 0, 0 }; // Screen DIP coordinate space
-    std::wstring text;
-    uint32_t color = 0x000000;                // 24-bit RGB (0x00RRGGBB)
-};
-
 struct HelpOverlayLayout {
     static constexpr float WIDTH = 840.0f;
     static constexpr float HEIGHT = 560.0f;
@@ -324,8 +315,7 @@ public:
         const DocumentPropertiesRenderInfo& docProps = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {},
-        const WordEditRenderInfo& wordEdit = {}
+        const PresenterBarRenderInfo& presenterBar = {}
     );
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -348,9 +338,7 @@ public:
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {},
-        const WordEditRenderInfo& wordEdit = {},
-        const std::vector<WordEdit>& pendingEdits = {}
+        const PresenterBarRenderInfo& presenterBar = {}
     );
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
@@ -371,22 +359,12 @@ public:
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {},
-        const WordEditRenderInfo& wordEdit = {},
-        const std::vector<WordEdit>& pendingEdits = {}
+        const PresenterBarRenderInfo& presenterBar = {}
     );
 
     void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
     void DrawLaserPointer(const LaserPointerRenderInfo& laser);
     void DrawPresenterBar(const PresenterBarRenderInfo& presenterBar);
-    void DrawWordEditOverlay(const WordEditRenderInfo& edit);
-    void DrawCommittedWordEdits(
-        const std::vector<WordEdit>& edits,
-        uint32_t pageIndex,
-        float pageX,
-        float pageY,
-        float zoom
-    );
 
     int HitTestDocumentProperties(POINT pt) const;
     int HitTestHelpOverlay(POINT pt) const;
@@ -433,8 +411,7 @@ private:
         const DocumentPropertiesRenderInfo& docProps,
         const DictionaryCardRenderInfo* pDictCard = nullptr,
         const LaserPointerRenderInfo* pLaser = nullptr,
-        const PresenterBarRenderInfo* pPresenterBar = nullptr,
-        const WordEditRenderInfo* pWordEdit = nullptr
+        const PresenterBarRenderInfo* pPresenterBar = nullptr
     );
 
     HWND m_hwnd = nullptr;
