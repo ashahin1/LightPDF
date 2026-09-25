@@ -192,15 +192,12 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_APP_BAKE_PDF_DONE: {
         m_isBakingPdf = false;
-        int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled, 3 = digital/no ocr
+        int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled
         bool wasOverwrite = (lParam != 0);
-        auto* pTab = GetActiveTab();
-        bool hadEdits = pTab ? !pTab->pendingEdits.empty() : false;
-
         if (status == 1) {
             if (wasOverwrite) {
+                auto* pTab = GetActiveTab();
                 if (pTab) {
-                    pTab->pendingEdits.clear();
                     std::wstring curPath = pTab->document.GetFilePath();
                     uint32_t curPage = pTab->currentPage;
                     pTab->document.Close();
@@ -215,20 +212,16 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         m_renderer.InvalidatePageCache();
                         RecalculateLayout();
                         UpdateTitle();
-                        ShowToast(hadEdits ? L"PDF saved with corrections! (Original file updated)" : L"Searchable PDF saved! (Original file updated)");
+                        ShowToast(L"Searchable PDF saved! (Original file updated)");
                     } else {
-                        ShowToast(L"PDF saved, please reopen the file.");
+                        ShowToast(L"Searchable PDF saved, please reopen the file.");
                     }
                 }
             } else {
-                if (pTab) {
-                    pTab->pendingEdits.clear();
-                    UpdateTitle();
-                }
-                ShowToast(hadEdits ? L"PDF saved with corrections successfully!" : L"Searchable PDF saved successfully!");
+                ShowToast(L"Searchable PDF saved successfully!");
             }
         } else if (status == 2) {
-            ShowToast(L"PDF save cancelled.");
+            ShowToast(L"Searchable PDF generation cancelled.");
         } else if (status == 3) {
             if (wasOverwrite) {
                 ShowToast(L"Document already contains digital text on all pages.");
@@ -236,7 +229,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 ShowToast(L"PDF saved successfully! (Document is already digital)");
             }
         } else {
-            ShowToast(L"Failed to save PDF.");
+            ShowToast(L"Failed to save searchable PDF.");
         }
         Render();
         return 0;
@@ -526,66 +519,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 m_lastMousePos = pt;
                 SetCapture(m_hwnd);
                 SetCursor(m_cursorSizeAll);
-                return 0;
-            }
-
-            // If already editing a word, check if clicked inside or outside the edit box
-            if (m_isEditingWord && msg == WM_LBUTTONDOWN) {
-                D2D1_RECT_F sRect = PageToScreenRect(m_editWordPage, m_editWordPageRect);
-                if (dipX >= sRect.left - 4.0f && dipX <= sRect.right + 4.0f &&
-                    dipY >= sRect.top - 2.0f && dipY <= sRect.bottom + 2.0f) {
-                    return 0; // Click inside active edit box, keep typing
-                } else {
-                    CommitWordEdit(); // Click outside auto-commits
-                }
-            }
-
-            // Left click: Check Alt + Click for Inline Word Editing
-            bool isAltDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
-            if (isAltDown && msg == WM_LBUTTONDOWN) {
-                uint32_t hitPage = 0;
-                size_t hitChar = 0;
-                bool afterChar = false;
-                if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
-                    auto pageText = GetOrExtractPageText(pTab, hitPage);
-                    if (pageText && hitChar < pageText->chars.size()) {
-                        auto isWordChar = [](wchar_t c) {
-                            if (IsCharAlphaNumericW(c) || c == L'_') return true;
-                            if ((c >= 0x0600 && c <= 0x06FF) || (c >= 0x0750 && c <= 0x077F) ||
-                                (c >= 0xFB50 && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF)) return true;
-                            return false;
-                        };
-
-                        size_t wStart = hitChar;
-                        while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
-                            wStart--;
-                        }
-                        size_t wEnd = hitChar;
-                        while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
-                            wEnd++;
-                        }
-
-                        if (wEnd > wStart) {
-                            std::wstring word;
-                            std::vector<PdfTextChar> origChars;
-                            D2D1_RECT_F pageBounds = { 1e9f, 1e9f, -1e9f, -1e9f };
-                            uint32_t charColor = pageText->chars[wStart].color;
-
-                            for (size_t ci = wStart; ci < wEnd; ++ci) {
-                                const auto& tc = pageText->chars[ci];
-                                word += tc.ch;
-                                origChars.push_back(tc);
-                                pageBounds.left = (std::min)(pageBounds.left, tc.rect.left);
-                                pageBounds.top = (std::min)(pageBounds.top, tc.rect.top);
-                                pageBounds.right = (std::max)(pageBounds.right, tc.rect.right);
-                                pageBounds.bottom = (std::max)(pageBounds.bottom, tc.rect.bottom);
-                            }
-
-                            StartWordEdit(hitPage, wStart, wEnd, word, origChars, pageBounds, charColor);
-                            return 0;
-                        }
-                    }
-                }
                 return 0;
             }
 
@@ -1046,29 +979,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (m_isDraggingScrollbar) return 0;
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-
-        if (m_isEditingWord) {
-            if (wParam == VK_RETURN) {
-                CommitWordEdit();
-                return 0;
-            } else if (wParam == VK_ESCAPE) {
-                CancelWordEdit();
-                return 0;
-            } else if (wParam == 'Z' && isCtrlDown) {
-                CancelWordEdit();
-                UndoLastWordEdit();
-                return 0;
-            }
-            // Swallow ALL other keys while editing word so shortcuts like 'L', 'C', 'H', 'F' don't trigger!
-            // Note: Printable characters and Backspace are processed in WM_CHAR.
-            return 0;
-        }
-
-        // Global Ctrl+Z to undo last word correction
-        if (wParam == 'Z' && isCtrlDown && !isShiftDown) {
-            UndoLastWordEdit();
-            return 0;
-        }
 
         if (m_dictCardInfo.visible) {
             if (wParam == VK_ESCAPE) {
@@ -1552,22 +1462,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_CHAR:
-        if (m_isEditingWord) {
-            if (wParam == VK_BACK) {
-                if (!m_editWordBuffer.empty()) {
-                    m_editWordBuffer.pop_back();
-                    Render();
-                }
-                return 0;
-            } else if (wParam >= 32 && wParam != 127) {
-                m_editWordBuffer.push_back((wchar_t)wParam);
-                Render();
-                return 0;
-            } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
-                return 0;
-            }
-        }
-
         if (m_showProperties) {
             return 0;
         }
@@ -1593,19 +1487,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_ERASEBKGND:
         return 1; // Direct2D handles entire background, avoid flicker
-
-    case WM_CLOSE: {
-        while (!m_tabs.empty()) {
-            size_t countBefore = m_tabs.size();
-            CloseTab(m_tabs.size() - 1);
-            if (m_tabs.size() == countBefore) {
-                // User cancelled closing
-                return 0;
-            }
-        }
-        DestroyWindow(m_hwnd);
-        return 0;
-    }
 
     case WM_DESTROY:
         m_renderer.Cleanup();
@@ -1672,25 +1553,6 @@ void AppWindow::OpenTab(const std::wstring& path) {
 
 void AppWindow::CloseTab(size_t index) {
     if (index >= m_tabs.size()) return;
-
-    if (HasPendingEdits(&m_tabs[index])) {
-        std::wstring fileName = m_tabs[index].document.GetFileName();
-        std::wstring msg = L"Do you want to save changes to \"" + fileName + L"\" before closing?";
-        int ans = MessageBoxW(m_hwnd, msg.c_str(), L"LightPDF", MB_YESNOCANCEL | MB_ICONQUESTION);
-        if (ans == IDCANCEL) {
-            return;
-        }
-        if (ans == IDYES) {
-            SelectTab(index);
-            PromptSaveSearchablePdf(false);
-            return;
-        }
-        // ans == IDNO: discard changes and continue closing tab
-    }
-
-    if (m_isEditingWord) {
-        CancelWordEdit();
-    }
 
     m_renderer.InvalidatePageCache();
     m_tabs.erase(m_tabs.begin() + index);
@@ -2189,19 +2051,9 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
     uint32_t totalPages = pTab->document.GetPageCount();
     HWND hwnd = m_hwnd;
 
-    std::vector<WordCorrectionItem> corrItems;
-    for (const auto& e : pTab->pendingEdits) {
-        WordCorrectionItem item;
-        item.pageIndex = e.pageIndex;
-        item.newText = e.newText;
-        item.pageDipRect = e.pageDipRect;
-        item.color = e.color;
-        corrItems.push_back(item);
-    }
+    ShowToast(L"Processing searchable PDF...");
 
-    ShowToast(corrItems.empty() ? L"Processing searchable PDF..." : L"Saving PDF with word corrections...");
-
-    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages, corrItems]() {
+    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages]() {
         try {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
         } catch (...) {}
@@ -2312,16 +2164,11 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         }
 
         if (ocrPages.empty()) {
-            if (!corrItems.empty()) {
-                bool ok = PdfSearchableWriter::WriteWordCorrections(srcPath, targetPath, corrItems, nullptr);
-                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, ok ? 1 : 0, overwriteOriginal ? 1 : 0);
+            if (!overwriteOriginal) {
+                bool copyOk = CopyFileW(srcPath.c_str(), targetPath.c_str(), FALSE) != 0;
+                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, copyOk ? 3 : 0, 0);
             } else {
-                if (!overwriteOriginal) {
-                    bool copyOk = CopyFileW(srcPath.c_str(), targetPath.c_str(), FALSE) != 0;
-                    PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, copyOk ? 3 : 0, 0);
-                } else {
-                    PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 3, 1);
-                }
+                PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 3, 1);
             }
             return;
         }
@@ -2329,9 +2176,6 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         PostMessageW(hwnd, WM_APP_BAKE_PDF_PROGRESS, 0, totalPages);
 
         bool ok = PdfSearchableWriter::WriteSearchablePdf(srcPath, targetPath, ocrPages, nullptr);
-        if (ok && !corrItems.empty()) {
-            ok = PdfSearchableWriter::WriteWordCorrections(targetPath, targetPath, corrItems, nullptr);
-        }
         PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, ok ? 1 : 0, overwriteOriginal ? 1 : 0);
     });
 }
@@ -2341,27 +2185,24 @@ void AppWindow::UpdateTitle() {
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         wchar_t title[512];
         const wchar_t* modeSuffix = pTab->continuousScroll ? L" (Continuous)" : L"";
-        const wchar_t* editSuffix = HasPendingEdits(pTab) ? L" [Edited]" : L"";
         if (m_tabs.size() > 1) {
             swprintf_s(
                 title,
-                L"[Tab %zu/%zu] [%u / %u] - %s%s - LightPDF%s",
+                L"[Tab %zu/%zu] [%u / %u] - %s - LightPDF%s",
                 m_activeTab + 1,
                 m_tabs.size(),
                 pTab->currentPage + 1,
                 pTab->document.GetPageCount(),
                 pTab->document.GetFileName().c_str(),
-                editSuffix,
                 modeSuffix
             );
         } else {
             swprintf_s(
                 title,
-                L"[%u / %u] - %s%s - LightPDF%s",
+                L"[%u / %u] - %s - LightPDF%s",
                 pTab->currentPage + 1,
                 pTab->document.GetPageCount(),
                 pTab->document.GetFileName().c_str(),
-                editSuffix,
                 modeSuffix
             );
         }
@@ -2898,9 +2739,7 @@ void AppWindow::Render() {
                 selectionSpans,
                 m_dictCardInfo,
                 laserInfo,
-                presenterBarInfo,
-                GetWordEditInfo(),
-                pTab->pendingEdits
+                presenterBarInfo
             );
             return;
         }
@@ -2930,9 +2769,7 @@ void AppWindow::Render() {
                 selectionSpans,
                 m_dictCardInfo,
                 laserInfo,
-                presenterBarInfo,
-                GetWordEditInfo(),
-                pTab->pendingEdits
+                presenterBarInfo
             );
             return;
         }
@@ -2949,8 +2786,7 @@ void AppWindow::Render() {
         m_docPropsInfo,
         m_dictCardInfo,
         laserInfo,
-        presenterBarInfo,
-        GetWordEditInfo()
+        presenterBarInfo
     );
 }
 
@@ -3981,191 +3817,5 @@ void AppWindow::CopyDictionaryDefinitionToClipboard() {
         CloseClipboard();
         ShowToast(L"Definition copied to clipboard");
     }
-}
-
-D2D1_RECT_F AppWindow::PageToScreenRect(uint32_t page, const D2D1_RECT_F& pageRect) const {
-    const auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->document.IsLoaded()) return { 0, 0, 0, 0 };
-
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float topOffset = GetTopOffset();
-
-    if (pTab->continuousScroll) {
-        if (page < pTab->pageOffsets.size()) {
-            D2D1_SIZE_F pSize = pTab->document.GetPageSize(page);
-            float pageW = pSize.width * pTab->zoom;
-            float dipW = (float)m_renderer.GetWidth() * dipScale;
-            float margin = 24.0f;
-            float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
-            float pageTopY = pTab->pageOffsets[page] - pTab->scrollY + topOffset;
-
-            return D2D1::RectF(
-                pageX + pageRect.left * pTab->zoom,
-                pageTopY + pageRect.top * pTab->zoom,
-                pageX + pageRect.right * pTab->zoom,
-                pageTopY + pageRect.bottom * pTab->zoom
-            );
-        }
-    } else {
-        float pageX = pTab->offsetX;
-        float pageY = pTab->offsetY + topOffset;
-        return D2D1::RectF(
-            pageX + pageRect.left * pTab->zoom,
-            pageY + pageRect.top * pTab->zoom,
-            pageX + pageRect.right * pTab->zoom,
-            pageY + pageRect.bottom * pTab->zoom
-        );
-    }
-    return { 0, 0, 0, 0 };
-}
-
-WordEditRenderInfo AppWindow::GetWordEditInfo() const {
-    WordEditRenderInfo info;
-    info.visible = m_isEditingWord;
-    if (m_isEditingWord) {
-        info.text = m_editWordBuffer;
-        info.color = m_editWordColor;
-        info.screenRect = PageToScreenRect(m_editWordPage, m_editWordPageRect);
-    }
-    return info;
-}
-
-bool AppWindow::HasPendingEdits(const DocumentTab* pTab) const {
-    if (!pTab) pTab = GetActiveTab();
-    if (!pTab) return false;
-    return !pTab->pendingEdits.empty();
-}
-
-void AppWindow::StartWordEdit(uint32_t page, size_t charStart, size_t charEnd,
-                              const std::wstring& word, const std::vector<PdfTextChar>& originalChars,
-                              const D2D1_RECT_F& pageRect, uint32_t color) {
-    if (m_isEditingWord) {
-        CommitWordEdit();
-    }
-
-    DismissDictionaryCard();
-    m_showSearch = false;
-    m_showGoToPage = false;
-    m_showHelp = false;
-    m_showProperties = false;
-
-    auto* pTab = GetActiveTab();
-    if (pTab) {
-        pTab->selection.Clear();
-    }
-
-    m_isEditingWord = true;
-    m_editWordPage = page;
-    m_editWordCharStart = charStart;
-    m_editWordCharEnd = charEnd;
-    m_editWordBuffer = word;
-    m_editWordOriginal = word;
-    m_editWordOriginalChars = originalChars;
-    m_editWordPageRect = pageRect;
-    m_editWordColor = color;
-
-    Render();
-}
-
-void AppWindow::CommitWordEdit() {
-    if (!m_isEditingWord) return;
-
-    auto* pTab = GetActiveTab();
-    if (pTab && pTab->document.IsLoaded()) {
-        if (m_editWordBuffer != m_editWordOriginal && !m_editWordBuffer.empty()) {
-            WordEdit edit;
-            edit.pageIndex = m_editWordPage;
-            edit.charStartIdx = m_editWordCharStart;
-            edit.charEndIdx = m_editWordCharEnd;
-            edit.originalText = m_editWordOriginal;
-            edit.newText = m_editWordBuffer;
-            edit.originalChars = m_editWordOriginalChars;
-            edit.pageDipRect = m_editWordPageRect;
-            edit.color = m_editWordColor;
-            edit.committed = false;
-
-            pTab->pendingEdits.push_back(edit);
-
-            // Update in-memory PageTextCache
-            auto pageText = GetOrExtractPageText(pTab, m_editWordPage);
-            if (pageText && m_editWordCharStart < pageText->chars.size()) {
-                size_t removeCount = (std::min)(m_editWordCharEnd - m_editWordCharStart, pageText->chars.size() - m_editWordCharStart);
-                pageText->chars.erase(pageText->chars.begin() + m_editWordCharStart, pageText->chars.begin() + m_editWordCharStart + removeCount);
-
-                // Insert new characters with interpolated rects
-                float wPerChar = (m_editWordBuffer.size() > 0) ?
-                    ((m_editWordPageRect.right - m_editWordPageRect.left) / (float)m_editWordBuffer.size()) :
-                    (m_editWordPageRect.right - m_editWordPageRect.left);
-
-                std::vector<PdfTextChar> newChars;
-                for (size_t i = 0; i < m_editWordBuffer.size(); ++i) {
-                    PdfTextChar tc;
-                    tc.ch = m_editWordBuffer[i];
-                    tc.color = m_editWordColor;
-                    tc.rect = D2D1::RectF(
-                        m_editWordPageRect.left + (float)i * wPerChar,
-                        m_editWordPageRect.top,
-                        m_editWordPageRect.left + (float)(i + 1) * wPerChar,
-                        m_editWordPageRect.bottom
-                    );
-                    newChars.push_back(tc);
-                }
-                pageText->chars.insert(pageText->chars.begin() + m_editWordCharStart, newChars.begin(), newChars.end());
-
-                // Rebuild fullText
-                pageText->fullText.clear();
-                for (const auto& ch : pageText->chars) {
-                    if (ch.ch != 0) pageText->fullText.push_back(ch.ch);
-                }
-            }
-
-            InvalidateSearchHighlights();
-            UpdateTitle();
-            ShowToast(L"Word corrected. Ctrl+S to save, Ctrl+Z to undo.");
-        }
-    }
-
-    m_isEditingWord = false;
-    m_editWordBuffer.clear();
-    m_editWordOriginal.clear();
-    m_editWordOriginalChars.clear();
-    Render();
-}
-
-void AppWindow::CancelWordEdit() {
-    if (!m_isEditingWord) return;
-    m_isEditingWord = false;
-    m_editWordBuffer.clear();
-    m_editWordOriginal.clear();
-    m_editWordOriginalChars.clear();
-    Render();
-}
-
-void AppWindow::UndoLastWordEdit() {
-    auto* pTab = GetActiveTab();
-    if (!pTab || pTab->pendingEdits.empty()) return;
-
-    WordEdit edit = pTab->pendingEdits.back();
-    pTab->pendingEdits.pop_back();
-
-    // Revert in-memory PageTextCache
-    auto pageText = GetOrExtractPageText(pTab, edit.pageIndex);
-    if (pageText) {
-        size_t newLen = edit.newText.size();
-        if (edit.charStartIdx + newLen <= pageText->chars.size()) {
-            pageText->chars.erase(pageText->chars.begin() + edit.charStartIdx, pageText->chars.begin() + edit.charStartIdx + newLen);
-        }
-        pageText->chars.insert(pageText->chars.begin() + edit.charStartIdx, edit.originalChars.begin(), edit.originalChars.end());
-
-        pageText->fullText.clear();
-        for (const auto& ch : pageText->chars) {
-            if (ch.ch != 0) pageText->fullText.push_back(ch.ch);
-        }
-    }
-
-    InvalidateSearchHighlights();
-    UpdateTitle();
-    ShowToast(L"Undo: '" + edit.newText + L"' \x2192 '" + edit.originalText + L"'");
-    Render();
 }
 
