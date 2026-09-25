@@ -914,11 +914,33 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
         size_t dictStart = m_bufferView.find("<<", trPos);
         if (dictStart == std::string_view::npos) break;
 
-        std::string trDict = ResolveDict(std::string(m_bufferView.substr(trPos)), "<<");
+        size_t dictEnd = dictStart + 2;
+        int depth = 1;
+        while (dictEnd < m_bufferView.size() && depth > 0) {
+            if (m_bufferView.compare(dictEnd, 2, "<<") == 0) {
+                depth++;
+                dictEnd += 2;
+            } else if (m_bufferView.compare(dictEnd, 2, ">>") == 0) {
+                depth--;
+                dictEnd += 2;
+            } else {
+                dictEnd++;
+            }
+        }
+        std::string trDict = std::string(m_bufferView.substr(dictStart, dictEnd - dictStart));
         if (outTrailerDict.empty()) {
             outTrailerDict = trDict;
         } else {
             outTrailerDict += "\n" + trDict;
+        }
+
+        // Follow /XRefStm if present (hybrid cross-reference streams)
+        size_t xrsPos = trDict.find("/XRefStm");
+        if (xrsPos != std::string::npos) {
+            size_t xrsOffset = (size_t)strtoull(trDict.c_str() + xrsPos + 8, nullptr, 10);
+            if (xrsOffset < m_bufferView.size()) {
+                ParseXRefStream(xrsOffset, outTrailerDict);
+            }
         }
 
         size_t prevPos = trDict.find("/Prev");
