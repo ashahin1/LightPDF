@@ -113,6 +113,9 @@ public:
     bool ExtractMetadata(PdfMetadata& outMetadata) const;
     std::string GetPdfVersion() const { return m_pdfVersion; }
 
+    // Check if a specific page contains Type 3 fonts
+    bool PageHasType3Fonts(uint32_t pageIndex) const;
+
 private:
     // Stream decompressors & predictor decoding
     static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
@@ -132,9 +135,9 @@ private:
     std::string ResolveDict(const std::string& parentDict, const std::string& key) const;
 
     // Font and XObject parsing
-    std::map<uint32_t, std::wstring> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData);
-    std::map<std::string, PdfFontInfo> ExtractPageFonts(const std::string& pageDict);
-    std::map<std::string, uint32_t> ExtractPageXObjects(const std::string& pageDict);
+    std::map<uint32_t, std::wstring> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) const;
+    std::map<std::string, PdfFontInfo> ExtractPageFonts(const std::string& pageDict) const;
+    std::map<std::string, uint32_t> ExtractPageXObjects(const std::string& pageDict) const;
 
     // Parse stream content text operators (BT...ET, Tj, TJ, Tm, Td, cm, Do, etc.)
     void ParseContentStream(
@@ -167,4 +170,5 @@ private:
     std::vector<uint32_t> m_pageObjectNums;
     std::map<uint32_t, PdfXRefEntry> m_xref;
     mutable std::map<uint32_t, std::map<uint32_t, std::string>> m_objStmCache;
+    mutable std::map<uint32_t, bool> m_pageHasType3Cache;
 };

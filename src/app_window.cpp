@@ -1774,7 +1774,14 @@ void AppWindow::PromptPrint() {
     std::wstring docName = pTab->document.GetFileName();
     auto doc = pTab->document.GetDoc();
 
-    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc]() {
+    std::vector<bool> type3Pages(totalPages, false);
+    if (pTab->parser) {
+        for (uint32_t p = 0; p < totalPages; ++p) {
+            type3Pages[p] = pTab->parser->PageHasType3Fonts(p);
+        }
+    }
+
+    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc, type3Pages]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
         PRINTPAGERANGE pageRanges[32] = {};
@@ -1842,7 +1849,8 @@ void AppWindow::PromptPrint() {
                                     if (page) {
                                         auto sz = page.Size();
                                         D2D1_SIZE_F pSize = D2D1::SizeF(sz.Width, sz.Height);
-                                        m_renderer.PrintPageToHdc(page, pdex.hDC, pSize);
+                                        bool hasType3 = (pageIndex < type3Pages.size()) ? type3Pages[pageIndex] : false;
+                                        m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3);
                                     }
                                 } catch (...) {}
                                 EndPage(pdex.hDC);
@@ -2714,6 +2722,7 @@ void AppWindow::Render() {
                         info.xOffset = margin + pTab->offsetX;
                     }
                     info.pageIndex = i;
+                    info.hasType3Font = pTab->parser ? pTab->parser->PageHasType3Fonts(i) : false;
                     visiblePages.push_back(std::move(info));
                 } else if (curY > viewBot) {
                     break;
@@ -2747,6 +2756,7 @@ void AppWindow::Render() {
         if (pTab->currentPage < pTab->document.GetPageCount()) {
             auto page = pTab->document.GetPage(pTab->currentPage);
             auto pSize = pTab->document.GetPageSize(pTab->currentPage);
+            bool hasType3 = pTab->parser ? pTab->parser->PageHasType3Fonts(pTab->currentPage) : false;
 
             m_renderer.RenderPage(
                 page,
@@ -2757,6 +2767,7 @@ void AppWindow::Render() {
                 pTab->currentPage,
                 pTab->document.GetPageCount(),
                 modeStr,
+                hasType3,
                 GetHelpInfo(),
                 tabInfos,
                 m_hoveredAdd,

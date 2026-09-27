@@ -10,6 +10,7 @@
 #include <d2d1_1.h>
 #include <dxgi1_2.h>
 #include <dwrite.h>
+#include <wincodec.h>
 #include <winrt/Windows.Data.Pdf.h>
 #include <windows.data.pdf.interop.h>
 #include <string>
@@ -39,6 +40,7 @@ struct ContinuousPageInfo {
     float xOffset = 0.0f;
     float yOffset = 0.0f;
     uint32_t pageIndex = 0;
+    bool hasType3Font = false;
 };
 
 struct ScrollbarRenderInfo {
@@ -326,6 +328,7 @@ public:
         uint32_t currentPageIndex,
         uint32_t totalPages,
         const std::wstring& zoomModeText,
+        bool hasType3Font = false,
         const HelpOverlayRenderInfo& help = {},
         const std::vector<TabRenderInfo>& tabs = {},
         bool isAddHovered = false,
@@ -373,7 +376,8 @@ public:
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
         HDC hdc,
-        D2D1_SIZE_F pageSize
+        D2D1_SIZE_F pageSize,
+        bool hasType3Font = false
     );
 
     float GetDpi() const { return m_dpi; }
@@ -532,6 +536,16 @@ private:
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;
+
+    // WIC Factory for safe stream rasterization fallback (e.g. Type 3 fonts)
+    ComPtr<IWICImagingFactory> m_wicFactory;
+
+    bool RasterizePageViaStream(
+        winrt::Windows::Data::Pdf::PdfPage page,
+        UINT32 renderW,
+        UINT32 renderH,
+        ComPtr<ID2D1Bitmap1>& outBitmap
+    );
 
     // Fast Page Bitmap Cache for zero-cost pan & UI hover blits (single page mode)
     PageBitmapCache m_pageCache;
