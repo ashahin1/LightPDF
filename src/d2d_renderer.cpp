@@ -1,12 +1,17 @@
 #include "d2d_renderer.hpp"
 #include <cmath>
 #include <algorithm>
+#include <shcore.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Storage.Streams.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "windows.data.pdf.lib")
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "shcore.lib")
 
 D2DRenderer::D2DRenderer() = default;
 
@@ -50,6 +55,7 @@ void D2DRenderer::Cleanup() {
     m_textFormatSearchInput = nullptr;
     m_textFormatSearchBadge = nullptr;
     m_textFormatSearchBtn = nullptr;
+    m_wicFactory = nullptr;
     m_d2dFactory = nullptr;
 }
 
@@ -508,6 +514,14 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatPresenter->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormatPresenter->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    hr = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&m_wicFactory)
+    );
+    if (FAILED(hr)) return false;
+
     return true;
 }
 
@@ -823,6 +837,88 @@ void D2DRenderer::RenderBlank(
     }
 }
 
+bool D2DRenderer::RasterizePageViaStream(
+    winrt::Windows::Data::Pdf::PdfPage page,
+    UINT32 renderW,
+    UINT32 renderH,
+    ComPtr<ID2D1Bitmap1>& outBitmap
+) {
+    if (!page || !m_d2dContext || renderW == 0 || renderH == 0) return false;
+
+    try {
+        winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
+        winrt::Windows::Data::Pdf::PdfPageRenderOptions options;
+        options.DestinationWidth(renderW);
+        options.DestinationHeight(renderH);
+
+        // Render page to in-memory PNG stream synchronously
+        page.RenderToStreamAsync(stream, options).get();
+
+        if (stream.Size() == 0) return false;
+
+        stream.Seek(0);
+
+        ComPtr<IStream> spIStream;
+        HRESULT hr = CreateStreamOverRandomAccessStream(
+            reinterpret_cast<IUnknown*>(winrt::get_abi(stream)),
+            IID_PPV_ARGS(&spIStream)
+        );
+        if (FAILED(hr) || !spIStream) return false;
+
+        if (!m_wicFactory) {
+            hr = CoCreateInstance(
+                CLSID_WICImagingFactory,
+                nullptr,
+                CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&m_wicFactory)
+            );
+            if (FAILED(hr) || !m_wicFactory) return false;
+        }
+
+        ComPtr<IWICBitmapDecoder> decoder;
+        hr = m_wicFactory->CreateDecoderFromStream(
+            spIStream.Get(),
+            nullptr,
+            WICDecodeMetadataCacheOnDemand,
+            &decoder
+        );
+        if (FAILED(hr) || !decoder) return false;
+
+        ComPtr<IWICBitmapFrameDecode> frame;
+        hr = decoder->GetFrame(0, &frame);
+        if (FAILED(hr) || !frame) return false;
+
+        ComPtr<IWICFormatConverter> converter;
+        hr = m_wicFactory->CreateFormatConverter(&converter);
+        if (FAILED(hr) || !converter) return false;
+
+        hr = converter->Initialize(
+            frame.Get(),
+            GUID_WICPixelFormat32bppPBGRA,
+            WICBitmapDitherTypeNone,
+            nullptr,
+            0.0f,
+            WICBitmapPaletteTypeCustom
+        );
+        if (FAILED(hr)) return false;
+
+        D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            m_dpi, m_dpi
+        );
+
+        hr = m_d2dContext->CreateBitmapFromWicBitmap(
+            converter.Get(),
+            &bp,
+            &outBitmap
+        );
+        return SUCCEEDED(hr) && outBitmap != nullptr;
+    } catch (...) {
+        return false;
+    }
+}
+
 void D2DRenderer::RenderPage(
     winrt::Windows::Data::Pdf::PdfPage page,
     float zoom,
@@ -832,6 +928,7 @@ void D2DRenderer::RenderPage(
     uint32_t currentPageIndex,
     uint32_t totalPages,
     const std::wstring& zoomModeText,
+    bool hasType3Font,
     const HelpOverlayRenderInfo& help,
     const std::vector<TabRenderInfo>& tabs,
     bool isAddHovered,
@@ -906,52 +1003,63 @@ void D2DRenderer::RenderPage(
                          m_pageCache.pixelW != renderW ||
                          m_pageCache.pixelH != renderH;
 
-    if (needRasterize && m_pdfRenderer && renderW > 0 && renderH > 0) {
-        D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_TARGET,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-            m_dpi, m_dpi
-        );
-        D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
+    if (needRasterize && renderW > 0 && renderH > 0) {
+        if (hasType3Font) {
+            ComPtr<ID2D1Bitmap1> pageBitmap;
+            if (RasterizePageViaStream(page, renderW, renderH, pageBitmap) && pageBitmap) {
+                m_pageCache.bitmap = pageBitmap;
+                m_pageCache.pageIndex = currentPageIndex;
+                m_pageCache.zoom = zoom;
+                m_pageCache.pixelW = renderW;
+                m_pageCache.pixelH = renderH;
+            }
+        } else if (m_pdfRenderer) {
+            D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                D2D1_BITMAP_OPTIONS_TARGET,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                m_dpi, m_dpi
+            );
+            D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
 
-        ComPtr<ID2D1Bitmap1> pageBitmap;
-        HRESULT hrBmp = m_d2dContext->CreateBitmap(
-            pixelSize,
-            nullptr,
-            0,
-            &bp,
-            &pageBitmap
-        );
-
-        if (SUCCEEDED(hrBmp) && pageBitmap) {
-            m_d2dContext->SetTarget(pageBitmap.Get());
-            m_d2dContext->BeginDraw();
-            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-            m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-
-            PDF_RENDER_PARAMS params = {};
-            params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-            params.DestinationWidth = renderW;
-            params.DestinationHeight = renderH;
-            params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-            params.IgnoreHighContrast = FALSE;
-
-            m_pdfRenderer->RenderPageToDeviceContext(
-                (IUnknown*)winrt::get_abi(page),
-                m_d2dContext.Get(),
-                &params
+            ComPtr<ID2D1Bitmap1> pageBitmap;
+            HRESULT hrBmp = m_d2dContext->CreateBitmap(
+                pixelSize,
+                nullptr,
+                0,
+                &bp,
+                &pageBitmap
             );
 
-            m_d2dContext->EndDraw();
+            if (SUCCEEDED(hrBmp) && pageBitmap) {
+                m_d2dContext->SetTarget(pageBitmap.Get());
+                m_d2dContext->BeginDraw();
+                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+                m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
 
-            m_pageCache.bitmap = pageBitmap;
-            m_pageCache.pageIndex = currentPageIndex;
-            m_pageCache.zoom = zoom;
-            m_pageCache.pixelW = renderW;
-            m_pageCache.pixelH = renderH;
+                PDF_RENDER_PARAMS params = {};
+                params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+                params.DestinationWidth = renderW;
+                params.DestinationHeight = renderH;
+                params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+                params.IgnoreHighContrast = FALSE;
 
-            // Restore screen target bitmap
-            m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+                m_pdfRenderer->RenderPageToDeviceContext(
+                    (IUnknown*)winrt::get_abi(page),
+                    m_d2dContext.Get(),
+                    &params
+                );
+
+                m_d2dContext->EndDraw();
+
+                m_pageCache.bitmap = pageBitmap;
+                m_pageCache.pageIndex = currentPageIndex;
+                m_pageCache.zoom = zoom;
+                m_pageCache.pixelW = renderW;
+                m_pageCache.pixelH = renderH;
+
+                // Restore screen target bitmap
+                m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+            }
         }
     }
 
@@ -983,7 +1091,7 @@ void D2DRenderer::RenderPage(
     // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
     if (m_pageCache.bitmap && m_pageCache.pageIndex == currentPageIndex) {
         m_d2dContext->DrawBitmap(m_pageCache.bitmap.Get(), pageRect);
-    } else if (m_pdfRenderer) {
+    } else if (!hasType3Font && m_pdfRenderer) {
         PDF_RENDER_PARAMS params = {};
         params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
         params.DestinationWidth = renderW;
@@ -1146,36 +1254,47 @@ void D2DRenderer::RenderContinuous(
             }
         }
 
-        if (!found && m_pdfRenderer && renderW > 0 && renderH > 0) {
-            D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-                D2D1_BITMAP_OPTIONS_TARGET,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-                m_dpi, m_dpi
-            );
-            D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
-
+        if (!found && renderW > 0 && renderH > 0) {
             ComPtr<ID2D1Bitmap1> pageBitmap;
-            HRESULT hrBmp = m_d2dContext->CreateBitmap(pixelSize, nullptr, 0, &bp, &pageBitmap);
-            if (SUCCEEDED(hrBmp) && pageBitmap) {
-                m_d2dContext->SetTarget(pageBitmap.Get());
-                m_d2dContext->BeginDraw();
-                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-                m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-
-                PDF_RENDER_PARAMS params = {};
-                params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-                params.DestinationWidth = renderW;
-                params.DestinationHeight = renderH;
-                params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-                params.IgnoreHighContrast = FALSE;
-
-                m_pdfRenderer->RenderPageToDeviceContext(
-                    (IUnknown*)winrt::get_abi(vp.page),
-                    m_d2dContext.Get(),
-                    &params
+            bool success = false;
+            if (vp.hasType3Font) {
+                success = RasterizePageViaStream(vp.page, renderW, renderH, pageBitmap);
+            } else if (m_pdfRenderer) {
+                D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+                    D2D1_BITMAP_OPTIONS_TARGET,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                    m_dpi, m_dpi
                 );
-                m_d2dContext->EndDraw();
+                D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
 
+                HRESULT hrBmp = m_d2dContext->CreateBitmap(pixelSize, nullptr, 0, &bp, &pageBitmap);
+                if (SUCCEEDED(hrBmp) && pageBitmap) {
+                    m_d2dContext->SetTarget(pageBitmap.Get());
+                    m_d2dContext->BeginDraw();
+                    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+                    m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+
+                    PDF_RENDER_PARAMS params = {};
+                    params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+                    params.DestinationWidth = renderW;
+                    params.DestinationHeight = renderH;
+                    params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+                    params.IgnoreHighContrast = FALSE;
+
+                    m_pdfRenderer->RenderPageToDeviceContext(
+                        (IUnknown*)winrt::get_abi(vp.page),
+                        m_d2dContext.Get(),
+                        &params
+                    );
+                    m_d2dContext->EndDraw();
+
+                    // Restore main swapchain target
+                    m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+                    success = true;
+                }
+            }
+
+            if (success && pageBitmap) {
                 PageBitmapCache entry;
                 entry.pageIndex = vp.pageIndex;
                 entry.zoom = zoom;
@@ -1195,9 +1314,6 @@ void D2DRenderer::RenderContinuous(
                 } else {
                     m_continuousPageCache.push_back(std::move(entry));
                 }
-
-                // Restore main swapchain target
-                m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
             }
         }
     }
@@ -1250,7 +1366,7 @@ void D2DRenderer::RenderContinuous(
 
         if (pCachedBmp) {
             m_d2dContext->DrawBitmap(pCachedBmp, pageRect);
-        } else if (m_pdfRenderer) {
+        } else if (!vp.hasType3Font && m_pdfRenderer) {
             PDF_RENDER_PARAMS params = {};
             params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
             params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
@@ -2323,9 +2439,10 @@ void D2DRenderer::DrawDocumentProperties(const DocumentPropertiesRenderInfo& pro
 bool D2DRenderer::PrintPageToHdc(
     winrt::Windows::Data::Pdf::PdfPage page,
     HDC hdc,
-    D2D1_SIZE_F pageSize
+    D2D1_SIZE_F pageSize,
+    bool hasType3Font
 ) {
-    if (!m_d3dDevice || !m_d3dContext || !m_pdfRenderer || !m_d2dContext || !page) {
+    if (!m_d3dDevice || !m_d3dContext || (!hasType3Font && !m_pdfRenderer) || !m_d2dContext || !page) {
         return false;
     }
 
@@ -2428,18 +2545,25 @@ bool D2DRenderer::PrintPageToHdc(
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         m_d2dContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
-        PDF_RENDER_PARAMS params = {};
-        params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-        params.DestinationWidth = renderW;
-        params.DestinationHeight = renderH;
-        params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-        params.IgnoreHighContrast = FALSE;
+        if (hasType3Font) {
+            ComPtr<ID2D1Bitmap1> safeBmp;
+            if (RasterizePageViaStream(page, renderW, renderH, safeBmp) && safeBmp) {
+                m_d2dContext->DrawBitmap(safeBmp.Get(), D2D1::RectF(0.0f, 0.0f, (float)renderW, (float)renderH));
+            }
+        } else if (m_pdfRenderer) {
+            PDF_RENDER_PARAMS params = {};
+            params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+            params.DestinationWidth = renderW;
+            params.DestinationHeight = renderH;
+            params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+            params.IgnoreHighContrast = FALSE;
 
-        m_pdfRenderer->RenderPageToDeviceContext(
-            (IUnknown*)winrt::get_abi(page),
-            m_d2dContext.Get(),
-            &params
-        );
+            m_pdfRenderer->RenderPageToDeviceContext(
+                (IUnknown*)winrt::get_abi(page),
+                m_d2dContext.Get(),
+                &params
+            );
+        }
 
         HRESULT hr = m_d2dContext->EndDraw();
 

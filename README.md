@@ -4,11 +4,11 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>270 KB · 159 ms cold launch · 8.7 MB RAM · Zero dependencies · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>787 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/binary-270_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-787_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
   <img src="https://img.shields.io/badge/C%2B%2B20-MSVC_14.44-E65100?style=flat-square" alt="C++20">
@@ -28,7 +28,7 @@ LightPDF.exe
 :: Open a PDF directly
 LightPDF.exe "C:\path\to\document.pdf"
 
-:: Register as default PDF viewer (per-user, no admin)
+:: Register as default PDF viewer (per-user, no admin required)
 LightPDF.exe /register /silent
 ```
 
@@ -38,17 +38,23 @@ LightPDF.exe /register /silent
 
 | | |
 |---|---|
-| ⚡ **Instant Launch** | Cold starts in **159 ms** — faster than any mainstream PDF reader |
-| 🪶 **Tiny Footprint** | **492 KB** single `.exe`, **8.7 MB** private memory, **zero DLLs** |
-| 🔍 **Ultra-Fast Search** | `Ctrl+F` text search with floating UI, live highlights, match counter, case matching, & OCR fallback |
-| 🎨 **Chromeless Design** | No toolbars, ribbons, side panels, or telemetry — just your document |
-| 🗂️ **Smart Tabs** | Auto-hiding tab bar: invisible with 1 doc, appears with 2+, vanishes again when closed down to 1 |
-| 🚀 **Single Instance** | Opening PDFs from Explorer forwards into new tabs of the existing window in **54 ms** |
-| 🖨️ **300 DPI Printing** | Native `PrintDlgExW` — All Pages, Current Page, or Custom Ranges — streamed page-by-page |
-| 🎮 **GPU Rendering** | Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard |
-| 🔎 **Smooth Zoom** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page / `Ctrl+1` 100% / `Ctrl+2` Fit Width |
-| 🖥️ **HiDPI Native** | PerMonitorV2 DPI — crisp on 4K, 8K, and mixed multi-monitor setups |
-| 🔗 **Easy Association** | `LightPDF.exe /register` — adds to Windows "Open with" & Default Apps without admin |
+| ⚡ **Instant Launch** | Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader |
+| 🪶 **Sub-Megabyte Footprint** | **787 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
+| 📄 **Native Searchable PDF Export** | `Ctrl+S` / `Ctrl+Shift+S`: bakes an invisible text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Atomic in-place overwrite or Save As new file with zero image quality degradation |
+| 🎯 **Presentation & Laser Pointer** | Press `L` in fullscreen (`F11`) to activate an interactive laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold |
+| 📖 **Offline Technical Dictionary** | Double-click or press `D`: instant English-Arabic translation and definitions for Computer Engineering, Architecture, Networks, Cybersecurity, and ABET terms &mdash; 100% offline |
+| 🔍 **Bilingual Search Engine** | `Ctrl+F` real-time search with diacritics stripping, Alef/Taa Marbuta normalization, Eastern & Western Arabic numeral unification, and bidirectional matching |
+| 📜 **Continuous Vertical Scroll** | `Ctrl+3` toggles continuous page layout with smooth scrolling, clamped canvas panning, and an auto-fading scrub scrollbar |
+| 🎨 **Chromeless Design** | No toolbars, ribbons, side panels, or telemetry &mdash; just your document |
+| 🗂️ **Smart Multi-Tabs** | Auto-hiding tab bar: invisible with 1 doc, appears with 2+, vanishes again when closed down to 1 |
+| 🚀 **Single Instance** | Opening PDFs from Explorer forwards into new tabs of the existing window in **54 ms** via `WM_COPYDATA` |
+| ✋ **Hand & Selection Tools** | Toggle between Hand Pan (`H`) and Text Selection (`V` / `S`) with clipboard copy (`Ctrl+C`) |
+| 🖨️ **300 DPI Streaming Printing** | Native `PrintDlgExW` &mdash; All Pages, Current Page, or Custom Ranges &mdash; streamed page-by-page |
+| ℹ️ **Document Properties** | `Ctrl+D` instant inspection dialog for title, author, producer, page count, and PDF version |
+| 🎮 **GPU Hardware Rendering** | Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard |
+| 🔎 **Smooth Zooming** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page, `Ctrl+1` 100%, and `Ctrl+2` Fit Width |
+| 🖥️ **HiDPI Native** | PerMonitorV2 DPI &mdash; crisp on 4K, 8K, and mixed multi-monitor setups |
+| 🔗 **Zero-Admin Association** | `LightPDF.exe /register` &mdash; adds to Windows "Open with" & Default Apps without admin |
 
 ---
 
@@ -56,134 +62,164 @@ LightPDF.exe /register /silent
 
 Measured on Windows 11 x64 with cold execution and hardware performance counters.
 
-| Metric | LightPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
-| :--- | :---: | :---: | :---: | :---: |
-| **Binary Size** | **270 KB** | ~250 MB | ~180 MB | ~120 MB |
-| **External DLLs** | **0** | 80+ | 50+ | 60+ |
-| **Cold Startup** | **159 ms** | ~1,800 ms | ~950 ms | ~1,400 ms |
-| **Tab Forwarding** | **54 ms** | ~1,200 ms | ~400 ms | ~850 ms |
-| **RAM — 1 Doc** | **8.7 MB** | 180 MB+ | 120 MB+ | 220 MB+ |
-| **RAM — 3 Docs** | **24.8 MB** | 350 MB+ | 280 MB+ | 450 MB+ |
-| **Admin Required** | **No** | Yes | Yes | Optional |
+| Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Binary Size** | **787 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
+| **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
+| **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
+| **RAM — 1 Doc** | **8.7 MB** | ~28 MB | 180 MB+ | 120 MB+ | 220 MB+ |
+| **RAM — 3 Docs** | **24.8 MB** | ~65 MB | 350 MB+ | 280 MB+ | 450 MB+ |
+| **Admin Required** | **No** | No | Yes | Yes | Optional |
 
 ---
 
 ## Keyboard & Mouse Shortcuts
 
-Press **`F1`** in-app to display the translucent Direct2D shortcuts overlay.
+Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts overlay.
 
-### Navigation & Zoom
+### Navigation
 
-| Action | Control |
+| Shortcut | Description |
 | :--- | :--- |
-| Open file | `Ctrl+O`, double-click empty canvas, drag-and-drop, or CLI argument |
-| Print | `Ctrl+P` |
-| Go to Page | `Ctrl+G` or click HUD pill (type page number + `Enter`) |
-| Next / Previous page | `PgDn` / `PgUp`, `Space` / `Shift+Space`, `→` / `←`, or scroll wheel |
-| First / Last page | `Home` / `End` |
-| Continuous Scroll | `Ctrl+3` (toggle continuous vertical flow) |
-| Scrollbar Scrubbing | Hover right edge & drag thumb with live page tooltip |
-| Zoom in / out | `Ctrl+Wheel`, `+` / `-` |
-| Fit Page | `Ctrl+0` or double-click canvas (when document is open) |
-| Actual Size (100%) | `Ctrl+1` |
-| Fit Width | `Ctrl+2` |
-| Pan canvas | Left-drag or middle-drag |
-| Toggle fullscreen | `F11` |
-| Exit fullscreen / overlay | `Esc` |
+| `Page Down` / `Space` | Advance to next page |
+| `Page Up` / `Shift+Space` | Go to previous page |
+| `→` / `←` | Next / previous page |
+| `Home` / `End` | Jump to first / last page |
+| `Mouse Wheel` | Scroll page vertically |
+| `Middle Drag` / `Space + Drag` | Smooth canvas panning |
+| `H` | Hand Tool (toggle drag pan mode) |
+| `V` / `S` | Text Selection Tool |
 
-### Search
+### Zoom & View
 
-| Action | Control |
+| Shortcut | Description |
 | :--- | :--- |
-| Find in document | `Ctrl+F` (opens floating search bar at top-right) |
-| Next match | `Enter`, `F3`, or click **`▼`** |
-| Previous match | `Shift+Enter`, `Shift+F3`, or click **`▲`** |
-| Toggle Case Sensitivity | Click **`Aa`** button in search bar |
-| Toggle OCR Fallback | Click **`OCR`** button (for scanned PDFs) |
-| Dismiss search | `Esc` or click **`✕`** |
+| `Ctrl + Wheel` / `+` / `-` | Zoom in / out centered on cursor |
+| `Ctrl + 0` | Fit full page to window |
+| `Ctrl + 1` | Actual size (100% zoom) |
+| `Ctrl + 2` | Fit page width to window |
+| `Ctrl + 3` | Toggle continuous vertical scroll |
+| `Double Click` | Fit Page / Fit Width toggle (or Open file if canvas empty) |
+| `F11` | Toggle borderless fullscreen |
+| `Scrollbar Drag` | Scrub through document pages with live preview tooltip |
 
-### Tabs
+### Tabs & Files
 
-| Action | Control |
+| Shortcut | Description |
 | :--- | :--- |
-| New tab | `Ctrl+T` or click **`+`** |
-| Close tab | `Ctrl+W`, click **`×`**, or middle-click tab |
-| Next / Previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
-| Jump to tab 1–9 | `Alt+1` … `Alt+9` |
+| `Ctrl + O` / `Ctrl + T` | Open PDF document in new tab |
+| `Ctrl + S` | Save Searchable PDF prompt (Overwrite original or Save As new copy) |
+| `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
+| `Ctrl + W` | Close active tab |
+| `Ctrl + Tab` / `Ctrl + Shift + Tab` | Switch to next / previous tab |
+| `Alt + 1` … `Alt + 9` | Jump directly to tabs 1 through 9 |
+| `Middle Click Tab` | Close clicked tab |
+| `Drag & Drop` | Drop one or multiple PDF files to open as tabs |
+
+### Search & Tools
+
+| Shortcut | Description |
+| :--- | :--- |
+| `Ctrl + F` | Find text in document (floating search bar) |
+| `F3` / `Shift + F3` | Next / previous search match |
+| `Enter` / `Shift + Enter` | Next / previous match in search bar |
+| `L` | Toggle Presentation Laser Pointer (fullscreen mode) |
+| `C` | Cycle Laser Pointer Color (Red, Green, Cyan, Gold) |
+| `Ctrl + C` | Copy selected text to clipboard |
+| `D` / `Double Click` | Look up selected word in offline English-Arabic technical dictionary |
+| `Ctrl + P` | Print document (All / Current / Page Range) |
+| `Ctrl + G` | Jump to specific page number |
+| `Ctrl + D` | Document properties (metadata, page count, PDF version) |
+| `F1` / `Esc` | Toggle / dismiss help overlay or cancel operations |
 
 ---
 
-## File Association
+## Searchable PDF Baking Architecture
 
-Register LightPDF as your default PDF viewer without admin privileges:
+```
+Scanned / Non-Digital PDF
+           │
+  [Ctrl+S / Ctrl+Shift+S]
+           │
+           ▼
+Windows.Media.Ocr (WinRT)
+  ├── Prioritizes Arabic (ar-SA) with English fallback
+  ├── Renders page to high-DPI software bitmap
+  └── Runs on dedicated background STA worker thread (HUD progress)
+           │
+           ▼
+PdfSearchableWriter (Native Incremental Update)
+  ├── Synthesizes Type 0 Composite Font + CIDFontType2
+  ├── Emits Adobe UCS /ToUnicode CMap (Identity-H UTF-16BE)
+  ├── Invisible Content Stream: q 3 Tr BT ... ET Q
+  │     ├── RTL character positioning for Arabic words
+  │     └── LTR word advance for Latin words & digits
+  ├── Appends incremental objects & updates trailer with /Prev
+  └── Zero re-compression: original images & vectors preserved 100%
+           │
+    ┌──────┴────────────────────────┐
+    ▼                               ▼
+[Save As New Copy]       [Overwrite Original]
+Native Save Picker       Atomic ReplaceFileW via .tmp
+Original preserved       Hot-reloads open tab seamlessly
+```
+
+---
+
+## File Association & Shell Integration
+
+Register LightPDF as your default PDF viewer without administrator privileges:
 
 ```cmd
 LightPDF.exe /register            :: Interactive confirmation dialog
-LightPDF.exe /register /silent    :: Silent — for scripts & automation
-LightPDF.exe /unregister          :: Clean up all registry entries
+LightPDF.exe /register /silent    :: Silent — for scripts & automated setup
+LightPDF.exe /unregister          :: Cleanly removes all registry entries
 ```
 
-This writes to `HKCU\Software\Classes` (per-user scope only) and calls `SHChangeNotify` so Explorer picks up the change immediately. After registering, LightPDF appears in **"Open with"** and **Settings → Default Apps**.
-
-When LightPDF is the default viewer:
-- Double-clicking a `.pdf` opens it in LightPDF.
-- If LightPDF is already running, the file opens as a **new tab** in the existing window (single-instance forwarding via named mutex + `WM_COPYDATA`).
+This writes directly to `HKCU\Software\Classes` (per-user scope only) and calls `SHChangeNotify` so Windows Explorer updates immediately. After registering:
+- Double-clicking any `.pdf` opens LightPDF instantly.
+- If LightPDF is already running, the document opens as a **new tab** in the active window (tab forwarding via named mutex + `WM_COPYDATA`).
 
 ---
 
-## Architecture
+## Project Structure
 
 ```
 LightPDF/
 ├── bin/
-│   └── LightPDF.exe          # 492 KB standalone release binary (zero DLLs)
-├── src/
-│   ├── main.cpp               # wWinMain, DPI init, single-instance mutex, /register CLI
-│   ├── app_window.hpp/.cpp    # Win32 window, multi-tab engine, search input dispatch, printing
-│   ├── d2d_renderer.hpp/.cpp  # D3D11 + D2D1 renderer, search bar, highlights, tab bar, HUD
-│   ├── pdf_document.hpp/.cpp  # Windows.Data.Pdf wrapper, page cache
-│   ├── pdf_parser.hpp/.cpp    # Built-in deflate, PDF operator text parser, CMap decoder
-│   └── pdf_search.hpp/.cpp    # Background threaded search engine, WinRT OCR fallback
+│   ├── LightPDF.exe              # 787 KB standalone release binary (zero DLLs)
+│   └── dict/                     # Offline technical dictionary database
+│       └── en-ar.dat
+├── dict/
+│   ├── en-ar.dat                 # Binary English-Arabic technical terminology
+│   └── user_terms.txt            # Custom additions source list
 ├── resources/
-│   ├── app.ico                # Multi-resolution icon (16×16 → 256×256)
-│   ├── app.rc                 # Resource script
-│   └── app.manifest           # PerMonitorV2 + Win10/11 compatibility manifest
+│   ├── app.ico                   # Multi-resolution icon (16×16 → 256×256)
+│   ├── app.rc                    # Windows resource script
+│   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
+├── src/
+│   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
+│   ├── app_window.hpp/.cpp       # Win32 controller, tab state, input routing, tools
+│   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 pipeline, HUDs, overlays
+│   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper
+│   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal
+│   ├── pdf_search.hpp/.cpp       # Multilingual search engine, normalization, numerals
+│   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich
+│   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
-│   ├── benchmark_startup.cpp  # Cold-launch & memory profiler
-│   └── test_samples.ps1       # Automated multi-document test suite
+│   ├── benchmark_startup.cpp     # Cold-launch & memory profiler
+│   ├── test_samples.ps1          # Automated multi-document test suite
+│   ├── verify_dictionary.cpp     # Offline dictionary unit test suite
+│   ├── verify_presenter.cpp      # Presenter & laser pointer test suite
+│   └── verify_searchable_pdf.cpp # Searchable PDF baking verification suite
 ├── tools/
-│   └── msvc/                  # Portable MSVC 14.44 + Windows SDK 10.0.26100
-├── build.ps1                  # PowerShell build script
-├── build.bat                  # Batch build script
-├── LICENSE                    # MIT License
+│   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
+├── build.ps1                     # PowerShell optimized build script (/O2 /AVX2 /LTCG)
+├── build.bat                     # CMD batch build script
+├── LICENSE                       # MIT License
 └── README.md
 ```
-
-### Rendering Pipeline
-
-```
-PDF File
-  │
-  ▼
-Windows.Data.Pdf (WinRT)   ──→   IPdfRendererNative
-  │                                     │
-  ▼                                     ▼
-PdfPage Object  ──────────────→  ID2D1DeviceContext
-                                        │
-                                        ▼
-                               DXGI Flip-Model Swap Chain
-                              (DXGI_SWAP_EFFECT_FLIP_DISCARD)
-                                        │
-                                        ▼
-                                   Desktop Window
-```
-
-**Key design decisions:**
-
-- **Zero-copy rendering** — PDF vector commands go directly to the GPU device context; no intermediate bitmaps or temp files.
-- **Auto-hiding tab bar** — The 34-DIP Direct2D tab strip only participates in layout when `tabs.size() > 1`, keeping single-document mode pixel-perfect.
-- **Isolated STA threads** — Shell file dialogs (`IFileOpenDialog`) and print sheets (`PrintDlgExW`) each run on their own Single-Threaded Apartment worker threads, preventing any UI freeze.
-- **Streaming printer** — Pages are rasterized at 300 DPI and spooled one at a time; a 500-page document uses no more memory than a 1-page document.
 
 ---
 
@@ -193,71 +229,25 @@ PdfPage Object  ──────────────→  ID2D1DeviceContex
 
 - **Windows 10 or 11** (x64)
 - **PowerShell** or **Command Prompt**
-- **MSVC C++ compiler** — any of the three options below:
+- **MSVC C++ Compiler** supporting C++20 (MSVC v143 / 14.4x recommended)
 
-#### Option A: Visual Studio (if already installed)
+#### Option A: Visual Studio (if installed)
+Open **Developer PowerShell for VS 2022** and run `.\build.ps1`.
 
-If you have Visual Studio 2022 (or 2019+) with the **"Desktop development with C++"** workload, you're ready. Open a **Developer Command Prompt** or **Developer PowerShell** and skip to [Build](#build).
-
-#### Option B: VS Build Tools (no IDE)
-
-Download the free [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) installer, select the **"Desktop development with C++"** workload, and install. This gives you `cl.exe`, `link.exe`, and the Windows SDK without the full IDE.
-
-#### Option C: Portable MSVC (zero install, no admin)
-
-If you don't have Visual Studio at all and don't want to install anything system-wide, you can bootstrap a fully portable MSVC compiler + Windows SDK into the `tools/msvc/` directory using [**portable-msvc**](https://github.com/mmozeiko/portable-msvc) by mmozeiko. This downloads the toolchain directly from Microsoft's CDN — no admin privileges, no registry modifications, no Visual Studio installer.
-
-**Requirements:** Python 3.6+
+#### Option B: Portable MSVC (Zero Install, No Admin)
+If you don't have Visual Studio installed, bootstrap a portable compiler into `tools/msvc/` using [portable-msvc](https://github.com/mmozeiko/portable-msvc):
 
 ```powershell
-# 1. Download the portable-msvc script
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mmozeiko/portable-msvc/main/portable-msvc.py" -OutFile portable-msvc.py
-
-# 2. Run it — downloads MSVC compiler + Windows SDK into ./msvc/
 python portable-msvc.py
-
-# 3. Move the output into the project's tools directory
 Move-Item -Path msvc -Destination tools\msvc
-
-# 4. Clean up
-Remove-Item portable-msvc.py
 ```
 
-Or equivalently with `curl`:
+The build scripts (`build.ps1` / `build.bat`) automatically detect and activate `tools\msvc\activate.ps1`.
 
-```cmd
-:: Download
-curl -L -o portable-msvc.py https://raw.githubusercontent.com/mmozeiko/portable-msvc/main/portable-msvc.py
-
-:: Run (downloads ~1.5 GB, extracts MSVC 14.x + SDK 10.x into ./msvc/)
-python portable-msvc.py
-
-:: Move into project
-move msvc tools\msvc
-
-:: Clean up
-del portable-msvc.py
-```
-
-After this, `tools/msvc/` will contain:
-```
-tools/msvc/
-├── VC/                         # MSVC compiler, linker, headers, libs
-│   └── Tools/MSVC/14.x.xxxxx/
-├── Windows Kits/               # Windows SDK headers + libs
-│   └── 10/
-├── activate.ps1                # PowerShell environment activation
-├── activate.cmd                # CMD environment activation
-├── setup_x64.bat               # x64 native tools setup
-└── env.json                    # PATH, INCLUDE, LIB configuration
-```
-
-The build scripts (`build.ps1` / `build.bat`) automatically detect and activate this portable toolchain via `tools\msvc\activate.ps1` when `cl.exe` is not already on your `PATH`.
-
-### Build
+### Build Command
 
 ```powershell
-# PowerShell
+# PowerShell (Recommended)
 .\build.ps1
 ```
 
@@ -266,22 +256,24 @@ The build scripts (`build.ps1` / `build.bat`) automatically detect and activate 
 build.bat
 ```
 
-Output: `bin\LightPDF.exe` (270 KB)
+Output: `bin\LightPDF.exe` (**787 KB**)
 
 ### Compiler Flags
 
 ```
-/O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX
+/O2 /Ob3 /fp:fast /arch:AVX2 /GA /Oi /GF /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX
 /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS
       /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest
 ```
 
 | Flag | Purpose |
 | :--- | :--- |
-| `/O2` | Maximum speed optimization |
-| `/MT` | Static CRT link — eliminates `VCRUNTIME140.dll` / `MSVCP140.dll` |
-| `/GL` + `/LTCG` | Whole-program link-time code generation for cross-file inlining |
-| `/OPT:REF` + `/OPT:ICF` | Dead-code elimination + identical COMDAT folding → 270 KB binary |
+| `/O2` `/Ob3` | Maximum aggressive speed optimization and inline expansion |
+| `/arch:AVX2` | SIMD vector acceleration for parser and geometry calculations |
+| `/fp:fast` | Fast floating-point math for Direct2D layout and transformations |
+| `/MT` | Static CRT linking &mdash; eliminates `VCRUNTIME140.dll` / `MSVCP140.dll` dependencies |
+| `/GL` + `/LTCG` | Whole-program link-time code generation for cross-module inlining |
+| `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding |
 
 ---
 

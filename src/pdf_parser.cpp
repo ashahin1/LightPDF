@@ -1164,6 +1164,7 @@ void PdfParser::Close() {
     m_pageObjectNums.clear();
     m_xref.clear();
     m_objStmCache.clear();
+    m_pageHasType3Cache.clear();
 }
 
 static std::wstring DecodePdfMetadataString(const std::string& raw) {
@@ -1395,7 +1396,7 @@ bool PdfParser::ExtractMetadata(PdfMetadata& outMetadata) const {
     return true;
 }
 
-std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) {
+std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) const {
     std::map<uint32_t, std::wstring> cmap;
     if (streamData.empty()) return cmap;
 
@@ -1503,7 +1504,7 @@ std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector
     return cmap;
 }
 
-std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string& pageDict) {
+std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string& pageDict) const {
     std::map<std::string, PdfFontInfo> fonts;
 
     std::string resDict;
@@ -1791,7 +1792,7 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
     return fonts;
 }
 
-std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string& pageDict) {
+std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string& pageDict) const {
     std::map<std::string, uint32_t> xobjects;
 
     std::string resDict;
@@ -1849,6 +1850,46 @@ std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string
     }
 
     return xobjects;
+}
+
+bool PdfParser::PageHasType3Fonts(uint32_t pageIndex) const {
+    if (pageIndex >= m_pageObjectNums.size()) return false;
+
+    auto it = m_pageHasType3Cache.find(pageIndex);
+    if (it != m_pageHasType3Cache.end()) {
+        return it->second;
+    }
+
+    uint32_t pageObjNum = m_pageObjectNums[pageIndex];
+    std::string pageDict = GetObjectString(pageObjNum);
+    if (pageDict.empty()) {
+        m_pageHasType3Cache[pageIndex] = false;
+        return false;
+    }
+
+    auto fonts = ExtractPageFonts(pageDict);
+    for (const auto& pair : fonts) {
+        if (pair.second.subtype == "Type3") {
+            m_pageHasType3Cache[pageIndex] = true;
+            return true;
+        }
+    }
+
+    // Also check child Form XObjects for nested Type 3 fonts
+    auto xobjects = ExtractPageXObjects(pageDict);
+    for (const auto& pair : xobjects) {
+        std::string xDict = GetObjectString(pair.second);
+        auto childFonts = ExtractPageFonts(xDict);
+        for (const auto& cf : childFonts) {
+            if (cf.second.subtype == "Type3") {
+                m_pageHasType3Cache[pageIndex] = true;
+                return true;
+            }
+        }
+    }
+
+    m_pageHasType3Cache[pageIndex] = false;
+    return false;
 }
 
 static bool IsArabicAlphabetLetter(wchar_t ch) {

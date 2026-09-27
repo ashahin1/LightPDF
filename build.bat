@@ -28,12 +28,12 @@ rc.exe /nologo /i resources /fo resources\app.res resources\app.rc
 
 echo Compiling optimized C++20 release binary...
 cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX ^
-    src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp ^
+    src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp src\pdf_searchable_writer.cpp ^
     resources\app.res ^
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS ^
     /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest ^
     d3d11.lib d2d1.lib dxgi.lib dwrite.lib windows.data.pdf.lib windowsapp.lib ^
-    user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib comdlg32.lib advapi32.lib ^
+    user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib windowscodecs.lib comdlg32.lib advapi32.lib ^
     /OUT:bin\LightPDF.exe
 
 if %errorlevel% equ 0 (
