@@ -1,4 +1,5 @@
 #include "d2d_renderer.hpp"
+#include "ui_views.hpp"
 #include <cmath>
 #include <algorithm>
 #include <shcore.h>
@@ -1545,895 +1546,166 @@ void D2DRenderer::DrawOverlays(
 
 void D2DRenderer::DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered) {
     if (tabs.size() <= 1 || !m_d2dContext) return;
-
     float dipWidth = m_width * (96.0f / m_dpi);
-    float barH = 34.0f;
-
-    // 1. Tab Bar Background
-    D2D1_RECT_F barRect = D2D1::RectF(0.0f, 0.0f, dipWidth, barH);
-    m_d2dContext->FillRectangle(barRect, m_brushTabBarBg.Get());
-
-    // 2. Bottom Divider Line
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(0.0f, barH),
-        D2D1::Point2F(dipWidth, barH),
+    UIViews::TabStripResources res{
+        m_brushTabBarBg.Get(),
         m_brushTabBorder.Get(),
-        1.0f
-    );
-
-    float availW = dipWidth - 44.0f;
-    float tabW = std::clamp(availW / (float)tabs.size(), 100.0f, 220.0f);
-
-    for (size_t i = 0; i < tabs.size(); ++i) {
-        float tx = (float)i * tabW;
-        D2D1_RECT_F tabRect = D2D1::RectF(tx, 3.0f, tx + tabW, barH);
-
-        if (tabs[i].isActive) {
-            m_d2dContext->FillRectangle(tabRect, m_brushTabActiveBg.Get());
-
-            // Top accent indicator bar
-            D2D1_RECT_F accentRect = D2D1::RectF(tx, 1.0f, tx + tabW, 3.0f);
-            m_d2dContext->FillRectangle(accentRect, m_brushTabAccent.Get());
-
-            // Subtle vertical borders
-            m_d2dContext->DrawLine(D2D1::Point2F(tx, 3.0f), D2D1::Point2F(tx, barH), m_brushTabBorder.Get(), 1.0f);
-            m_d2dContext->DrawLine(D2D1::Point2F(tx + tabW, 3.0f), D2D1::Point2F(tx + tabW, barH), m_brushTabBorder.Get(), 1.0f);
-        } else {
-            if (tabs[i].isHovered) {
-                m_d2dContext->FillRectangle(tabRect, m_brushTabHoverBg.Get());
-            } else {
-                m_d2dContext->FillRectangle(tabRect, m_brushTabInactiveBg.Get());
-            }
-            // Vertical separator between inactive tabs
-            m_d2dContext->DrawLine(D2D1::Point2F(tx + tabW, 9.0f), D2D1::Point2F(tx + tabW, barH - 9.0f), m_brushTabBorder.Get(), 1.0f);
-        }
-
-        // Tab Title Text
-        D2D1_RECT_F textRect = D2D1::RectF(tx + 12.0f, 4.0f, tx + tabW - 28.0f, barH);
-        ID2D1SolidColorBrush* textBrush = tabs[i].isActive ? m_brushTabText.Get() : m_brushTabTextInactive.Get();
-        const std::wstring& title = tabs[i].title.empty() ? L"Untitled" : tabs[i].title;
-        m_d2dContext->DrawText(
-            title.c_str(),
-            (UINT32)title.length(),
-            m_textFormatTab.Get(),
-            textRect,
-            textBrush
-        );
-
-        // Close Button '×' (U+00D7)
-        D2D1_RECT_F closeRect = D2D1::RectF(tx + tabW - 24.0f, 9.0f, tx + tabW - 8.0f, 25.0f);
-        if (tabs[i].isCloseHovered) {
-            m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 3.0f, 3.0f), m_brushTabCloseHover.Get());
-        }
-        const wchar_t* closeStr = L"\x00D7";
-        m_d2dContext->DrawText(
-            closeStr,
-            1,
-            m_textFormatTabClose.Get(),
-            closeRect,
-            tabs[i].isCloseHovered ? m_brushTabText.Get() : (tabs[i].isActive ? m_brushTabText.Get() : m_brushTabTextInactive.Get())
-        );
-    }
-
-    // '+' Add Tab button
-    float addX = (float)tabs.size() * tabW + 6.0f;
-    D2D1_RECT_F addRect = D2D1::RectF(addX, 7.0f, addX + 22.0f, 27.0f);
-    if (isAddHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(addRect, 4.0f, 4.0f), m_brushTabHoverBg.Get());
-    }
-    const wchar_t* addStr = L"+";
-    m_d2dContext->DrawText(
-        addStr,
-        1,
-        m_textFormatTabAdd.Get(),
-        addRect,
-        isAddHovered ? m_brushTabText.Get() : m_brushTabTextInactive.Get()
-    );
+        m_brushTabActiveBg.Get(),
+        m_brushTabAccent.Get(),
+        m_brushTabHoverBg.Get(),
+        m_brushTabInactiveBg.Get(),
+        m_brushTabText.Get(),
+        m_brushTabTextInactive.Get(),
+        m_brushTabCloseHover.Get(),
+        m_textFormatTab.Get(),
+        m_textFormatTabClose.Get(),
+        m_textFormatTabAdd.Get()
+    };
+    UIViews::TabStripView::Render(m_d2dContext.Get(), tabs, isAddHovered, dipWidth, res);
 }
 
 void D2DRenderer::DrawScrollbar(const ScrollbarRenderInfo& scrollbar) {
     if (!scrollbar.visible || scrollbar.alpha <= 0.001f || !m_d2dContext) return;
-
     float dipWidth = m_width * (96.0f / m_dpi);
-    float width = (scrollbar.isHovered || scrollbar.isDragging) ? 10.0f : 7.0f;
-    float x = dipWidth - width - 4.0f;
-
-    // 1. Draw Track
-    D2D1_RECT_F trackRect = D2D1::RectF(x, scrollbar.trackY, x + width, scrollbar.trackY + scrollbar.trackH);
-    D2D1_ROUNDED_RECT roundedTrack = D2D1::RoundedRect(trackRect, width * 0.5f, width * 0.5f);
-
-    if (m_brushScrollbarTrack) {
-        m_brushScrollbarTrack->SetOpacity(scrollbar.alpha * 0.08f);
-        m_d2dContext->FillRoundedRectangle(roundedTrack, m_brushScrollbarTrack.Get());
-    }
-
-    // 2. Draw Thumb
-    D2D1_RECT_F thumbRect = D2D1::RectF(x, scrollbar.thumbY, x + width, scrollbar.thumbY + scrollbar.thumbH);
-    D2D1_ROUNDED_RECT roundedThumb = D2D1::RoundedRect(thumbRect, width * 0.5f, width * 0.5f);
-
-    ID2D1SolidColorBrush* pThumbBrush = (scrollbar.isDragging || scrollbar.isHovered)
-        ? m_brushScrollbarThumbHover.Get()
-        : m_brushScrollbarThumb.Get();
-    if (pThumbBrush) {
-        pThumbBrush->SetOpacity(scrollbar.alpha * ((scrollbar.isDragging || scrollbar.isHovered) ? 0.70f : 0.40f));
-        m_d2dContext->FillRoundedRectangle(roundedThumb, pThumbBrush);
-    }
-
-    // 3. Floating Tooltip while dragging: e.g. "Page 14 / 80"
-    if (scrollbar.isDragging && scrollbar.totalPages > 0) {
-        wchar_t tipText[64];
-        swprintf_s(tipText, L"Page %u / %u", scrollbar.hoverPage + 1, scrollbar.totalPages);
-        float tipW = 110.0f;
-        float tipH = 26.0f;
-        float tipX = x - tipW - 10.0f;
-        float tipY = std::clamp(scrollbar.thumbY + (scrollbar.thumbH - tipH) * 0.5f, scrollbar.trackY, scrollbar.trackY + scrollbar.trackH - tipH);
-
-        D2D1_RECT_F tipRect = D2D1::RectF(tipX, tipY, tipX + tipW, tipY + tipH);
-        D2D1_ROUNDED_RECT roundedTip = D2D1::RoundedRect(tipRect, 6.0f, 6.0f);
-
-        m_d2dContext->FillRoundedRectangle(roundedTip, m_brushHudBg.Get());
-        m_d2dContext->DrawRoundedRectangle(roundedTip, m_brushHudBorder.Get(), 1.0f);
-        m_d2dContext->DrawText(
-            tipText,
-            (UINT32)wcslen(tipText),
-            m_textFormatHud.Get(),
-            tipRect,
-            m_brushHudText.Get()
-        );
-    }
+    UIViews::ScrollBarResources res{
+        m_brushScrollbarTrack.Get(),
+        m_brushScrollbarThumb.Get(),
+        m_brushScrollbarThumbHover.Get(),
+        m_brushHudBg.Get(),
+        m_brushHudBorder.Get(),
+        m_brushHudText.Get(),
+        m_textFormatHud.Get()
+    };
+    UIViews::ScrollBarView::Render(m_d2dContext.Get(), scrollbar, dipWidth, res);
 }
 
 void D2DRenderer::DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages) {
     if (!m_d2dContext) return;
-
-    float dipWidth = m_width * (96.0f / m_dpi);
-    float dipHeight = m_height * (96.0f / m_dpi);
-
-    // 1. Dim background
-    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
-    m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
-
-    // 2. Centered Card
-    float cardW = 320.0f;
-    float cardH = 150.0f;
-    float cardX = (dipWidth - cardW) * 0.5f;
-    float cardY = (dipHeight - cardH) * 0.5f;
-
-    D2D1_RECT_F cardRect = D2D1::RectF(cardX, cardY, cardX + cardW, cardY + cardH);
-    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(cardRect, 12.0f, 12.0f);
-
-    // Drop shadow
-    D2D1_RECT_F cardShadow = D2D1::RectF(cardX + 4.0f, cardY + 4.0f, cardX + cardW + 6.0f, cardY + cardH + 6.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
-
-    // Card background & cyan accent border
-    m_d2dContext->FillRoundedRectangle(roundedCard, m_brushHelpCardBg.Get());
-    m_d2dContext->DrawRoundedRectangle(roundedCard, m_brushTabAccent.Get(), 1.5f);
-
-    // Title: "Go to Page"
-    D2D1_RECT_F titleRect = D2D1::RectF(cardX, cardY + 14.0f, cardX + cardW, cardY + 36.0f);
-    const wchar_t* titleStr = L"Go to Page";
-    m_d2dContext->DrawText(titleStr, (UINT32)wcslen(titleStr), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
-
-    // Input Box in center
-    float boxW = 200.0f;
-    float boxH = 42.0f;
-    float boxX = cardX + (cardW - boxW) * 0.5f;
-    float boxY = cardY + 46.0f;
-
-    D2D1_RECT_F boxRect = D2D1::RectF(boxX, boxY, boxX + boxW, boxY + boxH);
-    D2D1_ROUNDED_RECT roundedBox = D2D1::RoundedRect(boxRect, 6.0f, 6.0f);
-    m_d2dContext->FillRoundedRectangle(roundedBox, m_brushGoToPageBox.Get());
-    m_d2dContext->DrawRoundedRectangle(roundedBox, m_brushTabBorder.Get(), 1.0f);
-
-    // Display string: e.g. "42|  / 150"
-    wchar_t displayText[64];
-    if (buffer.empty()) {
-        if (totalPages > 0) swprintf_s(displayText, L"|  / %u", totalPages);
-        else swprintf_s(displayText, L"|");
-    } else {
-        if (totalPages > 0) swprintf_s(displayText, L"%s|  / %u", buffer.c_str(), totalPages);
-        else swprintf_s(displayText, L"%s|", buffer.c_str());
-    }
-
-    m_d2dContext->DrawText(
-        displayText,
-        (UINT32)wcslen(displayText),
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+    UIViews::GoToPageOverlayResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
+        m_brushTabAccent.Get(),
+        m_brushHudText.Get(),
+        m_brushGoToPageBox.Get(),
+        m_brushTabBorder.Get(),
+        m_brushHelpSubText.Get(),
+        m_textFormatHelpTitle.Get(),
         m_textFormatGoToPageInput.Get(),
-        boxRect,
-        m_brushHudText.Get()
-    );
-
-    // Subtitle / Hint: "Press Enter to jump • Esc to cancel"
-    D2D1_RECT_F subRect = D2D1::RectF(cardX, cardY + 104.0f, cardX + cardW, cardY + 130.0f);
-    const wchar_t* subStr = L"Enter to jump  \x2022  Esc to cancel";
-    m_d2dContext->DrawText(subStr, (UINT32)wcslen(subStr), m_textFormatHelpSub.Get(), subRect, m_brushHelpSubText.Get());
+        m_textFormatHelpSub.Get()
+    };
+    UIViews::GoToPageOverlayView::Render(m_d2dContext.Get(), buffer, totalPages, dipWidth, dipHeight, res);
 }
 
 void D2DRenderer::DrawSearchBar(const SearchBarRenderInfo& searchBar) {
     if (!searchBar.visible || !m_d2dContext) return;
-
     float dipWidth = m_width * (96.0f / m_dpi);
-    D2D1_RECT_F barRect = SearchBarLayout::GetBarRect(dipWidth, searchBar.hasTabs);
-
-    // Drop shadow
-    D2D1_RECT_F shadowRect = D2D1::RectF(barRect.left + 3.0f, barRect.top + 3.0f, barRect.right + 4.0f, barRect.bottom + 4.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 6.0f, 6.0f), m_brushPageShadow.Get());
-
-    // Search Bar Card Background & Border
-    D2D1_ROUNDED_RECT roundedBar = D2D1::RoundedRect(barRect, 6.0f, 6.0f);
-    m_d2dContext->FillRoundedRectangle(roundedBar, m_brushHudBg.Get());
-    m_d2dContext->DrawRoundedRectangle(roundedBar, m_brushHudBorder.Get(), 1.0f);
-
-    // 1. Search Query Input Area
-    D2D1_RECT_F inputRect = SearchBarLayout::GetInputRect(barRect);
-    if (searchBar.query.empty()) {
-        const wchar_t* placeholder = L"Find in document...";
-        m_d2dContext->DrawText(
-            placeholder,
-            (UINT32)wcslen(placeholder),
-            m_textFormatSearchInput.Get(),
-            inputRect,
-            m_brushTabTextInactive.Get()
-        );
-    } else {
-        bool hasArabic = false;
-        for (wchar_t ch : searchBar.query) {
-            if ((ch >= 0x0600 && ch <= 0x06FF) || (ch >= 0xFB50 && ch <= 0xFEFF)) {
-                hasArabic = true;
-                break;
-            }
-        }
-
-        if (hasArabic && m_dwriteFactory) {
-            float boxW = inputRect.right - inputRect.left;
-            float boxH = inputRect.bottom - inputRect.top;
-            if (!m_cachedSearchLayout || m_cachedSearchQuery != searchBar.query ||
-                std::abs(m_cachedSearchLayoutW - boxW) > 1.0f || std::abs(m_cachedSearchLayoutH - boxH) > 1.0f) {
-                m_cachedSearchLayout.Reset();
-                m_cachedSearchQuery = searchBar.query;
-                m_cachedSearchLayoutW = boxW;
-                m_cachedSearchLayoutH = boxH;
-                m_cachedSearchCaretX = 0;
-                if (SUCCEEDED(m_dwriteFactory->CreateTextLayout(
-                    searchBar.query.c_str(),
-                    (UINT32)searchBar.query.length(),
-                    m_textFormatSearchInput.Get(),
-                    boxW,
-                    boxH,
-                    &m_cachedSearchLayout))) {
-                    DWRITE_HIT_TEST_METRICS htm = {};
-                    FLOAT caretY = 0;
-                    m_cachedSearchLayout->HitTestTextPosition((UINT32)searchBar.query.length(), FALSE, &m_cachedSearchCaretX, &caretY, &htm);
-                }
-            }
-
-            if (m_cachedSearchLayout) {
-                m_d2dContext->DrawTextLayout(
-                    D2D1::Point2F(inputRect.left, inputRect.top),
-                    m_cachedSearchLayout.Get(),
-                    m_brushHudText.Get()
-                );
-                float cx = inputRect.left + m_cachedSearchCaretX;
-                if (cx >= inputRect.left && cx <= inputRect.right) {
-                    m_d2dContext->DrawLine(
-                        D2D1::Point2F(cx, inputRect.top + 3.0f),
-                        D2D1::Point2F(cx, inputRect.bottom - 3.0f),
-                        m_brushHudText.Get(),
-                        1.5f
-                    );
-                }
-            }
-        } else {
-            std::wstring queryWithCursor = searchBar.query + L"|";
-            m_d2dContext->DrawText(
-                queryWithCursor.c_str(),
-                (UINT32)queryWithCursor.length(),
-                m_textFormatSearchInput.Get(),
-                inputRect,
-                m_brushHudText.Get()
-            );
-        }
-    }
-
-    // 2. Match Count Badge
-    D2D1_RECT_F badgeRect = SearchBarLayout::GetBadgeRect(barRect);
-    if (searchBar.isSearching) {
-        const wchar_t* searchingStr = L"Searching...";
-        m_d2dContext->DrawText(
-            searchingStr,
-            (UINT32)wcslen(searchingStr),
-            m_textFormatSearchBadge.Get(),
-            badgeRect,
-            m_brushHelpKeyText.Get()
-        );
-    } else if (!searchBar.query.empty() && !searchBar.isDebouncing) {
-        wchar_t badgeText[64];
-        if (searchBar.totalMatches == 0) {
-            swprintf_s(badgeText, L"0 / 0");
-            m_d2dContext->DrawText(
-                badgeText,
-                (UINT32)wcslen(badgeText),
-                m_textFormatSearchBadge.Get(),
-                badgeRect,
-                m_brushTabTextInactive.Get()
-            );
-        } else {
-            swprintf_s(badgeText, L"%u of %u", searchBar.activeMatch, searchBar.totalMatches);
-            m_d2dContext->DrawText(
-                badgeText,
-                (UINT32)wcslen(badgeText),
-                m_textFormatSearchBadge.Get(),
-                badgeRect,
-                m_brushHelpKeyText.Get()
-            );
-        }
-    }
-
-    // 3. Subtle Vertical Separator
-    float sepX = barRect.left + 227.0f;
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(sepX, barRect.top + 7.0f),
-        D2D1::Point2F(sepX, barRect.bottom - 7.0f),
+    UIViews::SearchBarResources res{
+        m_brushPageShadow.Get(),
+        m_brushHudBg.Get(),
         m_brushHudBorder.Get(),
-        1.0f
-    );
-
-    // 4. Previous Button (▲)
-    D2D1_RECT_F prevRect = SearchBarLayout::GetPrevBtnRect(barRect);
-    if (searchBar.isPrevHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(prevRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
-    }
-    const wchar_t* prevIcon = L"\x25B2";
-    m_d2dContext->DrawText(
-        prevIcon,
-        1,
-        m_textFormatSearchBtn.Get(),
-        prevRect,
-        searchBar.isPrevHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
-    );
-
-    // 5. Next Button (▼)
-    D2D1_RECT_F nextRect = SearchBarLayout::GetNextBtnRect(barRect);
-    if (searchBar.isNextHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(nextRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
-    }
-    const wchar_t* nextIcon = L"\x25BC";
-    m_d2dContext->DrawText(
-        nextIcon,
-        1,
-        m_textFormatSearchBtn.Get(),
-        nextRect,
-        searchBar.isNextHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
-    );
-
-    // 6. Match Case Button (Aa)
-    D2D1_RECT_F caseRect = SearchBarLayout::GetCaseBtnRect(barRect);
-    if (searchBar.matchCase) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushSearchBtnActive.Get());
-        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushTabAccent.Get(), 1.0f);
-    } else if (searchBar.isCaseHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(caseRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
-    }
-    const wchar_t* caseText = L"Aa";
-    m_d2dContext->DrawText(
-        caseText,
-        2,
-        m_textFormatSearchBtn.Get(),
-        caseRect,
-        searchBar.matchCase ? m_brushHelpKeyText.Get() : (searchBar.isCaseHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get())
-    );
-
-    // 7. OCR Toggle Button (OCR)
-    D2D1_RECT_F ocrRect = SearchBarLayout::GetOcrBtnRect(barRect);
-    if (searchBar.ocrEnabled) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushSearchBtnActive.Get());
-        m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushTabAccent.Get(), 1.0f);
-    } else if (searchBar.isOcrHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(ocrRect, 4.0f, 4.0f), m_brushSearchBtnBg.Get());
-    }
-    const wchar_t* ocrText = L"OCR";
-    m_d2dContext->DrawText(
-        ocrText,
-        3,
-        m_textFormatSearchBtn.Get(),
-        ocrRect,
-        searchBar.ocrEnabled ? m_brushHelpKeyText.Get() : (searchBar.isOcrHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get())
-    );
-
-    // 8. Close Button (✕)
-    D2D1_RECT_F closeRect = SearchBarLayout::GetCloseBtnRect(barRect);
-    if (searchBar.isCloseHovered) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushTabCloseHover.Get());
-    }
-    const wchar_t* closeIcon = L"\x2715";
-    m_d2dContext->DrawText(
-        closeIcon,
-        1,
-        m_textFormatSearchBtn.Get(),
-        closeRect,
-        searchBar.isCloseHovered ? m_brushHudText.Get() : m_brushTabTextInactive.Get()
-    );
+        m_brushHudText.Get(),
+        m_brushTabTextInactive.Get(),
+        m_brushHelpKeyText.Get(),
+        m_brushSearchBtnBg.Get(),
+        m_brushSearchBtnActive.Get(),
+        m_brushTabAccent.Get(),
+        m_brushTabCloseHover.Get(),
+        m_textFormatSearchInput.Get(),
+        m_textFormatSearchBadge.Get(),
+        m_textFormatSearchBtn.Get()
+    };
+    UIViews::SearchBarCache cache{
+        m_cachedSearchLayout,
+        m_cachedSearchQuery,
+        m_cachedSearchLayoutW,
+        m_cachedSearchLayoutH,
+        m_cachedSearchCaretX
+    };
+    UIViews::SearchBarView::Render(m_d2dContext.Get(), m_dwriteFactory.Get(), searchBar, dipWidth, res, cache);
+    m_cachedSearchLayout = cache.layout;
+    m_cachedSearchQuery = std::move(cache.query);
+    m_cachedSearchLayoutW = cache.layoutW;
+    m_cachedSearchLayoutH = cache.layoutH;
+    m_cachedSearchCaretX = cache.caretX;
 }
 
 int D2DRenderer::HitTestHelpOverlay(POINT pt) const {
-    float dipScale = 96.0f / m_dpi;
-    float dipWidth = m_width * dipScale;
-    float dipHeight = m_height * dipScale;
-
-    float px = (float)pt.x * dipScale;
-    float py = (float)pt.y * dipScale;
-
-    D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F closeBtn = HelpOverlayLayout::GetCloseBtnRect(card);
-
-    if (px >= closeBtn.left && px <= closeBtn.right && py >= closeBtn.top && py <= closeBtn.bottom) {
-        return 100; // Close button
-    }
-
-    for (int i = 0; i < 5; ++i) {
-        D2D1_RECT_F tabRect = HelpOverlayLayout::GetCategoryTabRect(card, i);
-        if (px >= tabRect.left && px <= tabRect.right && py >= tabRect.top && py <= tabRect.bottom) {
-            return i; // Category tab 0..4
-        }
-    }
-
-    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
-        return 999; // Inside card body
-    }
-
-    return -1; // Outside card (backdrop)
+    return UIViews::HelpOverlayView::HitTest(pt, m_width, m_height, m_dpi);
 }
 
 void D2DRenderer::DrawHelpOverlay(const HelpOverlayRenderInfo& help) {
     if (!m_d2dContext) return;
-
     float dipScale = 96.0f / m_dpi;
     float dipWidth = m_width * dipScale;
     float dipHeight = m_height * dipScale;
-
-    // 1. Semi-transparent backdrop over entire window
-    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
-    m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
-
-    // 2. Centered Help Card
-    D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(card, 12.0f, 12.0f);
-
-    // Drop shadow
-    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
-
-    // Card background & crisp border
-    m_d2dContext->FillRoundedRectangle(roundedCard, m_brushHelpCardBg.Get());
-    m_d2dContext->DrawRoundedRectangle(roundedCard, m_brushHelpCardBorder.Get(), 1.5f);
-
-    // 3. Header: Title and Close Button [×]
-    D2D1_RECT_F titleRect = D2D1::RectF(card.left, card.top + 14.0f, card.right, card.top + 38.0f);
-    const wchar_t* titleStr = L"Keyboard & Mouse Shortcuts";
-    m_d2dContext->DrawText(titleStr, (UINT32)wcslen(titleStr), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
-
-    // Close Button [×]
-    D2D1_RECT_F closeRect = HelpOverlayLayout::GetCloseBtnRect(card);
-    if (help.hoveredClose == 1) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushTabCloseHover.Get());
-    }
-    const wchar_t* closeGlyph = L"\x00D7";
-    m_d2dContext->DrawText(
-        closeGlyph,
-        1,
+    UIViews::HelpOverlayResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
+        m_brushHelpCardBorder.Get(),
+        m_brushHudText.Get(),
+        m_brushTabCloseHover.Get(),
+        m_brushHelpSubText.Get(),
+        m_brushSearchBtnActive.Get(),
+        m_brushTabAccent.Get(),
+        m_brushTabHoverBg.Get(),
+        m_brushSearchBtnBg.Get(),
+        m_brushTabTextInactive.Get(),
+        m_brushTabBorder.Get(),
+        m_brushPropsAccent.Get(),
+        m_brushHelpKeyText.Get(),
+        m_brushHelpDescText.Get(),
+        m_brushHelpRowAlt.Get(),
+        m_brushHelpKeycapBg.Get(),
+        m_brushHelpKeycapBorder.Get(),
+        m_textFormatHelpTitle.Get(),
         m_textFormatTabClose.Get(),
-        closeRect,
-        (help.hoveredClose == 1) ? m_brushHudText.Get() : m_brushHelpSubText.Get()
-    );
-
-    // 4. Category Tabs
-    static const wchar_t* tabLabels[5] = {
-        L"All (34)",
-        L"Navigation (8)",
-        L"Zoom & View (8)",
-        L"Tabs & Files (8)",
-        L"Search & Tools (10)"
+        m_textFormatSearchBtn.Get(),
+        m_textFormatHelpSection.Get(),
+        m_textFormatHelpColKey.Get(),
+        m_textFormatHelpColDesc.Get(),
+        m_textFormatHelpSingleKey.Get(),
+        m_textFormatHelpSingleDesc.Get(),
+        m_textFormatHelpFooterLeft.Get(),
+        m_textFormatHelpFooterRight.Get()
     };
-
-    for (int i = 0; i < 5; ++i) {
-        D2D1_RECT_F tabRect = HelpOverlayLayout::GetCategoryTabRect(card, i);
-        D2D1_ROUNDED_RECT rTab = D2D1::RoundedRect(tabRect, 4.0f, 4.0f);
-
-        if (help.activeCategory == i) {
-            // Active tab pill
-            m_d2dContext->FillRoundedRectangle(rTab, m_brushSearchBtnActive.Get());
-            m_d2dContext->DrawRoundedRectangle(rTab, m_brushTabAccent.Get(), 1.0f);
-            m_d2dContext->DrawText(
-                tabLabels[i],
-                (UINT32)wcslen(tabLabels[i]),
-                m_textFormatSearchBtn.Get(),
-                tabRect,
-                m_brushHudText.Get()
-            );
-        } else if (help.hoveredCategory == i) {
-            // Hovered inactive tab
-            m_d2dContext->FillRoundedRectangle(rTab, m_brushTabHoverBg.Get());
-            m_d2dContext->DrawText(
-                tabLabels[i],
-                (UINT32)wcslen(tabLabels[i]),
-                m_textFormatSearchBtn.Get(),
-                tabRect,
-                m_brushHudText.Get()
-            );
-        } else {
-            // Inactive tab
-            m_d2dContext->DrawText(
-                tabLabels[i],
-                (UINT32)wcslen(tabLabels[i]),
-                m_textFormatSearchBtn.Get(),
-                tabRect,
-                m_brushTabTextInactive.Get()
-            );
-        }
-    }
-
-    // Divider line under tabs
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 78.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 78.0f),
-        m_brushHelpCardBorder.Get(),
-        1.0f
-    );
-
-    // Shortcuts Data Categorized
-    struct ShortcutItem {
-        const wchar_t* key;
-        const wchar_t* desc;
-    };
-
-    static const ShortcutItem navItems[] = {
-        { L"Page Down / Space",     L"Advance to next page" },
-        { L"Page Up / Shift+Space", L"Go to previous page" },
-        { L"Right / Left Arrow",    L"Next / Previous page" },
-        { L"Home / End",            L"Jump to first / last page" },
-        { L"Mouse Wheel",           L"Scroll page vertically" },
-        { L"Middle Drag / Space",   L"Smooth pan / drag document" },
-        { L"H",                     L"Hand Tool (toggle drag pan)" },
-        { L"V / S",                 L"Text Selection Tool" }
-    };
-
-    static const ShortcutItem zoomItems[] = {
-        { L"Ctrl + Wheel / + / -",  L"Zoom in / out centered on cursor" },
-        { L"Ctrl + 0",              L"Fit full page to window" },
-        { L"Ctrl + 1",              L"Actual size (100% zoom)" },
-        { L"Ctrl + 2",              L"Fit page width to window" },
-        { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
-        { L"Double Click",          L"Fit Page / Fit Width (or Open file)" },
-        { L"F11",                   L"Toggle borderless fullscreen" },
-        { L"Scrollbar Drag",        L"Scrub through document pages" }
-    };
-
-    static const ShortcutItem tabItems[] = {
-        { L"Ctrl + O / Ctrl + T",    L"Open PDF document in new tab" },
-        { L"Ctrl + S / Shift+S",    L"Save as Searchable PDF (Bake OCR)" },
-        { L"Ctrl + W",              L"Close active tab" },
-        { L"Ctrl + Tab",            L"Switch to next tab" },
-        { L"Ctrl + Shift + Tab",    L"Switch to previous tab" },
-        { L"Alt + 1..9",            L"Jump directly to tab 1 through 9" },
-        { L"Middle Click Tab",      L"Close clicked tab" },
-        { L"Drag & Drop",           L"Open dropped PDF files as tabs" }
-    };
-
-    static const ShortcutItem toolItems[] = {
-        { L"Ctrl + F",              L"Find text in document (search)" },
-        { L"F3 / Shift + F3",       L"Next / previous search match" },
-        { L"L",                     L"Toggle Presentation Laser Pointer" },
-        { L"C",                     L"Cycle Laser Color (Red/Green/Cyan/Gold)" },
-        { L"Ctrl + C",              L"Copy selected text to clipboard" },
-        { L"D / Double-Click",      L"Offline English-Arabic Dictionary" },
-        { L"Ctrl + P",              L"Print document (All / Current / Range)" },
-        { L"Ctrl + G",              L"Go to specific page number prompt" },
-        { L"Ctrl + D",              L"Document properties (Information)" },
-        { L"F1 / Esc",              L"Toggle / dismiss this help overlay" }
-    };
-
-    if (help.activeCategory == 0) {
-        // Mode 0: All (34) shortcuts in balanced 2-column layout
-        float col1Left = card.left + 24.0f;
-        float col2Left = card.left + 434.0f;
-        float keyColW = 165.0f;
-        float gap = 12.0f;
-        float descColW = 205.0f;
-        float rowH = 19.5f;
-        float headerH = 18.0f;
-
-        // Vertical divider line between columns
-        m_d2dContext->DrawLine(
-            D2D1::Point2F(card.left + 420.0f, card.top + 88.0f),
-            D2D1::Point2F(card.left + 420.0f, card.top + 508.0f),
-            m_brushTabBorder.Get(),
-            1.0f
-        );
-
-        auto drawSection = [&](float colX, float startY, const wchar_t* title, const ShortcutItem* items, size_t count) -> float {
-            D2D1_RECT_F headRect = D2D1::RectF(colX, startY, colX + 382.0f, startY + headerH);
-            m_d2dContext->DrawText(title, (UINT32)wcslen(title), m_textFormatHelpSection.Get(), headRect, m_brushPropsAccent.Get());
-
-            float y = startY + headerH + 3.0f;
-            for (size_t i = 0; i < count; ++i) {
-                D2D1_RECT_F keyRect = D2D1::RectF(colX, y, colX + keyColW, y + rowH);
-                D2D1_RECT_F descRect = D2D1::RectF(colX + keyColW + gap, y, colX + keyColW + gap + descColW, y + rowH);
-
-                m_d2dContext->DrawText(items[i].key, (UINT32)wcslen(items[i].key), m_textFormatHelpColKey.Get(), keyRect, m_brushHelpKeyText.Get());
-                m_d2dContext->DrawText(items[i].desc, (UINT32)wcslen(items[i].desc), m_textFormatHelpColDesc.Get(), descRect, m_brushHelpDescText.Get());
-                y += rowH;
-            }
-            return y;
-        };
-
-        // Left Column: Navigation (8) + Tabs & Files (8)
-        float curY1 = drawSection(col1Left, card.top + 88.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
-        drawSection(col1Left, curY1 + 12.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
-
-        // Right Column: Zoom & View (8) + Search & Tools (10)
-        float curY2 = drawSection(col2Left, card.top + 88.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
-        drawSection(col2Left, curY2 + 12.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
-    } else {
-        // Modes 1..4: Single category view with spacious row badges
-        const ShortcutItem* catItems = nullptr;
-        size_t catCount = 0;
-
-        switch (help.activeCategory) {
-        case 1:
-            catItems = navItems;
-            catCount = sizeof(navItems) / sizeof(navItems[0]);
-            break;
-        case 2:
-            catItems = zoomItems;
-            catCount = sizeof(zoomItems) / sizeof(zoomItems[0]);
-            break;
-        case 3:
-            catItems = tabItems;
-            catCount = sizeof(tabItems) / sizeof(tabItems[0]);
-            break;
-        case 4:
-            catItems = toolItems;
-            catCount = sizeof(toolItems) / sizeof(toolItems[0]);
-            break;
-        }
-
-        if (catItems && catCount > 0) {
-            float startY = card.top + 92.0f;
-            float rowH = 38.0f;
-            float rowW = card.right - card.left - 48.0f;
-
-            for (size_t i = 0; i < catCount; ++i) {
-                float y = startY + (float)i * rowH;
-
-                // Subtle alternating row background
-                if (i % 2 == 1) {
-                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + 33.0f);
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(altRect, 4.0f, 4.0f), m_brushHelpRowAlt.Get());
-                }
-
-                // Keycap badge
-                float keycapX = card.left + 32.0f;
-                float keycapY = y + 3.0f;
-                float keycapW = 200.0f;
-                float keycapH = 27.0f;
-                D2D1_RECT_F keycapRect = D2D1::RectF(keycapX, keycapY, keycapX + keycapW, keycapY + keycapH);
-                D2D1_ROUNDED_RECT rKeycap = D2D1::RoundedRect(keycapRect, 4.0f, 4.0f);
-
-                m_d2dContext->FillRoundedRectangle(rKeycap, m_brushHelpKeycapBg.Get());
-                m_d2dContext->DrawRoundedRectangle(rKeycap, m_brushHelpKeycapBorder.Get(), 1.0f);
-
-                m_d2dContext->DrawText(
-                    catItems[i].key,
-                    (UINT32)wcslen(catItems[i].key),
-                    m_textFormatHelpSingleKey.Get(),
-                    keycapRect,
-                    m_brushHelpKeyText.Get()
-                );
-
-                // Description
-                float descX = keycapX + keycapW + 20.0f;
-                float descW = card.right - 32.0f - descX;
-                D2D1_RECT_F descRect = D2D1::RectF(descX, y, descX + descW, y + 33.0f);
-
-                m_d2dContext->DrawText(
-                    catItems[i].desc,
-                    (UINT32)wcslen(catItems[i].desc),
-                    m_textFormatHelpSingleDesc.Get(),
-                    descRect,
-                    m_brushHelpDescText.Get()
-                );
-            }
-        }
-    }
-
-    // 5. Footer: Divider line and Keyboard Hints
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 518.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 518.0f),
-        m_brushHelpCardBorder.Get(),
-        1.0f
-    );
-
-    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, card.top + 524.0f, card.left + 420.0f, card.top + 546.0f);
-    const wchar_t* footLeftStr = L"Switch tabs: 1\x2013\x0035, Tab / Shift+Tab, or \x2190 \x2192";
-    m_d2dContext->DrawText(footLeftStr, (UINT32)wcslen(footLeftStr), m_textFormatHelpFooterLeft.Get(), footLeftRect, m_brushHelpSubText.Get());
-
-    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 240.0f, card.top + 524.0f, card.right - 24.0f, card.top + 546.0f);
-    const wchar_t* footRightStr = L"Press Esc or F1 to close";
-    m_d2dContext->DrawText(footRightStr, (UINT32)wcslen(footRightStr), m_textFormatHelpFooterRight.Get(), footRightRect, m_brushHelpSubText.Get());
+    UIViews::HelpOverlayView::Render(m_d2dContext.Get(), help, dipWidth, dipHeight, res);
 }
 
 int D2DRenderer::HitTestDocumentProperties(POINT pt) const {
-    float dipScale = 96.0f / m_dpi;
-    float dipWidth = m_width * dipScale;
-    float dipHeight = m_height * dipScale;
-
-    float px = (float)pt.x * dipScale;
-    float py = (float)pt.y * dipScale;
-
-    D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F closeRect = DocumentPropertiesLayout::GetCloseBtnRect(card);
-    D2D1_RECT_F copyRect = DocumentPropertiesLayout::GetCopyBtnRect(card);
-    D2D1_RECT_F okRect = DocumentPropertiesLayout::GetOkBtnRect(card);
-
-    if (px >= closeRect.left && px <= closeRect.right && py >= closeRect.top && py <= closeRect.bottom) {
-        return 1; // Close button
-    }
-    if (px >= copyRect.left && px <= copyRect.right && py >= copyRect.top && py <= copyRect.bottom) {
-        return 2; // Copy All button
-    }
-    if (px >= okRect.left && px <= okRect.right && py >= okRect.top && py <= okRect.bottom) {
-        return 3; // OK button
-    }
-
-    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
-        return 0; // Inside card body
-    }
-
-    return -1; // Backdrop click (outside card)
+    return UIViews::DocPropertiesView::HitTest(pt, m_width, m_height, m_dpi);
 }
 
 void D2DRenderer::DrawDocumentProperties(const DocumentPropertiesRenderInfo& props) {
     if (!m_d2dContext) return;
-
     float dipScale = 96.0f / m_dpi;
     float dipWidth = m_width * dipScale;
     float dipHeight = m_height * dipScale;
-
-    // 1. Semi-transparent backdrop
-    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
-    m_d2dContext->FillRectangle(backdropRect, m_brushHelpBackdrop.Get());
-
-    // 2. Card container & drop shadow
-    D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), m_brushPageShadow.Get());
-
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), m_brushHelpCardBg.Get());
-    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), m_brushHelpCardBorder.Get(), 1.5f);
-
-    // 3. Header
-    D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 16.0f, card.right - 50.0f, card.top + 42.0f);
-    const wchar_t* titleText = L"Document Properties";
-    m_d2dContext->DrawText(titleText, (UINT32)wcslen(titleText), m_textFormatHelpTitle.Get(), titleRect, m_brushHudText.Get());
-
-    // Close button [×]
-    D2D1_RECT_F closeRect = DocumentPropertiesLayout::GetCloseBtnRect(card);
-    if (props.hoveredBtn == 1) {
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), m_brushPropsSecBtnHover.Get());
-    }
-    const wchar_t* closeGlyph = L"\x00D7";
-    m_d2dContext->DrawText(closeGlyph, 1, m_textFormatTabClose.Get(), closeRect, (props.hoveredBtn == 1) ? m_brushHudText.Get() : m_brushHelpSubText.Get());
-
-    // Header divider line
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 48.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 48.0f),
+    UIViews::DocPropertiesResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
         m_brushHelpCardBorder.Get(),
-        1.0f
-    );
-
-    // 4. Section 1: Document Information
-    D2D1_RECT_F sec1Rect = D2D1::RectF(card.left + 24.0f, card.top + 56.0f, card.right - 24.0f, card.top + 78.0f);
-    const wchar_t* sec1Title = L"Document Information";
-    m_d2dContext->DrawText(sec1Title, (UINT32)wcslen(sec1Title), m_textFormatPropsSection.Get(), sec1Rect, m_brushPropsAccent.Get());
-
-    struct FieldPair {
-        const wchar_t* label;
-        const std::wstring& value;
+        m_brushHudText.Get(),
+        m_brushPropsSecBtnHover.Get(),
+        m_brushHelpSubText.Get(),
+        m_brushPropsAccent.Get(),
+        m_brushPropsBtn.Get(),
+        m_brushPropsBtnHover.Get(),
+        m_brushPropsSecBtn.Get(),
+        m_brushPropsSuccess.Get(),
+        m_brushPageBg.Get(),
+        m_textFormatHelpTitle.Get(),
+        m_textFormatTabClose.Get(),
+        m_textFormatPropsSection.Get(),
+        m_textFormatPropsLabel.Get(),
+        m_textFormatTab.Get()
     };
-
-    FieldPair sec1Fields[] = {
-        { L"Title:",    props.title },
-        { L"Author:",   props.author },
-        { L"Subject:",  props.subject },
-        { L"Keywords:", props.keywords },
-        { L"Creator:",  props.creator },
-        { L"Producer:", props.producer }
-    };
-
-    float y0 = card.top + 84.0f;
-    float rowH = 28.0f;
-    float labelW = 96.0f;
-    float gap = 14.0f;
-
-    for (int i = 0; i < 6; ++i) {
-        float rowY = y0 + i * rowH;
-        D2D1_RECT_F lRect = D2D1::RectF(card.left + 24.0f, rowY, card.left + 24.0f + labelW, rowY + rowH);
-        D2D1_RECT_F vRect = D2D1::RectF(card.left + 24.0f + labelW + gap, rowY, card.right - 24.0f, rowY + rowH);
-
-        m_d2dContext->DrawText(sec1Fields[i].label, (UINT32)wcslen(sec1Fields[i].label), m_textFormatPropsLabel.Get(), lRect, m_brushHelpSubText.Get());
-        
-        ID2D1SolidColorBrush* valBrush = (sec1Fields[i].value == L"—") ? m_brushHelpSubText.Get() : m_brushHudText.Get();
-        m_d2dContext->DrawText(sec1Fields[i].value.c_str(), (UINT32)sec1Fields[i].value.size(), m_textFormatTab.Get(), vRect, valBrush);
-    }
-
-    // Divider between sections
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 262.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 262.0f),
-        m_brushHelpCardBorder.Get(),
-        1.0f
-    );
-
-    // 5. Section 2: File & Page Details
-    D2D1_RECT_F sec2Rect = D2D1::RectF(card.left + 24.0f, card.top + 270.0f, card.right - 24.0f, card.top + 292.0f);
-    const wchar_t* sec2Title = L"File & Page Details";
-    m_d2dContext->DrawText(sec2Title, (UINT32)wcslen(sec2Title), m_textFormatPropsSection.Get(), sec2Rect, m_brushPropsAccent.Get());
-
-    FieldPair sec2Fields[] = {
-        { L"Total Pages:", props.totalPages },
-        { L"File Size:",   props.fileSize },
-        { L"PDF Format:",  props.pdfFormat },
-        { L"Page Size:",   props.pageSize },
-        { L"Created:",     props.created },
-        { L"Modified:",    props.modified }
-    };
-
-    float y1 = card.top + 298.0f;
-    for (int i = 0; i < 6; ++i) {
-        float rowY = y1 + i * rowH;
-        D2D1_RECT_F lRect = D2D1::RectF(card.left + 24.0f, rowY, card.left + 24.0f + labelW, rowY + rowH);
-        D2D1_RECT_F vRect = D2D1::RectF(card.left + 24.0f + labelW + gap, rowY, card.right - 24.0f, rowY + rowH);
-
-        m_d2dContext->DrawText(sec2Fields[i].label, (UINT32)wcslen(sec2Fields[i].label), m_textFormatPropsLabel.Get(), lRect, m_brushHelpSubText.Get());
-
-        ID2D1SolidColorBrush* valBrush = (sec2Fields[i].value == L"—") ? m_brushHelpSubText.Get() : m_brushHudText.Get();
-        m_d2dContext->DrawText(sec2Fields[i].value.c_str(), (UINT32)sec2Fields[i].value.size(), m_textFormatTab.Get(), vRect, valBrush);
-    }
-
-    // Footer divider line
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 480.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 480.0f),
-        m_brushHelpCardBorder.Get(),
-        1.0f
-    );
-
-    // 6. Buttons
-    D2D1_RECT_F copyRect = DocumentPropertiesLayout::GetCopyBtnRect(card);
-    D2D1_RECT_F okRect = DocumentPropertiesLayout::GetOkBtnRect(card);
-
-    // Copy All button
-    ID2D1SolidColorBrush* copyBg = (props.hoveredBtn == 2) ? m_brushPropsSecBtnHover.Get() : m_brushPropsSecBtn.Get();
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(copyRect, 6.0f, 6.0f), copyBg);
-    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(copyRect, 6.0f, 6.0f), m_brushHelpCardBorder.Get(), 1.0f);
-
-    if (props.copyFeedback) {
-        const wchar_t* copiedText = L"Copied!";
-        m_d2dContext->DrawText(copiedText, (UINT32)wcslen(copiedText), m_textFormatTabClose.Get(), copyRect, m_brushPropsSuccess.Get());
-    } else {
-        const wchar_t* copyText = L"Copy All";
-        m_d2dContext->DrawText(copyText, (UINT32)wcslen(copyText), m_textFormatTabClose.Get(), copyRect, m_brushHudText.Get());
-    }
-
-    // OK button
-    ID2D1SolidColorBrush* okBg = (props.hoveredBtn == 3) ? m_brushPropsBtnHover.Get() : m_brushPropsBtn.Get();
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(okRect, 6.0f, 6.0f), okBg);
-
-    const wchar_t* okText = L"OK";
-    m_d2dContext->DrawText(okText, (UINT32)wcslen(okText), m_textFormatTabClose.Get(), okRect, m_brushPageBg.Get());
+    UIViews::DocPropertiesView::Render(m_d2dContext.Get(), props, dipWidth, dipHeight, res);
 }
 
 bool D2DRenderer::PrintPageToHdc(
@@ -2620,164 +1892,25 @@ bool D2DRenderer::PrintPageToHdc(
 
 void D2DRenderer::DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard) {
     if (!m_d2dContext || !dictCard.visible) return;
-
     float dipScale = 96.0f / m_dpi;
     float dipWidth = m_width * dipScale;
     float dipHeight = m_height * dipScale;
     float topOffset = 0.0f;
-
-    float maxDefWidth = DictionaryCardLayout::WIDTH - 32.0f;
-    float defHeight = 36.0f;
-
-    // Measure definition text layout height dynamically
-    ComPtr<IDWriteTextLayout> defLayout;
-    if (m_dwriteFactory && !dictCard.definition.empty()) {
-        HRESULT hr = m_dwriteFactory->CreateTextLayout(
-            dictCard.definition.c_str(),
-            (UINT32)dictCard.definition.length(),
-            m_textFormatDictDef.Get(),
-            maxDefWidth,
-            1000.0f,
-            &defLayout
-        );
-        if (SUCCEEDED(hr) && defLayout) {
-            // Check for Arabic characters to set BiDi RTL reading direction
-            bool hasArabic = false;
-            for (wchar_t ch : dictCard.definition) {
-                if (ch >= 0x0600 && ch <= 0x06FF) {
-                    hasArabic = true;
-                    break;
-                }
-            }
-            if (hasArabic) {
-                defLayout->SetReadingDirection(DWRITE_READING_DIRECTION_RIGHT_TO_LEFT);
-                defLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-            }
-
-            DWRITE_TEXT_METRICS tm;
-            if (SUCCEEDED(defLayout->GetMetrics(&tm))) {
-                defHeight = (std::max)(28.0f, tm.height);
-            }
-        }
-    }
-
-    // Position the card container
-    D2D1_RECT_F card = DictionaryCardLayout::CalculateCardRect(
-        dictCard.anchorRect, defHeight, dipWidth, dipHeight, topOffset
-    );
-
-    // Drop shadow
-    D2D1_RECT_F shadowRect = D2D1::RectF(card.left + 4.0f, card.top + 4.0f, card.right + 6.0f, card.bottom + 6.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 8.0f, 8.0f), m_brushPageShadow.Get());
-
-    // Card background & crisp border
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(card, 8.0f, 8.0f), m_brushDictCardBg.Get());
-    m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(card, 8.0f, 8.0f), m_brushDictCardBorder.Get(), 1.5f);
-
-    // 1. Header: Word Title
-    float badgeWidth = 0.0f;
-    if (!dictCard.categoryTag.empty()) {
-        badgeWidth = (float)(dictCard.categoryTag.length() * 7 + 18);
-        badgeWidth = std::clamp(badgeWidth, 80.0f, 180.0f);
-    }
-    float wordRight = card.right - badgeWidth - 20.0f;
-    D2D1_RECT_F wordRect = D2D1::RectF(card.left + 16.0f, card.top + 10.0f, (std::max)(card.left + 20.0f, wordRight), card.top + 34.0f);
-    m_d2dContext->DrawText(
-        dictCard.word.c_str(),
-        (UINT32)dictCard.word.length(),
-        m_textFormatDictWord.Get(),
-        wordRect,
-        m_brushHudText.Get()
-    );
-
-    // 2. Category Badge Pill
-    if (!dictCard.categoryTag.empty() && m_brushDictTagBg && m_brushDictTagText) {
-        D2D1_COLOR_F textColor;
-        D2D1_COLOR_F bgColor;
-        switch (dictCard.category) {
-        case 1: // Architecture: Amber/Orange
-            textColor = D2D1::ColorF(0.98f, 0.65f, 0.20f, 1.0f);
-            bgColor = D2D1::ColorF(0.98f, 0.65f, 0.20f, 0.18f);
-            break;
-        case 2: // Networks/IoT/WSN: Cyan/Blue
-            textColor = D2D1::ColorF(0.25f, 0.75f, 0.98f, 1.0f);
-            bgColor = D2D1::ColorF(0.25f, 0.75f, 0.98f, 0.18f);
-            break;
-        case 3: // AI/Vision: Purple/Violet
-            textColor = D2D1::ColorF(0.75f, 0.45f, 0.98f, 1.0f);
-            bgColor = D2D1::ColorF(0.75f, 0.45f, 0.98f, 0.18f);
-            break;
-        case 4: // Cybersecurity: Coral/Red
-            textColor = D2D1::ColorF(0.98f, 0.40f, 0.40f, 1.0f);
-            bgColor = D2D1::ColorF(0.98f, 0.40f, 0.40f, 0.18f);
-            break;
-        case 5: // Academic/ABET/NCAAA: Emerald
-            textColor = D2D1::ColorF(0.25f, 0.85f, 0.50f, 1.0f);
-            bgColor = D2D1::ColorF(0.25f, 0.85f, 0.50f, 0.18f);
-            break;
-        case 6: // QA: Gold
-            textColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 1.0f);
-            bgColor = D2D1::ColorF(0.96f, 0.82f, 0.25f, 0.18f);
-            break;
-        case 7: // Algorithms & Optimization: Mint / Cyan Teal
-            textColor = D2D1::ColorF(0.12f, 0.88f, 0.72f, 1.0f);
-            bgColor = D2D1::ColorF(0.12f, 0.88f, 0.72f, 0.18f);
-            break;
-        default: // General
-            textColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 1.0f);
-            bgColor = D2D1::ColorF(0.55f, 0.78f, 0.98f, 0.15f);
-            break;
-        }
-
-        D2D1_RECT_F badgeRect = D2D1::RectF(card.right - badgeWidth - 14.0f, card.top + 12.0f, card.right - 14.0f, card.top + 32.0f);
-        m_brushDictTagBg->SetColor(bgColor);
-        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(badgeRect, 4.0f, 4.0f), m_brushDictTagBg.Get());
-        m_brushDictTagText->SetColor(textColor);
-        m_d2dContext->DrawText(
-            dictCard.categoryTag.c_str(),
-            (UINT32)dictCard.categoryTag.length(),
-            m_textFormatDictTag.Get(),
-            badgeRect,
-            m_brushDictTagText.Get()
-        );
-    }
-
-    // 3. Subtle Header Divider Line
-    m_d2dContext->DrawLine(
-        D2D1::Point2F(card.left + 16.0f, card.top + 38.0f),
-        D2D1::Point2F(card.right - 16.0f, card.top + 38.0f),
+    UIViews::DictionaryCardResources res{
+        m_brushPageShadow.Get(),
+        m_brushDictCardBg.Get(),
         m_brushDictCardBorder.Get(),
-        1.0f
-    );
-
-    // 4. Definition Content
-    D2D1_RECT_F defRect = D2D1::RectF(card.left + 16.0f, card.top + 46.0f, card.right - 16.0f, card.top + 46.0f + defHeight);
-    if (defLayout) {
-        m_d2dContext->DrawTextLayout(
-            D2D1::Point2F(defRect.left, defRect.top),
-            defLayout.Get(),
-            m_brushDictDefText.Get()
-        );
-    } else {
-        m_d2dContext->DrawText(
-            dictCard.definition.c_str(),
-            (UINT32)dictCard.definition.length(),
-            m_textFormatDictDef.Get(),
-            defRect,
-            m_brushDictDefText.Get()
-        );
-    }
-
-    // 5. Footer Hint
-    D2D1_RECT_F hintRect = D2D1::RectF(card.left + 16.0f, card.bottom - 22.0f, card.right - 16.0f, card.bottom - 6.0f);
-    const wchar_t* hint = L"Esc: dismiss \x2022 Ctrl+C: copy \x2022 100% Offline Lexicon";
-    m_d2dContext->DrawText(
-        hint,
-        (UINT32)wcslen(hint),
-        m_textFormatDictHint.Get(),
-        hintRect,
-        m_brushDictHintText.Get()
-    );
+        m_brushDictTagBg.Get(),
+        m_brushDictTagText.Get(),
+        m_brushDictDefText.Get(),
+        m_brushDictHintText.Get(),
+        m_brushHudText.Get(),
+        m_textFormatDictWord.Get(),
+        m_textFormatDictTag.Get(),
+        m_textFormatDictDef.Get(),
+        m_textFormatDictHint.Get()
+    };
+    UIViews::DictionaryCardView::Render(m_d2dContext.Get(), m_dwriteFactory.Get(), dictCard, dipWidth, dipHeight, topOffset, res);
 }
 
 void D2DRenderer::DrawLaserPointer(const LaserPointerRenderInfo& laser) {
@@ -2819,93 +1952,22 @@ void D2DRenderer::DrawLaserPointer(const LaserPointerRenderInfo& laser) {
 
 void D2DRenderer::DrawPresenterBar(const PresenterBarRenderInfo& presenterBar) {
     if (!presenterBar.visible || !m_d2dContext) return;
-
     float dipScale = 96.0f / m_dpi;
-    float dipW = (float)m_width * dipScale;
-    float dipH = (float)m_height * dipScale;
-
-    D2D1_RECT_F barRect = PresenterBarLayout::GetBarRect(dipW, dipH);
-    D2D1_ROUNDED_RECT roundedBar = D2D1::RoundedRect(barRect, 22.0f, 22.0f);
-
-    // Drop shadow
-    D2D1_RECT_F shadowRect = D2D1::RectF(barRect.left + 3.0f, barRect.top + 3.0f, barRect.right + 4.0f, barRect.bottom + 4.0f);
-    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(shadowRect, 22.0f, 22.0f), m_brushPageShadow.Get());
-
-    // Background & border
-    m_d2dContext->FillRoundedRectangle(roundedBar, m_brushHudBg.Get());
-    m_d2dContext->DrawRoundedRectangle(roundedBar, m_brushHudBorder.Get(), 1.0f);
-
-    // Buttons
-    D2D1_RECT_F btnPrev = PresenterBarLayout::GetPrevBtnRect(barRect);
-    D2D1_RECT_F pageInfoRect = PresenterBarLayout::GetPageInfoRect(barRect);
-    D2D1_RECT_F btnNext = PresenterBarLayout::GetNextBtnRect(barRect);
-    D2D1_RECT_F btnLaser = PresenterBarLayout::GetLaserBtnRect(barRect);
-    D2D1_RECT_F btnColor = PresenterBarLayout::GetColorBtnRect(barRect);
-    D2D1_RECT_F btnExit = PresenterBarLayout::GetExitBtnRect(barRect);
-
-    // Highlight hovered / active buttons
-    auto drawButtonBg = [&](const D2D1_RECT_F& r, int btnIdx, bool isActive = false) {
-        if (isActive) {
-            m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 14.0f, 14.0f), m_brushPresenterBtnActive.Get());
-        } else if (presenterBar.hoveredBtn == btnIdx) {
-            m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 14.0f, 14.0f), m_brushPresenterBtnHover.Get());
-        }
+    float dipWidth = (float)m_width * dipScale;
+    float dipHeight = (float)m_height * dipScale;
+    UIViews::PresenterBarResources res{
+        m_brushPageShadow.Get(),
+        m_brushHudBg.Get(),
+        m_brushHudBorder.Get(),
+        m_brushHudText.Get(),
+        m_brushPresenterBtnHover.Get(),
+        m_brushPresenterBtnActive.Get(),
+        m_brushLaserCore.Get(),
+        m_textFormatPresenter.Get()
     };
-
-    drawButtonBg(btnPrev, 0);
-    drawButtonBg(btnNext, 1);
-    drawButtonBg(btnLaser, 2, presenterBar.isLaserActive);
-    drawButtonBg(btnColor, 3);
-    drawButtonBg(btnExit, 4);
-
-    // Button Labels
-    m_d2dContext->DrawText(L"◀", 1, m_textFormatPresenter.Get(), btnPrev, m_brushHudText.Get());
-
-    wchar_t pageBuf[32];
-    swprintf_s(pageBuf, L"%u / %u", presenterBar.currentPage + 1, presenterBar.totalPages);
-    m_d2dContext->DrawText(pageBuf, (UINT32)wcslen(pageBuf), m_textFormatPresenter.Get(), pageInfoRect, m_brushHudText.Get());
-
-    m_d2dContext->DrawText(L"▶", 1, m_textFormatPresenter.Get(), btnNext, m_brushHudText.Get());
-    m_d2dContext->DrawText(L"Laser", 5, m_textFormatPresenter.Get(), btnLaser, m_brushHudText.Get());
-
-    // Color indicator dot
-    D2D1_POINT_2F dotCenter = D2D1::Point2F((btnColor.left + btnColor.right) * 0.5f, (btnColor.top + btnColor.bottom) * 0.5f);
-    D2D1_COLOR_F dotColor = D2D1::ColorF(1.0f, 0.2f, 0.2f);
-    switch (presenterBar.laserColor) {
-    case LaserColor::Red:   dotColor = D2D1::ColorF(1.0f, 0.2f, 0.2f); break;
-    case LaserColor::Green: dotColor = D2D1::ColorF(0.0f, 1.0f, 0.35f); break;
-    case LaserColor::Cyan:  dotColor = D2D1::ColorF(0.0f, 0.85f, 1.0f); break;
-    case LaserColor::Gold:  dotColor = D2D1::ColorF(1.0f, 0.75f, 0.0f); break;
-    }
-    if (m_brushLaserCore) {
-        m_brushLaserCore->SetColor(dotColor);
-        m_d2dContext->FillEllipse(D2D1::Ellipse(dotCenter, 6.0f, 6.0f), m_brushLaserCore.Get());
-    }
-
-    m_d2dContext->DrawText(L"⛶", 1, m_textFormatPresenter.Get(), btnExit, m_brushHudText.Get());
+    UIViews::PresenterBarView::Render(m_d2dContext.Get(), presenterBar, dipWidth, dipHeight, res);
 }
 
 int D2DRenderer::HitTestPresenterBar(POINT pt) const {
-    float dipScale = 96.0f / m_dpi;
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
-    float dipW = (float)m_width * dipScale;
-    float dipH = (float)m_height * dipScale;
-
-    D2D1_RECT_F bar = PresenterBarLayout::GetBarRect(dipW, dipH);
-    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
-        return -1;
-    }
-
-    auto inRect = [&](const D2D1_RECT_F& r) {
-        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
-    };
-
-    if (inRect(PresenterBarLayout::GetPrevBtnRect(bar))) return 0;
-    if (inRect(PresenterBarLayout::GetNextBtnRect(bar))) return 1;
-    if (inRect(PresenterBarLayout::GetLaserBtnRect(bar))) return 2;
-    if (inRect(PresenterBarLayout::GetColorBtnRect(bar))) return 3;
-    if (inRect(PresenterBarLayout::GetExitBtnRect(bar))) return 4;
-
-    return 100; // Inside bar body
+    return UIViews::PresenterBarView::HitTest(pt, m_width, m_height, m_dpi);
 }
