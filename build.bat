@@ -29,6 +29,7 @@ rc.exe /nologo /i resources /fo resources\app.res resources\app.rc
 echo Compiling optimized C++20 release binary...
 cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX ^
     src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp src\pdf_searchable_writer.cpp ^
+    src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp ^
     resources\app.res ^
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS ^
     /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest ^

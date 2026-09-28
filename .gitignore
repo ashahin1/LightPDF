@@ -20,6 +20,7 @@ venv/
 
 # Diagnostic images & test artifacts
 scratch/
+tests/PDF/
 *.png
 *.log
 
