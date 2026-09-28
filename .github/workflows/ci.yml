@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build LightPDF Release Binary
+        shell: cmd
+        run: |
+          cmd.exe /c build.bat
+
+      - name: Verify Binary Size (Strictly <= 800 KB)
+        shell: powershell
+        run: |
+          $exe = Get-Item "bin\LightPDF.exe"
+          $sizeKB = [math]::Round($exe.Length / 1KB, 2)
+          Write-Host "Binary size: $sizeKB KB"
+          if ($exe.Length -gt 800 * 1024) {
+              Write-Error "Binary size $sizeKB KB exceeds 800 KB limit!"
+              exit 1
+          } else {
+              Write-Host "Binary size check PASSED! ($sizeKB KB <= 800 KB)" -ForegroundColor Green
+          }
+
+      - name: Build and Run Unified Test Suite
+        shell: cmd
+        run: |
+          cmd.exe /c tests\run_tests.bat
+
+      - name: Upload Release Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightPDF-Windows-x64
+          path: bin/LightPDF.exe
+          if-no-files-found: error
