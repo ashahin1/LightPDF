@@ -79,12 +79,12 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     }
 
     // Initialize offline dictionary engine (non-blocking, graceful fallback if missing)
-    m_dictEngine.Initialize();
+    m_selectionController.GetDictEngine().Initialize();
 
     if (!initialFile.empty()) {
         OpenTab(initialFile);
     }
-    if (m_tabs.empty()) {
+    if (m_tabController.IsEmpty()) {
         UpdateTitle();
         m_renderer.RenderBlank(L"");
     }
@@ -145,9 +145,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_APP_SEARCH_UPDATE: {
         InvalidateSearchHighlights();
-        int activeIdx = m_searchEngine.GetActiveMatchIndex();
-        if (activeIdx >= 0 && activeIdx != m_lastJumpedMatch) {
-            m_lastJumpedMatch = activeIdx;
+        int activeIdx = m_searchController.GetEngine().GetActiveMatchIndex();
+        if (activeIdx >= 0 && activeIdx != m_searchController.GetLastJumpedMatch()) {
+            m_searchController.SetLastJumpedMatch(activeIdx);
             JumpToActiveMatch();
         }
         Render();
@@ -256,7 +256,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (wParam == 2) {
             // Search debounce timer: User paused typing, trigger search now
             KillTimer(m_hwnd, 2);
-            m_searchDebouncePending = false;
             TriggerSearch();
             Render();
         } else if (wParam == 3) {
@@ -379,7 +378,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // 0b. If Dictionary Card is open and clicked outside, dismiss it
-        if (m_dictCardInfo.visible && !HitTestDictionaryCard(pt)) {
+        if (m_selectionController.IsDictCardVisible() && !HitTestDictionaryCard(pt)) {
             DismissDictionaryCard();
         }
 
@@ -399,7 +398,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // 2. Tab Bar clicks
-        if (m_tabs.size() > 1 && dipY < topOffset) {
+        if (m_tabController.HasMultipleTabs() && dipY < topOffset) {
             bool outClose = false;
             bool outAdd = false;
             int hit = HitTestTab(pt, outClose, outAdd);
@@ -421,31 +420,29 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // 2b. Search Bar interaction
-        if (m_showSearch) {
+        if (m_searchController.IsOpen()) {
             int searchHit = HitTestSearchBar(pt);
             if (msg == WM_LBUTTONDOWN && searchHit > 0) {
                 if (searchHit == 1) { // Prev
-                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                    if (m_searchController.IsDebouncePending() || m_searchController.GetEngine().GetCurrentQuery() != m_searchController.GetQuery()) {
                         TriggerSearch();
-                    } else if (m_searchEngine.PrevMatch()) {
-                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                    } else if (m_searchController.PrevMatch()) {
                         JumpToActiveMatch();
                         Render();
                     }
                 } else if (searchHit == 2) { // Next
-                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                    if (m_searchController.IsDebouncePending() || m_searchController.GetEngine().GetCurrentQuery() != m_searchController.GetQuery()) {
                         TriggerSearch();
-                    } else if (m_searchEngine.NextMatch()) {
-                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                    } else if (m_searchController.NextMatch()) {
                         JumpToActiveMatch();
                         Render();
                     }
                 } else if (searchHit == 3) { // Match Case
-                    m_searchMatchCase = !m_searchMatchCase;
+                    m_searchController.ToggleMatchCase();
                     TriggerSearch();
                     Render();
                 } else if (searchHit == 4) { // OCR
-                    m_searchOcrEnabled = !m_searchOcrEnabled;
+                    m_searchController.ToggleOcr();
                     TriggerSearch();
                     Render();
                 } else if (searchHit == 5) { // Close
@@ -668,11 +665,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // 2b. Search Bar Hover detection
-        if (m_showSearch) {
+        if (m_searchController.IsOpen()) {
             int hit = HitTestSearchBar(pt);
             int newBtn = (hit > 0) ? hit : 0;
-            if (newBtn != m_searchHoveredBtn) {
-                m_searchHoveredBtn = newBtn;
+            if (newBtn != m_searchController.GetHoveredButton()) {
+                m_searchController.SetHoveredButton(newBtn);
                 Render();
             }
             if (hit > 0) {
@@ -680,30 +677,28 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (hit == 0) {
                 SetCursor(m_cursorIBeam);
             }
-        } else if (m_searchHoveredBtn != 0) {
-            m_searchHoveredBtn = 0;
+        } else if (m_searchController.GetHoveredButton() != 0) {
+            m_searchController.SetHoveredButton(0);
         }
 
         // 3. Tab Bar hover
-        if (m_tabs.size() > 1 && dipY < topOffset) {
+        if (m_tabController.HasMultipleTabs() && dipY < topOffset) {
             bool outClose = false;
             bool outAdd = false;
             int hit = HitTestTab(pt, outClose, outAdd);
 
-            bool changed = (hit != m_hoveredTab) || (outClose != m_hoveredClose) || (outAdd != m_hoveredAdd);
-            m_hoveredTab = hit;
-            m_hoveredClose = outClose;
-            m_hoveredAdd = outAdd;
+            bool changed = (hit != m_tabController.GetHoveredTab()) ||
+                           (outClose != m_tabController.IsHoveredClose()) ||
+                           (outAdd != m_tabController.IsHoveredAdd());
+            m_tabController.SetHover(hit, outClose, outAdd);
 
             if (changed) {
                 Render();
             }
             SetCursor(m_cursorArrow);
         } else {
-            if (m_hoveredTab != -1 || m_hoveredClose || m_hoveredAdd) {
-                m_hoveredTab = -1;
-                m_hoveredClose = false;
-                m_hoveredAdd = false;
+            if (m_tabController.GetHoveredTab() != -1 || m_tabController.IsHoveredClose() || m_tabController.IsHoveredAdd()) {
+                m_tabController.SetHover(-1, false, false);
                 Render();
             }
         }
@@ -842,7 +837,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         float topOffset = GetTopOffset();
         float dipScale = 96.0f / m_renderer.GetDpi();
         float dipY = (float)pt.y * dipScale;
-        if (m_tabs.size() > 1 && dipY < topOffset) {
+        if (m_tabController.HasMultipleTabs() && dipY < topOffset) {
             return 0;
         }
 
@@ -967,7 +962,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_SYSKEYDOWN: {
         if (wParam >= '1' && wParam <= '9') {
             size_t targetIndex = (size_t)(wParam - '1');
-            if (targetIndex < m_tabs.size()) {
+            if (targetIndex < m_tabController.GetTabCount()) {
                 SelectTab(targetIndex);
                 return 0;
             }
@@ -980,7 +975,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
-        if (m_dictCardInfo.visible) {
+        if (m_selectionController.IsDictCardVisible()) {
             if (wParam == VK_ESCAPE) {
                 DismissDictionaryCard();
                 return 0;
@@ -1083,10 +1078,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (isCtrlDown) {
                 auto* pTab = GetActiveTab();
                 if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
-                    m_showSearch = true;
+                    m_searchController.Open();
                     m_showGoToPage = false;
                     m_showHelp = false;
-                    if (!m_searchQuery.empty()) {
+                    if (!m_searchController.GetQuery().empty()) {
                         TriggerSearch();
                     }
                     Render();
@@ -1095,13 +1090,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             break;
         case 'H':
-            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+            if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
                 SetToolMode((m_toolMode == ToolMode::Hand) ? ToolMode::TextSelect : ToolMode::Hand);
                 return 0;
             }
             break;
         case 'L':
-            if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+            if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
                 ToggleLaserPointer();
                 return 0;
             }
@@ -1110,13 +1105,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (isCtrlDown) {
                 PromptSaveSearchablePdf(isShiftDown);
                 return 0;
-            } else if (!m_showSearch && !m_showGoToPage) {
+            } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
                 SetToolMode(ToolMode::TextSelect);
                 return 0;
             }
             break;
         case 'V':
-            if (isCtrlDown && m_showSearch) {
+            if (isCtrlDown && m_searchController.IsOpen()) {
                 if (OpenClipboard(m_hwnd)) {
                     HANDLE hData = GetClipboardData(CF_UNICODETEXT);
                     if (hData) {
@@ -1124,7 +1119,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                         if (pText) {
                             for (const wchar_t* p = pText; *p; ++p) {
                                 if (*p >= 32 && *p != 127) {
-                                    m_searchQuery.push_back(*p);
+                                    m_searchController.AppendQueryChar(*p);
                                 }
                             }
                             GlobalUnlock(hData);
@@ -1134,7 +1129,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     CloseClipboard();
                 }
                 return 0;
-            } else if (!isCtrlDown && !m_showSearch && !m_showGoToPage) {
+            } else if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
                 SetToolMode(ToolMode::TextSelect);
                 return 0;
             }
@@ -1146,7 +1141,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     CopySelectionToClipboard();
                     return 0;
                 }
-            } else if (m_isLaserActive && !m_showSearch && !m_showGoToPage) {
+            } else if (m_isLaserActive && !m_searchController.IsOpen() && !m_showGoToPage) {
                 CycleLaserColor();
                 return 0;
             }
@@ -1156,7 +1151,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (m_showProperties) CloseDocumentProperties();
                 else ShowDocumentProperties();
                 return 0;
-            } else if (!m_showSearch && !m_showGoToPage) {
+            } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
                 D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
                 std::wstring query = GetSelectedWordOrText(anchorRect);
                 if (!query.empty()) {
@@ -1193,8 +1188,8 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
         case 'W':
             if (isCtrlDown) {
-                if (!m_tabs.empty()) {
-                    CloseTab(m_activeTab);
+                if (!m_tabController.IsEmpty()) {
+                    CloseTab(m_tabController.GetActiveIndex());
                 }
                 return 0;
             }
@@ -1344,21 +1339,19 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         case VK_RETURN:
-            if (m_showSearch) {
-                if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+            if (m_searchController.IsOpen()) {
+                if (m_searchController.IsDebouncePending() || m_searchController.GetEngine().GetCurrentQuery() != m_searchController.GetQuery()) {
                     TriggerSearch();
                     Render();
                     return 0;
                 }
                 if (isShiftDown) {
-                    if (m_searchEngine.PrevMatch()) {
-                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                    if (m_searchController.PrevMatch()) {
                         JumpToActiveMatch();
                         Render();
                     }
                 } else {
-                    if (m_searchEngine.NextMatch()) {
-                        m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                    if (m_searchController.NextMatch()) {
                         JumpToActiveMatch();
                         Render();
                     }
@@ -1369,23 +1362,21 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case VK_F3: {
             auto* pTab = GetActiveTab();
             if (pTab && pTab->document.IsLoaded()) {
-                if (!m_showSearch) {
-                    m_showSearch = true;
-                    if (!m_searchQuery.empty()) {
+                if (!m_searchController.IsOpen()) {
+                    m_searchController.Open();
+                    if (!m_searchController.GetQuery().empty()) {
                         TriggerSearch();
                     }
                 } else {
-                    if (m_searchDebouncePending || m_searchEngine.GetCurrentQuery() != m_searchQuery) {
+                    if (m_searchController.IsDebouncePending() || m_searchController.GetEngine().GetCurrentQuery() != m_searchController.GetQuery()) {
                         TriggerSearch();
                     } else if (isShiftDown) {
-                        if (m_searchEngine.PrevMatch()) {
-                            m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        if (m_searchController.PrevMatch()) {
                             JumpToActiveMatch();
                             Render();
                         }
                     } else {
-                        if (m_searchEngine.NextMatch()) {
-                            m_lastJumpedMatch = m_searchEngine.GetActiveMatchIndex();
+                        if (m_searchController.NextMatch()) {
                             JumpToActiveMatch();
                             Render();
                         }
@@ -1402,7 +1393,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 m_helpHoveredClose = 0;
                 m_showProperties = false;
                 m_showGoToPage = false;
-                m_showSearch = false;
+                m_searchController.SetOpen(false);
             }
             Render();
             return 0;
@@ -1434,7 +1425,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
                 return 0;
             }
-            if (m_showSearch) {
+            if (m_searchController.IsOpen()) {
                 CloseSearch();
                 Render();
                 return 0;
@@ -1468,15 +1459,15 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (m_showGoToPage) {
             return 0;
         }
-        if (m_showSearch) {
+        if (m_searchController.IsOpen()) {
             if (wParam == VK_BACK) {
-                if (!m_searchQuery.empty()) {
-                    m_searchQuery.pop_back();
+                if (!m_searchController.GetQuery().empty()) {
+                    m_searchController.PopQueryChar();
                     ScheduleSearchDebounce();
                 }
                 return 0;
             } else if (wParam >= 32 && wParam != 127) {
-                m_searchQuery.push_back((wchar_t)wParam);
+                m_searchController.AppendQueryChar((wchar_t)wParam);
                 ScheduleSearchDebounce();
                 return 0;
             } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
@@ -1500,35 +1491,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 void AppWindow::OpenTab(const std::wstring& path) {
     if (path.empty()) return;
 
-    // Resolve to absolute canonical path for comparison
-    wchar_t fullPath[MAX_PATH * 2] = { 0 };
-    DWORD len = GetFullPathNameW(path.c_str(), _countof(fullPath), fullPath, nullptr);
-    std::wstring resolvedPath = (len > 0) ? fullPath : path;
-
-    // Check if this file is already open in an existing tab
-    for (size_t i = 0; i < m_tabs.size(); ++i) {
-        if (m_tabs[i].document.IsLoaded() &&
-            _wcsicmp(m_tabs[i].document.GetFilePath().c_str(), resolvedPath.c_str()) == 0) {
-            SelectTab(i);
-            return;
-        }
-    }
-
-    DocumentTab newTab;
-    if (newTab.document.Open(resolvedPath, m_hwnd)) {
-        newTab.currentPage = 0;
-        newTab.zoomMode = ZoomMode::FitPage;
-        newTab.continuousScroll = false;
-        newTab.scrollY = 0.0f;
-        newTab.textCache = std::make_shared<PageTextCache>();
-        newTab.textCache->pages.resize(newTab.document.GetPageCount());
-        newTab.selection.Clear();
-        newTab.parser = std::make_unique<PdfParser>();
-        newTab.parser->Load(resolvedPath);
+    std::wstring resolvedPath;
+    bool alreadyOpen = false;
+    if (m_tabController.OpenTab(path, m_hwnd, resolvedPath, alreadyOpen)) {
         m_renderer.InvalidatePageCache();
-        m_tabs.push_back(std::move(newTab));
-        m_activeTab = m_tabs.size() - 1;
-        if (m_showSearch && !m_searchQuery.empty()) {
+        if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
             TriggerSearch();
         }
         RecalculateLayout();
@@ -1544,7 +1511,7 @@ void AppWindow::OpenTab(const std::wstring& path) {
                            L"The file may be password-protected, corrupted, or inaccessible.";
         MessageBoxW(m_hwnd, msg.c_str(), L"LightPDF - Error", MB_OK | MB_ICONWARNING);
 
-        if (m_tabs.empty()) {
+        if (m_tabController.IsEmpty()) {
             UpdateTitle();
             Render();
         }
@@ -1552,13 +1519,12 @@ void AppWindow::OpenTab(const std::wstring& path) {
 }
 
 void AppWindow::CloseTab(size_t index) {
-    if (index >= m_tabs.size()) return;
+    if (index >= m_tabController.GetTabCount()) return;
 
     m_renderer.InvalidatePageCache();
-    m_tabs.erase(m_tabs.begin() + index);
+    m_tabController.CloseTab(index);
 
-    if (m_tabs.empty()) {
-        m_activeTab = 0;
+    if (m_tabController.IsEmpty()) {
         CloseSearch();
         CloseDocumentProperties();
         UpdateTitle();
@@ -1566,16 +1532,10 @@ void AppWindow::CloseTab(size_t index) {
         return;
     }
 
-    if (m_activeTab >= m_tabs.size()) {
-        m_activeTab = m_tabs.size() - 1;
-    } else if (m_activeTab > index) {
-        m_activeTab--;
-    }
-
     if (m_showProperties) {
         ShowDocumentProperties();
     }
-    if (m_showSearch && !m_searchQuery.empty()) {
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
         TriggerSearch();
     }
     RecalculateLayout();
@@ -1584,13 +1544,12 @@ void AppWindow::CloseTab(size_t index) {
 }
 
 void AppWindow::SelectTab(size_t index) {
-    if (index >= m_tabs.size() || index == m_activeTab) return;
+    if (!m_tabController.SelectTab(index)) return;
     m_renderer.InvalidatePageCache();
-    m_activeTab = index;
     if (m_showProperties) {
         ShowDocumentProperties();
     }
-    if (m_showSearch && !m_searchQuery.empty()) {
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
         TriggerSearch();
     }
     RecalculateLayout();
@@ -1599,13 +1558,12 @@ void AppWindow::SelectTab(size_t index) {
 }
 
 void AppWindow::NextTab() {
-    if (m_tabs.size() <= 1) return;
+    if (!m_tabController.NextTab()) return;
     m_renderer.InvalidatePageCache();
-    m_activeTab = (m_activeTab + 1) % m_tabs.size();
     if (m_showProperties) {
         ShowDocumentProperties();
     }
-    if (m_showSearch && !m_searchQuery.empty()) {
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
         TriggerSearch();
     }
     RecalculateLayout();
@@ -1614,13 +1572,12 @@ void AppWindow::NextTab() {
 }
 
 void AppWindow::PrevTab() {
-    if (m_tabs.size() <= 1) return;
+    if (!m_tabController.PrevTab()) return;
     m_renderer.InvalidatePageCache();
-    m_activeTab = (m_activeTab == 0) ? (m_tabs.size() - 1) : (m_activeTab - 1);
     if (m_showProperties) {
         ShowDocumentProperties();
     }
-    if (m_showSearch && !m_searchQuery.empty()) {
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
         TriggerSearch();
     }
     RecalculateLayout();
@@ -1629,62 +1586,15 @@ void AppWindow::PrevTab() {
 }
 
 int AppWindow::HitTestTab(POINT pt, bool& outClose, bool& outAdd) const {
-    outClose = false;
-    outAdd = false;
-    if (m_tabs.size() <= 1) return -1;
-
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
-
-    if (dipY < 0.0f || dipY > 34.0f) return -1;
-
-    float dipWidth = (float)m_renderer.GetWidth() * dipScale;
-    float availW = dipWidth - 44.0f;
-    float tabW = std::clamp(availW / (float)m_tabs.size(), 100.0f, 220.0f);
-
-    // Check '+' Add Tab button
-    float addX = (float)m_tabs.size() * tabW + 6.0f;
-    if (dipX >= addX && dipX <= addX + 24.0f && dipY >= 5.0f && dipY <= 29.0f) {
-        outAdd = true;
-        return -1;
-    }
-
-    // Check tabs
-    for (size_t i = 0; i < m_tabs.size(); ++i) {
-        float tx = (float)i * tabW;
-        if (dipX >= tx && dipX < tx + tabW) {
-            // Check close button
-            if (dipX >= tx + tabW - 24.0f && dipX <= tx + tabW - 8.0f && dipY >= 8.0f && dipY <= 26.0f) {
-                outClose = true;
-            }
-            return (int)i;
-        }
-    }
-
-    return -1;
+    return m_tabController.HitTestTab(pt, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), outClose, outAdd);
 }
 
 void AppWindow::UpdateTabRenderInfos(std::vector<TabRenderInfo>& infos) const {
-    if (infos.size() != m_tabs.size()) {
-        infos.resize(m_tabs.size());
-    }
-
-    for (size_t i = 0; i < m_tabs.size(); ++i) {
-        const std::wstring& title = m_tabs[i].document.IsLoaded() ? m_tabs[i].document.GetFileName() : L"Empty";
-        if (infos[i].title != title) {
-            infos[i].title = title;
-        }
-        infos[i].isActive = (i == m_activeTab);
-        infos[i].isHovered = ((int)i == m_hoveredTab);
-        infos[i].isCloseHovered = ((int)i == m_hoveredTab && m_hoveredClose);
-    }
+    m_tabController.UpdateTabRenderInfos(infos);
 }
 
 std::vector<TabRenderInfo> AppWindow::GetTabRenderInfos() const {
-    std::vector<TabRenderInfo> infos;
-    UpdateTabRenderInfos(infos);
-    return infos;
+    return m_tabController.GetTabRenderInfos();
 }
 
 void AppWindow::PromptOpenFile() {
@@ -2193,12 +2103,12 @@ void AppWindow::UpdateTitle() {
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         wchar_t title[512];
         const wchar_t* modeSuffix = pTab->continuousScroll ? L" (Continuous)" : L"";
-        if (m_tabs.size() > 1) {
+        if (m_tabController.HasMultipleTabs()) {
             swprintf_s(
                 title,
                 L"[Tab %zu/%zu] [%u / %u] - %s - LightPDF%s",
-                m_activeTab + 1,
-                m_tabs.size(),
+                m_tabController.GetActiveIndex() + 1,
+                m_tabController.GetTabCount(),
                 pTab->currentPage + 1,
                 pTab->document.GetPageCount(),
                 pTab->document.GetFileName().c_str(),
@@ -2513,66 +2423,20 @@ void AppWindow::ScrollSinglePage(float deltaY) {
 }
 
 void AppWindow::UpdateContinuousOffsets(DocumentTab* pTab) {
-    if (!pTab || !pTab->document.IsLoaded()) return;
-    uint32_t count = pTab->document.GetPageCount();
-    if (count == 0) {
-        pTab->pageOffsets.clear();
-        pTab->totalDocHeight = 0.0f;
-        pTab->lastOffsetsZoom = pTab->zoom;
-        return;
-    }
-    if (pTab->pageOffsets.size() == count && pTab->lastOffsetsZoom == pTab->zoom) {
-        return;
-    }
-    pTab->pageOffsets.resize(count);
-    float y = 24.0f; // top margin
-    float gap = 12.0f;
-    for (uint32_t i = 0; i < count; ++i) {
-        pTab->pageOffsets[i] = y;
-        y += pTab->document.GetPageSize(i).height * pTab->zoom;
-        if (i + 1 < count) {
-            y += gap;
-        }
-    }
-    pTab->totalDocHeight = y + 24.0f; // bottom margin
-    pTab->lastOffsetsZoom = pTab->zoom;
+    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+    m_tabController.UpdateContinuousOffsets(pTab, (float)m_renderer.GetWidth(), (float)m_renderer.GetWidth() * 96.0f / m_renderer.GetDpi(), dipH);
 }
 
 float AppWindow::GetTotalDocumentHeight(const DocumentTab* pTab) const {
-    if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
-    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
-        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
-    }
-    return pTab->totalDocHeight;
+    return m_tabController.GetTotalDocumentHeight(pTab);
 }
 
 float AppWindow::GetPageYOffset(const DocumentTab* pTab, uint32_t pageIndex) const {
-    if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
-    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
-        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
-    }
-    if (pageIndex < pTab->pageOffsets.size()) {
-        return pTab->pageOffsets[pageIndex];
-    }
-    return pTab->totalDocHeight;
+    return m_tabController.GetPageYOffset(pTab, pageIndex);
 }
 
 uint32_t AppWindow::GetPageAtScrollOffset(const DocumentTab* pTab) const {
-    if (!pTab || !pTab->document.IsLoaded()) return 0;
-    uint32_t count = pTab->document.GetPageCount();
-    if (count <= 1) return 0;
-
-    if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != count) {
-        const_cast<AppWindow*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab));
-    }
-
-    float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
-    float targetY = pTab->scrollY + dipH * 0.45f;
-
-    auto it = std::upper_bound(pTab->pageOffsets.begin(), pTab->pageOffsets.end(), targetY);
-    if (it == pTab->pageOffsets.begin()) return 0;
-    size_t idx = std::distance(pTab->pageOffsets.begin(), it) - 1;
-    return (uint32_t)std::min(idx, (size_t)(count - 1));
+    return m_tabController.GetPageAtScrollOffset(pTab);
 }
 
 void AppWindow::ToggleFullscreen() {
@@ -2653,8 +2517,9 @@ void AppWindow::CycleLaserColor() {
 
 void AppWindow::Render() {
     auto* pTab = GetActiveTab();
-    UpdateTabRenderInfos(m_cachedTabInfos);
-    const auto& tabInfos = m_cachedTabInfos;
+    auto tabInfos = m_tabController.GetTabRenderInfos();
+    bool hoveredAdd = m_tabController.IsHoveredAdd();
+    const auto& dictCardInfo = m_selectionController.GetDictCardInfo();
 
     m_docPropsInfo.visible = m_showProperties;
     m_docPropsInfo.hoveredBtn = m_propsHoveredBtn;
@@ -2738,7 +2603,7 @@ void AppWindow::Render() {
                 true,
                 GetHelpInfo(),
                 tabInfos,
-                m_hoveredAdd,
+                hoveredAdd,
                 GetScrollbarInfo(),
                 m_showGoToPage,
                 m_goToPageBuffer,
@@ -2746,7 +2611,7 @@ void AppWindow::Render() {
                 GetSearchHighlights(),
                 m_docPropsInfo,
                 selectionSpans,
-                m_dictCardInfo,
+                dictCardInfo,
                 laserInfo,
                 presenterBarInfo
             );
@@ -2770,7 +2635,7 @@ void AppWindow::Render() {
                 hasType3,
                 GetHelpInfo(),
                 tabInfos,
-                m_hoveredAdd,
+                hoveredAdd,
                 GetScrollbarInfo(),
                 m_showGoToPage,
                 m_goToPageBuffer,
@@ -2778,7 +2643,7 @@ void AppWindow::Render() {
                 GetSearchHighlights(),
                 m_docPropsInfo,
                 selectionSpans,
-                m_dictCardInfo,
+                dictCardInfo,
                 laserInfo,
                 presenterBarInfo
             );
@@ -2790,12 +2655,12 @@ void AppWindow::Render() {
         L"",
         GetHelpInfo(),
         tabInfos,
-        m_hoveredAdd,
+        hoveredAdd,
         m_showGoToPage,
         m_goToPageBuffer,
         GetSearchBarInfo(),
         m_docPropsInfo,
-        m_dictCardInfo,
+        dictCardInfo,
         laserInfo,
         presenterBarInfo
     );
@@ -2971,107 +2836,20 @@ void AppWindow::HandleScrollbarDrag(float mouseY) {
 }
 
 SearchBarRenderInfo AppWindow::GetSearchBarInfo() const {
-    SearchBarRenderInfo info;
-    info.visible = m_showSearch;
-    info.hasTabs = (m_tabs.size() > 1);
-    info.query = m_searchQuery;
-    info.matchCase = m_searchMatchCase;
-    info.ocrEnabled = m_searchOcrEnabled;
-    info.isSearching = m_searchEngine.IsSearching();
-    info.isDebouncing = m_searchDebouncePending;
-    info.hasScanned = m_searchEngine.HasScannedPages();
-    info.totalMatches = m_searchEngine.GetTotalMatches();
-    int activeIdx = m_searchEngine.GetActiveMatchIndex();
-    info.activeMatch = (activeIdx >= 0) ? (uint32_t)(activeIdx + 1) : 0;
-
-    info.isPrevHovered = (m_searchHoveredBtn == 1);
-    info.isNextHovered = (m_searchHoveredBtn == 2);
-    info.isCaseHovered = (m_searchHoveredBtn == 3);
-    info.isOcrHovered = (m_searchHoveredBtn == 4);
-    info.isCloseHovered = (m_searchHoveredBtn == 5);
-
-    return info;
+    return m_searchController.GetSearchBarInfo(m_tabController.HasMultipleTabs());
 }
 
 const std::vector<SearchHighlight>& AppWindow::GetSearchHighlights() const {
-    if (!m_showSearch || m_searchQuery.empty()) {
-        m_cachedHighlights.clear();
-        m_highlightsDirty = false;
-        return m_cachedHighlights;
-    }
-
-    if (m_highlightsDirty) {
-        auto matches = m_searchEngine.GetAllMatches();
-        int activeIdx = m_searchEngine.GetActiveMatchIndex();
-
-        m_cachedHighlights.clear();
-        m_cachedHighlights.reserve(matches.size());
-        for (size_t i = 0; i < matches.size(); ++i) {
-            SearchHighlight hl;
-            hl.pageIndex = matches[i].pageIndex;
-            hl.pageRect = matches[i].pageRect;
-            hl.rects = matches[i].rects;
-            hl.isActive = ((int)i == activeIdx);
-            m_cachedHighlights.push_back(std::move(hl));
-        }
-        m_highlightsDirty = false;
-    }
-
-    return m_cachedHighlights;
+    return m_searchController.GetSearchHighlights();
 }
 
 int AppWindow::HitTestSearchBar(POINT pt) const {
-    if (!m_showSearch) return -1;
-
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
-    float dipW = (float)m_renderer.GetWidth() * dipScale;
-
-    D2D1_RECT_F bar = SearchBarLayout::GetBarRect(dipW, m_tabs.size() > 1);
-    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
-        return -1;
-    }
-
-    auto inRect = [](const D2D1_RECT_F& r, float x, float y) {
-        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-    };
-
-    if (inRect(SearchBarLayout::GetPrevBtnRect(bar), dipX, dipY)) return 1;
-    if (inRect(SearchBarLayout::GetNextBtnRect(bar), dipX, dipY)) return 2;
-    if (inRect(SearchBarLayout::GetCaseBtnRect(bar), dipX, dipY)) return 3;
-    if (inRect(SearchBarLayout::GetOcrBtnRect(bar), dipX, dipY)) return 4;
-    if (inRect(SearchBarLayout::GetCloseBtnRect(bar), dipX, dipY)) return 5;
-    if (inRect(SearchBarLayout::GetInputRect(bar), dipX, dipY)) return 0;
-
-    return 0;
+    return m_searchController.HitTest(pt, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), m_tabController.HasMultipleTabs());
 }
 
 void AppWindow::TriggerSearch() {
     KillTimer(m_hwnd, 2);
-    m_searchDebouncePending = false;
-
-    auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->document.IsLoaded() || m_searchQuery.empty()) {
-        m_searchEngine.Cancel();
-        m_searchEngine.Clear();
-        m_lastJumpedMatch = -1;
-        InvalidateSearchHighlights();
-        return;
-    }
-
-    m_lastJumpedMatch = -1;
-    InvalidateSearchHighlights();
-    m_searchEngine.StartSearch(
-        m_hwnd,
-        pTab->document.GetFilePath(),
-        pTab->document.GetPageCount(),
-        m_searchQuery,
-        m_searchMatchCase,
-        m_searchOcrEnabled,
-        pTab->document.GetDoc(),
-        pTab->textCache
-    );
+    m_searchController.StartSearch(m_hwnd, GetActiveTab());
 }
 
 void AppWindow::JumpToActiveMatch() {
@@ -3080,7 +2858,7 @@ void AppWindow::JumpToActiveMatch() {
 
     InvalidateSearchHighlights();
 
-    SearchMatch match = m_searchEngine.GetActiveMatch();
+    SearchMatch match = m_searchController.GetActiveMatch();
     if (match.pageIndex >= pTab->document.GetPageCount()) return;
 
     float dipScale = 96.0f / m_renderer.GetDpi();
@@ -3121,25 +2899,19 @@ void AppWindow::JumpToActiveMatch() {
 
 void AppWindow::CloseSearch() {
     KillTimer(m_hwnd, 2);
-    m_searchDebouncePending = false;
-    m_showSearch = false;
-    m_searchHoveredBtn = 0;
-    m_searchEngine.Cancel();
-    m_searchEngine.Clear();
-    m_lastJumpedMatch = -1;
-    InvalidateSearchHighlights();
+    m_searchController.Close();
 }
 
 void AppWindow::ScheduleSearchDebounce() {
     KillTimer(m_hwnd, 2);
-    m_searchDebouncePending = true;
-    m_searchEngine.CancelAsync();
-    m_searchEngine.Clear();
-    m_lastJumpedMatch = -1;
-    InvalidateSearchHighlights();
+    m_searchController.SetDebouncePending(true);
+    m_searchController.GetEngine().CancelAsync();
+    m_searchController.GetEngine().Clear();
+    m_searchController.SetLastJumpedMatch(-1);
+    m_searchController.InvalidateHighlights();
 
-    if (m_searchQuery.empty()) {
-        m_searchDebouncePending = false;
+    if (m_searchController.GetQuery().empty()) {
+        m_searchController.SetDebouncePending(false);
         Render();
         return;
     }
@@ -3224,7 +2996,7 @@ void AppWindow::ShowDocumentProperties() {
     m_showProperties = true;
     m_showHelp = false;
     m_showGoToPage = false;
-    m_showSearch = false;
+    m_searchController.SetOpen(false);
 
     Render();
 }
@@ -3278,84 +3050,7 @@ void AppWindow::CopyPropertiesToClipboard() {
     Render();
 }
 
-static bool HitTestCharInPage(
-    const PdfPageText& pageText,
-    float pdfX,
-    float pdfY,
-    size_t& outCharIndex,
-    bool& outAfterChar
-) {
-    if (pageText.chars.empty()) return false;
 
-    // 1. Direct character bounding box containment test
-    for (size_t i = 0; i < pageText.chars.size(); ++i) {
-        const auto& c = pageText.chars[i];
-        if (c.rect.right <= c.rect.left) continue;
-        if (pdfY >= c.rect.top - 2.0f && pdfY <= c.rect.bottom + 2.0f) {
-            if (pdfX >= c.rect.left && pdfX <= c.rect.right) {
-                outCharIndex = i;
-                outAfterChar = (pdfX > (c.rect.left + c.rect.right) * 0.5f);
-                return true;
-            }
-        }
-    }
-
-    // 2. Line proximity test: Find line nearest to pdfY
-    float closestLineDist = 1e9f;
-    float bestLineY = 0.0f;
-    for (const auto& c : pageText.chars) {
-        if (c.rect.right <= c.rect.left) continue;
-        float midY = (c.rect.top + c.rect.bottom) * 0.5f;
-        float dist = std::abs(pdfY - midY);
-        if (dist < closestLineDist) {
-            closestLineDist = dist;
-            bestLineY = midY;
-        }
-    }
-
-    if (closestLineDist <= 24.0f) {
-        float minX = 1e9f, maxX = -1e9f;
-        size_t minIdx = 0, maxIdx = 0;
-        size_t closestHorizIdx = 0;
-        float closestHorizDist = 1e9f;
-
-        for (size_t i = 0; i < pageText.chars.size(); ++i) {
-            const auto& c = pageText.chars[i];
-            if (c.rect.right <= c.rect.left) continue;
-            float midY = (c.rect.top + c.rect.bottom) * 0.5f;
-            if (std::abs(midY - bestLineY) <= 6.0f) {
-                if (c.rect.left < minX) { minX = c.rect.left; minIdx = i; }
-                if (c.rect.right > maxX) { maxX = c.rect.right; maxIdx = i; }
-
-                float midX = (c.rect.left + c.rect.right) * 0.5f;
-                float hDist = std::abs(pdfX - midX);
-                if (hDist < closestHorizDist) {
-                    closestHorizDist = hDist;
-                    closestHorizIdx = i;
-                }
-            }
-        }
-
-        if (maxX >= minX) {
-            if (pdfX <= minX) {
-                outCharIndex = minIdx;
-                outAfterChar = false;
-                return true;
-            } else if (pdfX >= maxX) {
-                outCharIndex = maxIdx;
-                outAfterChar = true;
-                return true;
-            } else {
-                outCharIndex = closestHorizIdx;
-                const auto& c = pageText.chars[closestHorizIdx];
-                outAfterChar = (pdfX > (c.rect.left + c.rect.right) * 0.5f);
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
 
 void AppWindow::SetToolMode(ToolMode mode) {
     m_toolMode = mode;
@@ -3376,235 +3071,26 @@ void AppWindow::ShowToast(const std::wstring& text) {
 }
 
 std::shared_ptr<PdfPageText> AppWindow::GetOrExtractPageText(DocumentTab* pTab, uint32_t pageIndex) {
-    if (!pTab || !pTab->document.IsLoaded() || pageIndex >= pTab->document.GetPageCount()) {
-        return nullptr;
-    }
-    if (!pTab->textCache) {
-        pTab->textCache = std::make_shared<PageTextCache>();
-        pTab->textCache->pages.resize(pTab->document.GetPageCount());
-    }
-    {
-        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
-        if (pageIndex < pTab->textCache->pages.size() && pTab->textCache->pages[pageIndex]) {
-            return pTab->textCache->pages[pageIndex];
-        }
-    }
-
-    if (!pTab->parser) {
-        pTab->parser = std::make_unique<PdfParser>();
-        pTab->parser->Load(pTab->document.GetFilePath());
-    }
-
-    PdfPageText pageText;
-    if (pTab->parser->ExtractPageText(pageIndex, pageText)) {
-        auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
-        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
-        if (pageIndex < pTab->textCache->pages.size()) {
-            pTab->textCache->pages[pageIndex] = sharedPage;
-        }
-        return sharedPage;
-    }
-    return nullptr;
+    return m_selectionController.GetOrExtractPageText(pTab, pageIndex);
 }
 
 bool AppWindow::HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar) {
     auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
-
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float dipX = (float)clientPt.x * dipScale;
-    float dipY = (float)clientPt.y * dipScale;
-    float topOffset = GetTopOffset();
-    if (dipY < topOffset) return false;
-
-    if (pTab->continuousScroll) {
-        float mouseY = dipY - topOffset;
-        float docY = pTab->scrollY + mouseY;
-        uint32_t count = pTab->document.GetPageCount();
-        UpdateContinuousOffsets(pTab);
-        const auto& offsets = pTab->pageOffsets;
-
-        auto it = std::upper_bound(offsets.begin(), offsets.end(), docY);
-        uint32_t pageIdx = 0;
-        if (it != offsets.begin()) {
-            pageIdx = static_cast<uint32_t>(std::distance(offsets.begin(), it) - 1);
-        }
-        if (pageIdx >= count) return false;
-
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
-        float pageW = pSize.width * pTab->zoom;
-        float pageH = pSize.height * pTab->zoom;
-        float dipW = (float)m_renderer.GetWidth() * dipScale;
-        float margin = 24.0f;
-        float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
-        float pageTopY = offsets[pageIdx] - pTab->scrollY;
-
-        if (dipX < pageX - 20.0f || dipX > pageX + pageW + 20.0f) return false;
-        if (mouseY < pageTopY - 10.0f || mouseY > pageTopY + pageH + 10.0f) return false;
-
-        float pdfX = (dipX - pageX) / pTab->zoom;
-        float pdfY = (mouseY - pageTopY) / pTab->zoom;
-        pdfX = std::clamp(pdfX, 0.0f, pSize.width);
-        pdfY = std::clamp(pdfY, 0.0f, pSize.height);
-
-        auto pageText = GetOrExtractPageText(pTab, pageIdx);
-        if (!pageText || pageText->chars.empty()) return false;
-
-        outPage = pageIdx;
-        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
-    } else {
-        uint32_t pageIdx = pTab->currentPage;
-        if (pageIdx >= pTab->document.GetPageCount()) return false;
-
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
-        float pageW = pSize.width * pTab->zoom;
-        float pageH = pSize.height * pTab->zoom;
-        float pageX = pTab->offsetX;
-        float pageY = pTab->offsetY + topOffset;
-
-        if (dipX < pageX - 20.0f || dipX > pageX + pageW + 20.0f) return false;
-        if (dipY < pageY - 10.0f || dipY > pageY + pageH + 10.0f) return false;
-
-        float pdfX = (dipX - pageX) / pTab->zoom;
-        float pdfY = (dipY - pageY) / pTab->zoom;
-        pdfX = std::clamp(pdfX, 0.0f, pSize.width);
-        pdfY = std::clamp(pdfY, 0.0f, pSize.height);
-
-        auto pageText = GetOrExtractPageText(pTab, pageIdx);
-        if (!pageText || pageText->chars.empty()) return false;
-
-        outPage = pageIdx;
-        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
-    }
+    if (!pTab) return false;
+    return m_selectionController.HitTestPageText(
+        pTab, clientPt, (float)m_renderer.GetWidth(), (float)m_renderer.GetHeight(),
+        m_renderer.GetDpi(), GetTopOffset(), outPage, outCharIndex, outAfterChar
+    );
 }
 
 std::vector<SelectionHighlightSpan> AppWindow::GetSelectionSpans() const {
-    std::vector<SelectionHighlightSpan> spans;
-    const auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->selection.HasSelection()) return spans;
-
-    uint32_t startPage = 0, endPage = 0;
-    size_t startIdx = 0, endIdx = 0;
-    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
-
-    for (uint32_t p = startPage; p <= endPage; ++p) {
-        auto pageText = const_cast<AppWindow*>(this)->GetOrExtractPageText(const_cast<DocumentTab*>(pTab), p);
-        if (!pageText || pageText->chars.empty()) continue;
-
-        size_t pStart = (p == startPage) ? startIdx : 0;
-        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
-        if (pStart >= pageText->chars.size()) continue;
-        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
-        if (pStart >= pEnd) continue;
-
-        SelectionHighlightSpan span;
-        span.pageIndex = p;
-
-        D2D1_RECT_F curBand = { 0, 0, 0, 0 };
-        bool hasBand = false;
-
-        for (size_t i = pStart; i < pEnd; ++i) {
-            const auto& ch = pageText->chars[i];
-            if (ch.rect.right <= ch.rect.left || ch.rect.bottom <= ch.rect.top) {
-                continue;
-            }
-
-            if (!hasBand) {
-                curBand = ch.rect;
-                hasBand = true;
-            } else {
-                bool sameLine = (std::abs(ch.rect.top - curBand.top) < 6.0f) &&
-                                (std::abs(ch.rect.bottom - curBand.bottom) < 6.0f);
-                bool adjacent = (ch.rect.left <= curBand.right + 12.0f);
-
-                if (sameLine && adjacent) {
-                    curBand.left = (std::min)(curBand.left, ch.rect.left);
-                    curBand.right = (std::max)(curBand.right, ch.rect.right);
-                    curBand.top = (std::min)(curBand.top, ch.rect.top);
-                    curBand.bottom = (std::max)(curBand.bottom, ch.rect.bottom);
-                } else {
-                    span.rects.push_back(curBand);
-                    curBand = ch.rect;
-                }
-            }
-        }
-        if (hasBand) {
-            span.rects.push_back(curBand);
-        }
-
-        if (!span.rects.empty()) {
-            spans.push_back(std::move(span));
-        }
-    }
-    return spans;
+    return const_cast<SelectionController&>(m_selectionController).GetSelectionSpans(const_cast<DocumentTab*>(GetActiveTab()));
 }
 
 void AppWindow::CopySelectionToClipboard() {
     auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->selection.HasSelection()) return;
-
-    uint32_t startPage = 0, endPage = 0;
-    size_t startIdx = 0, endIdx = 0;
-    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
-
-    std::wstring result;
-    for (uint32_t p = startPage; p <= endPage; ++p) {
-        auto pageText = GetOrExtractPageText(pTab, p);
-        if (!pageText || pageText->chars.empty()) continue;
-
-        size_t pStart = (p == startPage) ? startIdx : 0;
-        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
-        if (pStart >= pageText->chars.size()) continue;
-        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
-        if (pStart >= pEnd) continue;
-
-        if (p > startPage && !result.empty()) {
-            result += L"\r\n\r\n";
-        }
-
-        float lastY = -1.0f;
-        float lastRight = -1.0f;
-
-        for (size_t i = pStart; i < pEnd; ++i) {
-            const auto& ch = pageText->chars[i];
-            if (ch.ch == 0) continue;
-
-            if (lastY >= 0.0f) {
-                if (std::abs(ch.rect.top - lastY) > 8.0f) {
-                    result += L"\r\n";
-                    lastRight = -1.0f;
-                } else if (lastRight >= 0.0f && (ch.rect.left - lastRight) > 6.0f) {
-                    if (!result.empty() && result.back() != L' ') {
-                        result += L' ';
-                    }
-                }
-            }
-
-            result += ch.ch;
-            lastY = ch.rect.top;
-            if (ch.rect.right > ch.rect.left) {
-                lastRight = ch.rect.right;
-            }
-        }
-    }
-
-    if (result.empty()) return;
-
-    if (OpenClipboard(m_hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (result.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, result.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            } else {
-                GlobalFree(hMem);
-            }
-        }
-        CloseClipboard();
+    if (!pTab) return;
+    if (m_selectionController.CopySelectionToClipboard(m_hwnd, pTab)) {
         ShowToast(L"Copied to clipboard");
         Render();
     }
@@ -3678,36 +3164,21 @@ void AppWindow::ClampCanvasOffsets(DocumentTab* pTab) {
 bool AppWindow::TriggerDictionaryLookup(const std::wstring& query, const D2D1_RECT_F& anchorRect) {
     if (query.empty()) return false;
 
-    if (!m_dictEngine.IsLoaded()) {
-        m_dictEngine.Initialize();
+    if (!m_selectionController.GetDictEngine().IsLoaded()) {
+        m_selectionController.GetDictEngine().Initialize();
     }
 
-    if (!m_dictEngine.IsLoaded()) {
+    if (!m_selectionController.GetDictEngine().IsLoaded()) {
         ShowToast(L"Dictionary not found (dict\\en-ar.dat)");
         return false;
     }
 
-    DictionaryResult res;
-    if (m_dictEngine.Lookup(query, res)) {
-        m_dictCardInfo.visible = true;
-        m_dictCardInfo.anchorRect = anchorRect;
-        m_dictCardInfo.word = res.word;
-        m_dictCardInfo.definition = res.definition;
-        m_dictCardInfo.categoryTag = res.GetCategoryName();
-        m_dictCardInfo.category = (uint16_t)res.category;
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipWidth = (float)m_renderer.GetWidth() * dipScale;
+    float dipHeight = (float)m_renderer.GetHeight() * dipScale;
+    float topOffset = GetTopOffset();
 
-        // Precompute card bounds for hit-testing / click outside
-        float dipScale = 96.0f / m_renderer.GetDpi();
-        float dipWidth = (float)m_renderer.GetWidth() * dipScale;
-        float dipHeight = (float)m_renderer.GetHeight() * dipScale;
-        float topOffset = GetTopOffset();
-
-        float approxDefHeight = (float)(res.definition.length() / 25 + 1) * 22.0f;
-        approxDefHeight = (std::max)(32.0f, approxDefHeight);
-        m_dictCardBounds = DictionaryCardLayout::CalculateCardRect(
-            anchorRect, approxDefHeight, dipWidth, dipHeight, topOffset
-        );
-
+    if (m_selectionController.TriggerDictionaryLookup(query, anchorRect, dipWidth, dipHeight, m_renderer.GetDpi(), topOffset)) {
         Render();
         return true;
     } else {
@@ -3717,115 +3188,24 @@ bool AppWindow::TriggerDictionaryLookup(const std::wstring& query, const D2D1_RE
 }
 
 void AppWindow::DismissDictionaryCard() {
-    if (m_dictCardInfo.visible) {
-        m_dictCardInfo.visible = false;
+    if (m_selectionController.IsDictCardVisible()) {
+        m_selectionController.DismissDictionaryCard();
         Render();
     }
 }
 
 bool AppWindow::HitTestDictionaryCard(POINT pt) const {
-    if (!m_dictCardInfo.visible) return false;
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float x = (float)pt.x * dipScale;
-    float y = (float)pt.y * dipScale;
-    return (x >= m_dictCardBounds.left && x <= m_dictCardBounds.right &&
-            y >= m_dictCardBounds.top && y <= m_dictCardBounds.bottom);
+    return m_selectionController.HitTestDictionaryCard(pt, m_renderer.GetDpi());
 }
 
 std::wstring AppWindow::GetSelectedWordOrText(D2D1_RECT_F& outAnchorRect) {
-    outAnchorRect = { 0, 0, 0, 0 };
     auto* pTab = GetActiveTab();
-    if (!pTab || !pTab->document.IsLoaded() || !pTab->selection.HasSelection()) {
-        return L"";
-    }
-
-    uint32_t startPage = 0, endPage = 0;
-    size_t startIdx = 0, endIdx = 0;
-    pTab->selection.GetOrderedRange(startPage, startIdx, endPage, endIdx);
-
-    std::wstring result;
-    D2D1_RECT_F pageBounds = { 1e9f, 1e9f, -1e9f, -1e9f };
-    bool hasBounds = false;
-    uint32_t primaryPage = startPage;
-
-    for (uint32_t p = startPage; p <= endPage; ++p) {
-        auto pageText = GetOrExtractPageText(pTab, p);
-        if (!pageText || pageText->chars.empty()) continue;
-
-        size_t pStart = (p == startPage) ? startIdx : 0;
-        size_t pEnd = (p == endPage) ? endIdx : pageText->chars.size();
-        if (pStart >= pageText->chars.size()) continue;
-        if (pEnd > pageText->chars.size()) pEnd = pageText->chars.size();
-        if (pStart >= pEnd) continue;
-
-        for (size_t i = pStart; i < pEnd; ++i) {
-            const auto& ch = pageText->chars[i];
-            if (ch.ch != 0) {
-                if (!result.empty() && ch.rect.left > pageBounds.right + 4.0f && result.back() != L' ') {
-                    result += L' ';
-                }
-                result += ch.ch;
-            }
-            if (ch.rect.right > ch.rect.left && ch.rect.bottom > ch.rect.top) {
-                pageBounds.left = (std::min)(pageBounds.left, ch.rect.left);
-                pageBounds.top = (std::min)(pageBounds.top, ch.rect.top);
-                pageBounds.right = (std::max)(pageBounds.right, ch.rect.right);
-                pageBounds.bottom = (std::max)(pageBounds.bottom, ch.rect.bottom);
-                hasBounds = true;
-            }
-        }
-    }
-
-    if (result.empty() || !hasBounds) return L"";
-
-    // Transform page bounds to screen DIPs
-    float dipScale = 96.0f / m_renderer.GetDpi();
-    float topOffset = GetTopOffset();
-
-    if (pTab->continuousScroll) {
-        UpdateContinuousOffsets(pTab);
-        if (primaryPage < pTab->pageOffsets.size()) {
-            D2D1_SIZE_F pSize = pTab->document.GetPageSize(primaryPage);
-            float pageW = pSize.width * pTab->zoom;
-            float dipW = (float)m_renderer.GetWidth() * dipScale;
-            float margin = 24.0f;
-            float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
-            float pageTopY = pTab->pageOffsets[primaryPage] - pTab->scrollY + topOffset;
-
-            outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
-            outAnchorRect.top = pageTopY + pageBounds.top * pTab->zoom;
-            outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
-            outAnchorRect.bottom = pageTopY + pageBounds.bottom * pTab->zoom;
-        }
-    } else {
-        float pageX = pTab->offsetX;
-        float pageY = pTab->offsetY + topOffset;
-        outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
-        outAnchorRect.top = pageY + pageBounds.top * pTab->zoom;
-        outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
-        outAnchorRect.bottom = pageY + pageBounds.bottom * pTab->zoom;
-    }
-
-    return result;
+    if (!pTab) return L"";
+    return m_selectionController.GetSelectedWordOrText(pTab, m_renderer.GetDpi(), GetTopOffset(), outAnchorRect);
 }
 
 void AppWindow::CopyDictionaryDefinitionToClipboard() {
-    if (!m_dictCardInfo.visible || m_dictCardInfo.definition.empty()) return;
-    std::wstring text = m_dictCardInfo.word + L" \x2014 " + m_dictCardInfo.definition;
-
-    if (OpenClipboard(m_hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, text.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            }
-        }
-        CloseClipboard();
+    if (m_selectionController.CopyDictionaryDefinitionToClipboard(m_hwnd)) {
         ShowToast(L"Definition copied to clipboard");
     }
 }

@@ -35,7 +35,10 @@ $sources = @(
     "src\pdf_parser.cpp",
     "src\pdf_search.cpp",
     "src\dictionary_engine.cpp",
-    "src\pdf_searchable_writer.cpp"
+    "src\pdf_searchable_writer.cpp",
+    "src\tab_controller.cpp",
+    "src\search_controller.cpp",
+    "src\selection_controller.cpp"
 )
 
 Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Green
