@@ -28,7 +28,7 @@ bool TabController::OpenTab(const std::wstring& path, HWND hwnd, std::wstring& o
 
     wchar_t fullPath[MAX_PATH * 2] = { 0 };
     DWORD len = GetFullPathNameW(path.c_str(), _countof(fullPath), fullPath, nullptr);
-    std::wstring resolvedPath = (len > 0) ? fullPath : path;
+    std::wstring resolvedPath = (len > 0 && len < _countof(fullPath)) ? fullPath : path;
     outCanonicalPath = resolvedPath;
 
     for (size_t i = 0; i < m_tabs.size(); ++i) {

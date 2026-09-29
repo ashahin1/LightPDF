@@ -10,6 +10,8 @@
 #include <memory>
 #include <atomic>
 #include <thread>
+#include <mutex>
+#include <queue>
 #include "d2d_renderer.hpp"
 #include "pdf_document.hpp"
 #include "pdf_search.hpp"
@@ -119,6 +121,9 @@ private:
 
     HelpOverlayRenderInfo GetHelpInfo() const;
 
+    void EnqueueOpenFile(const std::wstring& path);
+    void EnqueueBakePdf(const std::wstring& targetPath, bool overwriteOriginal);
+
     DocumentTab* GetActiveTab() {
         return m_tabController.GetActiveTab();
     }
@@ -199,4 +204,15 @@ private:
     std::atomic<bool> m_isBakingPdf{ false };
     std::atomic<bool> m_cancelBakingPdf{ false };
     std::thread m_bakePdfThread;
+
+    // Safe cross-thread message queues (prevents raw pointer passing over Win32 messages)
+    std::mutex m_pendingOpenFilesMutex;
+    std::vector<std::wstring> m_pendingOpenFiles;
+
+    struct PendingBakeRequest {
+        std::wstring targetPath;
+        bool overwriteOriginal = false;
+    };
+    std::mutex m_pendingBakeMutex;
+    std::vector<PendingBakeRequest> m_pendingBakes;
 };

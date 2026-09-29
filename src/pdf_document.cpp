@@ -18,7 +18,7 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         // Resolve absolute canonical path
         wchar_t fullPath[MAX_PATH * 2] = { 0 };
         DWORD len = GetFullPathNameW(filePath.c_str(), _countof(fullPath), fullPath, nullptr);
-        std::wstring resolvedPath = (len > 0) ? fullPath : filePath;
+        std::wstring resolvedPath = (len > 0 && len < _countof(fullPath)) ? fullPath : filePath;
 
         // Primary: Load via Win32 stream (CreateRandomAccessStreamOnFile)
         // This bypasses WinRT StorageFile restrictions on network UNC paths, Administrator elevation, and 8.3 paths.
