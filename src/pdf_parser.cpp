@@ -2276,7 +2276,7 @@ void PdfParser::ParseContentStream(
     Matrix2D tlm = Matrix2D::Identity();
     float curX = 0.0f, curY = 0.0f;
 
-    auto EmitBytes = [&](const std::vector<uint8_t>& rawBytes, bool isHex) {
+    auto EmitBytes = [&](const std::vector<uint8_t>& rawBytes, [[maybe_unused]] bool isHex) {
         if (rawBytes.empty()) return;
 
         const PdfFontInfo* pFont = curFont;

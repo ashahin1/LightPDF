@@ -1,3 +1,7 @@
+param(
+    [switch]$EnableAVX2
+)
+
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
@@ -7,6 +11,9 @@ Write-Host "===================================================" -ForegroundColo
 
 if (-not (Test-Path "bin")) {
     New-Item -ItemType Directory -Path "bin" | Out-Null
+}
+if (-not (Test-Path "bin\obj")) {
+    New-Item -ItemType Directory -Path "bin\obj" -Force | Out-Null
 }
 if (-not (Test-Path "bin\dict")) {
     New-Item -ItemType Directory -Path "bin\dict" -Force | Out-Null
@@ -25,7 +32,11 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     }
 }
 
-Write-Host "Compiling optimized C++20 release binary with /O2 /MT /LTCG /AVX2..." -ForegroundColor Green
+$optMsg = "Compiling optimized C++20 release binary with /O2 /MT /LTCG /W4..."
+if ($EnableAVX2) {
+    $optMsg += " (AVX2 enabled)"
+}
+Write-Host $optMsg -ForegroundColor Green
 
 $sources = @(
     "src\main.cpp",
@@ -48,12 +59,6 @@ Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Gree
 $clArgs = @(
     "/nologo",
     "/O2",
-    "/Ob3",
-    "/fp:fast",
-    "/arch:AVX2",
-    "/GA",
-    "/Oi",
-    "/GF",
     "/MT",
     "/std:c++20",
     "/GL",
@@ -62,8 +67,15 @@ $clArgs = @(
     "/EHsc",
     "/utf-8",
     "/permissive-",
-    "/DNOMINMAX"
-) + $sources + @(
+    "/DNOMINMAX",
+    "/W4",
+    "/Fo`"bin\obj\\`"",
+    "/Fd`"bin\obj\\`""
+)
+if ($EnableAVX2) {
+    $clArgs += "/arch:AVX2"
+}
+$clArgs += $sources + @(
     "resources\app.res",
     "/link",
     "/LTCG",
@@ -99,9 +111,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  Executable: $($bin.FullName)" -ForegroundColor White
     Write-Host "  Binary Size: $sizeKb KB" -ForegroundColor Yellow
     Write-Host "===================================================" -ForegroundColor Cyan
-
-    # Cleanup temporary obj files
-    Remove-Item *.obj -ErrorAction SilentlyContinue
 } else {
     Write-Error "Build failed with exit code $LASTEXITCODE"
 }

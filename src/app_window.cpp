@@ -767,7 +767,6 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                     D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
                     float renderedW = pSize.width * pTab->zoom;
                     float renderedH = pSize.height * pTab->zoom;
-                    float dipW = (float)m_renderer.GetWidth() * dipScale;
                     float dipH = (float)m_renderer.GetHeight() * dipScale - topOffset;
                     if (renderedW > dipW - 48.0f || renderedH > dipH - 48.0f) {
                         pTab->zoomMode = ZoomMode::Custom;

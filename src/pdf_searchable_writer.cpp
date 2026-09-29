@@ -223,7 +223,6 @@ bool PdfSearchableWriter::WriteSearchablePdf(
                 }
             }
         }
-        float cropW = std::max(1.0f, x1 - x0);
         float cropH = std::max(1.0f, y1 - y0);
 
         int rotate = ParseRotateHelper(pageDict);
@@ -457,7 +456,7 @@ bool PdfSearchableWriter::WriteSearchablePdf(
         incUpdate += std::to_string(first) + " " + std::to_string(count) + "\n";
         for (size_t k = 0; k < count; ++k) {
             char entryBuf[32];
-            snprintf(entryBuf, sizeof(entryBuf), "%010llu 00000 n \n", (unsigned long long)newOffsets[first + k]);
+            snprintf(entryBuf, sizeof(entryBuf), "%010llu 00000 n \n", (unsigned long long)newOffsets[static_cast<uint32_t>(first + k)]);
             incUpdate += entryBuf;
         }
         idx += count;

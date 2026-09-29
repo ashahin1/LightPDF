@@ -14,8 +14,9 @@ if %errorlevel% neq 0 (
     )
 )
 
-echo Compiling LightPDF Unified Test Suite...
-cl.exe /nologo /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /I src /I tests ^
+echo Compiling LightPDF Unified Test Suite with /W4...
+if not exist "bin\obj" mkdir "bin\obj"
+cl.exe /nologo /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /W4 /Fo"bin\obj\\" /Fd"bin\obj\\" /I src /I tests ^
     tests\unified_tests.cpp src\pdf_document.cpp src\dictionary_engine.cpp ^
     src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp ^
     src\pdf_parser.cpp src\pdf_searchable_writer.cpp src\pdf_search.cpp src\ui_views.cpp ^
@@ -24,7 +25,6 @@ cl.exe /nologo /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /I src /I tests ^
     user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib windowscodecs.lib
 
 if %errorlevel% equ 0 (
-    del *.obj >nul 2>nul
     echo.
     echo Running Unified Test Suite...
     tests\unified_tests.exe

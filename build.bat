@@ -8,6 +8,7 @@ echo   Building LightPDF (Ultra-Fast Windows PDF Viewer)
 echo ===================================================
 
 if not exist "bin" mkdir bin
+if not exist "bin\obj" mkdir "bin\obj"
 if not exist "bin\dict" mkdir "bin\dict"
 if exist "dict\en-ar.dat" xcopy /y /e /q "dict\*" "bin\dict\" >nul 2>nul
 
@@ -26,8 +27,8 @@ if %errorlevel% neq 0 (
 echo Compiling Windows resource script (app.rc)...
 rc.exe /nologo /i resources /fo resources\app.res resources\app.rc
 
-echo Compiling optimized C++20 release binary...
-cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX ^
+echo Compiling optimized C++20 release binary with /W4...
+cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4 /Fo"bin\obj\\" /Fd"bin\obj\\" ^
     src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp src\pdf_searchable_writer.cpp ^
     src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp src\ui_views.cpp ^
     resources\app.res ^
@@ -43,8 +44,6 @@ if %errorlevel% equ 0 (
     echo   BUILD SUCCESSFUL!
     echo   Executable: bin\LightPDF.exe
     echo ===================================================
-    rem Clean up intermediate object files
-    del *.obj >nul 2>nul
 ) else (
     echo.
     echo [ERROR] Build failed!
