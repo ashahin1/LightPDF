@@ -1824,6 +1824,21 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
             }
         }
 
+        if (fontInfo.subtype == "Type0" ||
+            fontInfo.subtype.find("CID") != std::string::npos ||
+            fontInfo.baseFont.find("CID") != std::string::npos ||
+            fontInfo.baseFont.find("Identity") != std::string::npos ||
+            !fontInfo.cidWidths.empty()) {
+            fontInfo.is2Byte = true;
+        } else {
+            for (const auto& entry : fontInfo.toUnicode) {
+                if (entry.first > 255) {
+                    fontInfo.is2Byte = true;
+                    break;
+                }
+            }
+        }
+
         fonts[fKey] = std::move(fontInfo);
     }
 
@@ -2280,7 +2295,12 @@ void PdfParser::ParseContentStream(
         if (rawBytes.empty()) return;
 
         const PdfFontInfo* pFont = curFont;
-        bool is2Byte = curFontIs2Byte;
+        bool is2Byte = curFontIs2Byte || (pFont && pFont->is2Byte);
+        if (!is2Byte && isHex && rawBytes.size() >= 2 && (rawBytes.size() % 2 == 0) && rawBytes[0] == 0) {
+            if (pFont && pFont->toUnicode.count(((uint32_t)rawBytes[0] << 8) | rawBytes[1])) {
+                is2Byte = true;
+            }
+        }
 
         float fontScaleX = curFontSize * (curHScale / 100.0f) * std::hypot(tm.a, tm.b) * std::hypot(ctm.a, ctm.b);
         float fontScaleY = curFontSize * std::hypot(tm.d, tm.c) * std::hypot(ctm.d, ctm.c);
@@ -2385,6 +2405,16 @@ void PdfParser::ParseContentStream(
 
             for (size_t dIdx = 0; dIdx < decodedStr.size(); ++dIdx) {
                 wchar_t wch = decodedStr[dIdx];
+                if (wch == L'\0') continue;
+
+                if (wch < 32 && wch != L'\t' && wch != L'\n' && wch != L'\r') {
+                    if (charAdv > 0.1f) {
+                        wch = L' ';
+                    } else {
+                        continue;
+                    }
+                }
+
                 PdfTextChar tc;
                 tc.ch = wch;
                 tc.rect = charRect;
@@ -2551,7 +2581,14 @@ void PdfParser::ParseContentStream(
                         curFontName = fName;
                         auto itF = fonts.find(curFontName);
                         curFont = (itF != fonts.end()) ? &itF->second : nullptr;
-                        curFontIs2Byte = curFont && (curFont->subtype == "Type0" || !curFont->cidWidths.empty() || curFont->baseFont.find("Identity") != std::string::npos);
+                        curFontIs2Byte = curFont && (
+                            curFont->is2Byte ||
+                            curFont->subtype == "Type0" ||
+                            curFont->subtype.find("CID") != std::string::npos ||
+                            curFont->baseFont.find("CID") != std::string::npos ||
+                            curFont->baseFont.find("Identity") != std::string::npos ||
+                            !curFont->cidWidths.empty()
+                        );
                         if (fSize > 0.1f) curFontSize = fSize;
                         i = opPos + 2;
                         continue;

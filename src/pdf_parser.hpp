@@ -54,6 +54,7 @@ struct PdfFontInfo {
     float defaultWidth = 500.0f;
     std::map<uint32_t, float> cidWidths;
     std::map<uint32_t, std::wstring> toUnicode;
+    bool is2Byte = false;
 
     /// @brief Computes font glyph advance width for a character code.
     float GetCharWidth(uint32_t charCode) const;
