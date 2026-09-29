@@ -334,14 +334,31 @@ bool PdfParser::DecodePredictor(const std::vector<uint8_t>& inData, int predicto
         return true;
     }
 
-    size_t bpp = ((size_t)colors * bpc + 7) / 8;
+    // Strict parameter sanity checks to prevent integer overflow & DoS
+    if (columns <= 0 || columns > 65536 || colors <= 0 || colors > 64 || bpc <= 0 || bpc > 32) {
+        return false;
+    }
+
+    uint64_t totalBitsPerPixel = (uint64_t)colors * (uint64_t)bpc;
+    size_t bpp = (size_t)((totalBitsPerPixel + 7) / 8);
     if (bpp == 0) bpp = 1;
-    size_t rowBytes = ((size_t)columns * colors * bpc + 7) / 8;
-    if (rowBytes == 0) return false;
+
+    uint64_t totalBitsPerRow = (uint64_t)columns * (uint64_t)colors * (uint64_t)bpc;
+    uint64_t calcRowBytes = (totalBitsPerRow + 7) / 8;
+    if (calcRowBytes == 0 || calcRowBytes > 0x10000000ULL /* 256 MB max row */) {
+        return false;
+    }
+    size_t rowBytes = (size_t)calcRowBytes;
     size_t stride = 1 + rowBytes;
 
+    if (stride > inData.size()) return false;
     size_t numRows = inData.size() / stride;
     if (numRows == 0) return false;
+
+    // Guard against total allocation overflow (max 512 MB decompressed)
+    if ((uint64_t)numRows * (uint64_t)rowBytes > 0x20000000ULL) {
+        return false;
+    }
 
     outData.clear();
     outData.resize(numRows * rowBytes);
@@ -613,13 +630,25 @@ bool PdfParser::GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outDa
         if (dpPos != std::string::npos) {
             int predictor = 1, columns = 1, colors = 1, bpc = 8;
             size_t prPos = header.find("/Predictor", dpPos);
-            if (prPos != std::string_view::npos) predictor = (int)strtol(header.data() + prPos + 10, nullptr, 10);
+            if (prPos != std::string_view::npos) {
+                long val = strtol(header.data() + prPos + 10, nullptr, 10);
+                if (val >= 1 && val <= 15) predictor = (int)val;
+            }
             size_t colPos = header.find("/Columns", dpPos);
-            if (colPos != std::string_view::npos) columns = (int)strtol(header.data() + colPos + 8, nullptr, 10);
+            if (colPos != std::string_view::npos) {
+                long val = strtol(header.data() + colPos + 8, nullptr, 10);
+                if (val > 0 && val <= 65536) columns = (int)val;
+            }
             size_t clrPos = header.find("/Colors", dpPos);
-            if (clrPos != std::string_view::npos) colors = (int)strtol(header.data() + clrPos + 7, nullptr, 10);
+            if (clrPos != std::string_view::npos) {
+                long val = strtol(header.data() + clrPos + 7, nullptr, 10);
+                if (val > 0 && val <= 64) colors = (int)val;
+            }
             size_t bpcPos = header.find("/BitsPerComponent", dpPos);
-            if (bpcPos != std::string_view::npos) bpc = (int)strtol(header.data() + bpcPos + 17, nullptr, 10);
+            if (bpcPos != std::string_view::npos) {
+                long val = strtol(header.data() + bpcPos + 17, nullptr, 10);
+                if (val > 0 && val <= 32) bpc = (int)val;
+            }
 
             if (predictor >= 10 && columns > 0) {
                 if (DecodePredictor(rawDecomp, predictor, columns, colors, bpc, outData)) {
@@ -854,14 +883,18 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
 
     size_t curOffset = offset;
     std::vector<size_t> visitedOffsets;
+    const char* pBufStart = m_bufferView.data();
+    const char* pBufEnd = pBufStart + m_bufferView.size();
 
     while (curOffset < m_bufferView.size()) {
         if (std::find(visitedOffsets.begin(), visitedOffsets.end(), curOffset) != visitedOffsets.end()) break;
         visitedOffsets.push_back(curOffset);
 
-        const char* p = m_bufferView.data() + curOffset;
-        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-        if (strncmp(p, "xref", 4) != 0) {
+        const char* p = pBufStart + curOffset;
+        while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+        if (p >= pBufEnd) break;
+
+        if (pBufEnd - p < 4 || strncmp(p, "xref", 4) != 0) {
             if (*p >= '0' && *p <= '9') {
                 return ParseXRefStream(curOffset, outTrailerDict);
             }
@@ -869,34 +902,38 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
         }
         p += 4;
 
-        while (p < m_bufferView.data() + m_bufferView.size()) {
-            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-            if (*p < '0' || *p > '9') break;
+        while (p < pBufEnd) {
+            while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+            if (p >= pBufEnd || *p < '0' || *p > '9') break;
 
             char* nextPtr = nullptr;
             uint32_t firstObj = (uint32_t)strtoul(p, &nextPtr, 10);
-            if (!nextPtr) break;
+            if (!nextPtr || nextPtr == p || nextPtr > pBufEnd) break;
             p = nextPtr;
 
-            while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+            while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+            if (p >= pBufEnd) break;
             uint32_t count = (uint32_t)strtoul(p, &nextPtr, 10);
-            if (!nextPtr) break;
+            if (!nextPtr || nextPtr == p || nextPtr > pBufEnd) break;
             p = nextPtr;
 
             for (uint32_t i = 0; i < count; ++i) {
-                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+                if (p >= pBufEnd) break;
                 uint32_t oOffset = (uint32_t)strtoul(p, &nextPtr, 10);
-                if (!nextPtr) break;
+                if (!nextPtr || nextPtr == p || nextPtr > pBufEnd) break;
                 p = nextPtr;
 
-                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+                if (p >= pBufEnd) break;
                 uint32_t gen = (uint32_t)strtoul(p, &nextPtr, 10);
-                if (!nextPtr) break;
+                if (!nextPtr || nextPtr == p || nextPtr > pBufEnd) break;
                 p = nextPtr;
 
-                while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
+                while (p < pBufEnd && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+                if (p >= pBufEnd) break;
                 char typeChar = *p;
-                if (*p) p++;
+                p++;
 
                 uint32_t objNum = firstObj + i;
                 if (typeChar == 'n' || typeChar == 'N') {
@@ -907,7 +944,8 @@ bool PdfParser::ParseClassicXRef(size_t offset, std::string& outTrailerDict) {
             }
         }
 
-        size_t pOffset = p - m_bufferView.data();
+        if (p > pBufEnd) p = pBufEnd;
+        size_t pOffset = (size_t)(p - pBufStart);
         size_t trPos = m_bufferView.find("trailer", pOffset);
         if (trPos == std::string_view::npos) break;
 

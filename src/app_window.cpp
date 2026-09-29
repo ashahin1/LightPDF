@@ -126,19 +126,30 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_COPYDATA: {
         PCOPYDATASTRUCT pCds = (PCOPYDATASTRUCT)lParam;
-        if (pCds && pCds->dwData == 1 && pCds->lpData) {
-            const wchar_t* pFilePath = (const wchar_t*)pCds->lpData;
-            if (pFilePath && pFilePath[0] != L'\0') {
-                OpenTab(pFilePath);
+        if (pCds && pCds->dwData == 1 && pCds->lpData && pCds->cbData >= sizeof(wchar_t)) {
+            size_t numChars = pCds->cbData / sizeof(wchar_t);
+            const wchar_t* pRawChars = static_cast<const wchar_t*>(pCds->lpData);
+            std::wstring filePath(pRawChars, numChars);
+            while (!filePath.empty() && filePath.back() == L'\0') {
+                filePath.pop_back();
+            }
+            if (!filePath.empty()) {
+                OpenTab(filePath);
             }
         }
         return TRUE;
     }
 
     case WM_APP_OPEN_FILE: {
-        std::unique_ptr<std::wstring> pPath((std::wstring*)lParam);
-        if (pPath && !pPath->empty()) {
-            OpenTab(*pPath);
+        std::vector<std::wstring> filesToOpen;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingOpenFilesMutex);
+            filesToOpen.swap(m_pendingOpenFiles);
+        }
+        for (const auto& path : filesToOpen) {
+            if (!path.empty()) {
+                OpenTab(path);
+            }
         }
         return 0;
     }
@@ -167,11 +178,15 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_APP_BAKE_PDF_START: {
-        std::wstring* pPath = (std::wstring*)lParam;
-        bool isOverwrite = (wParam != 0);
-        if (pPath) {
-            StartBakingSearchablePdf(*pPath, isOverwrite);
-            delete pPath;
+        std::vector<PendingBakeRequest> bakesToProcess;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingBakeMutex);
+            bakesToProcess.swap(m_pendingBakes);
+        }
+        for (const auto& req : bakesToProcess) {
+            if (!req.targetPath.empty()) {
+                StartBakingSearchablePdf(req.targetPath, req.overwriteOriginal);
+            }
         }
         return 0;
     }
@@ -1488,6 +1503,28 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
 }
 
+void AppWindow::EnqueueOpenFile(const std::wstring& path) {
+    if (path.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingOpenFilesMutex);
+        m_pendingOpenFiles.push_back(path);
+    }
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        PostMessageW(m_hwnd, WM_APP_OPEN_FILE, 0, 0);
+    }
+}
+
+void AppWindow::EnqueueBakePdf(const std::wstring& targetPath, bool overwriteOriginal) {
+    if (targetPath.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingBakeMutex);
+        m_pendingBakes.push_back({ targetPath, overwriteOriginal });
+    }
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        PostMessageW(m_hwnd, WM_APP_BAKE_PDF_START, 0, 0);
+    }
+}
+
 void AppWindow::OpenTab(const std::wstring& path) {
     if (path.empty()) return;
 
@@ -1634,9 +1671,9 @@ void AppWindow::PromptOpenFile() {
                     PWSTR pszFilePath = nullptr;
                     hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
                     if (SUCCEEDED(hr) && pszFilePath) {
-                        std::wstring* pPath = new std::wstring(pszFilePath);
+                        std::wstring pathStr(pszFilePath);
                         CoTaskMemFree(pszFilePath);
-                        PostMessageW(hwnd, WM_APP_OPEN_FILE, 0, (LPARAM)pPath);
+                        EnqueueOpenFile(pathStr);
                     }
                 }
             }
@@ -1651,8 +1688,7 @@ void AppWindow::PromptOpenFile() {
             ofn.lpstrTitle = L"Open PDF Document";
             ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
             if (GetOpenFileNameW(&ofn)) {
-                std::wstring* pPath = new std::wstring(szFile);
-                PostMessageW(hwnd, WM_APP_OPEN_FILE, 0, (LPARAM)pPath);
+                EnqueueOpenFile(szFile);
             }
         }
 
@@ -1884,8 +1920,7 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
         }
 
         if (doOverwrite) {
-            std::wstring* pPath = new std::wstring(origPath);
-            PostMessageW(hwnd, WM_APP_BAKE_PDF_START, (WPARAM)1, (LPARAM)pPath);
+            EnqueueBakePdf(origPath, true);
             if (SUCCEEDED(hrCo)) CoUninitialize();
             return;
         }
@@ -1922,8 +1957,7 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                             std::wstring targetPath(pszFilePath);
                             CoTaskMemFree(pszFilePath);
                             bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                            std::wstring* pPath = new std::wstring(targetPath);
-                            PostMessageW(hwnd, WM_APP_BAKE_PDF_START, isSame ? 1 : 0, (LPARAM)pPath);
+                            EnqueueBakePdf(targetPath, isSame);
                         }
                     }
                 }
@@ -1941,8 +1975,7 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                 if (GetSaveFileNameW(&ofn)) {
                     std::wstring targetPath(szFile);
                     bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                    std::wstring* pPath = new std::wstring(targetPath);
-                    PostMessageW(hwnd, WM_APP_BAKE_PDF_START, isSame ? 1 : 0, (LPARAM)pPath);
+                    EnqueueBakePdf(targetPath, isSame);
                 }
             }
         }
