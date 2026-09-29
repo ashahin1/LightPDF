@@ -17,10 +17,56 @@
 #include <atomic>
 #include <thread>
 #include "pdf_parser.hpp"
+#include "pdf_searchable_writer.hpp"
 #include <winrt/Windows.Data.Pdf.h>
+#include <winrt/Windows.Media.Ocr.h>
 
 /// @brief Windows message posted to HWND when background search discovers matches or finishes scanning.
 #define WM_APP_SEARCH_UPDATE (WM_APP + 2)
+
+/// @brief Holder for initialized Arabic and English OCR engines.
+struct BilingualOcrEngines {
+    winrt::Windows::Media::Ocr::OcrEngine arEngine{ nullptr };
+    winrt::Windows::Media::Ocr::OcrEngine enEngine{ nullptr };
+
+    bool IsValid() const { return arEngine != nullptr || enEngine != nullptr; }
+};
+
+/// @brief Factory creating both Arabic and English Windows OCR engines if available.
+BilingualOcrEngines CreateBilingualOcrEngines();
+
+/**
+ * @brief Performs high-resolution dual-engine OCR on a PDF page.
+ * @details Renders page at 2x resolution, runs both Arabic and English engines, sorts Arabic words RTL,
+ *          and merges English tokens (URLs, emails, Latin text).
+ * @param page WinRT PDF page to render.
+ * @param pageIndex 0-based page index.
+ * @param pageWidthDip Page width in DIPs.
+ * @param pageHeightDip Page height in DIPs.
+ * @param arEngine Active Arabic OCR engine.
+ * @param enEngine Active English/Latin OCR engine.
+ * @param outOcrPage Receives extracted words and bounding boxes.
+ * @param scale Supersampling scale factor (default 2.0f).
+ * @return true if any words were successfully extracted.
+ */
+bool ExtractBilingualPageOcr(
+    winrt::Windows::Data::Pdf::PdfPage page,
+    uint32_t pageIndex,
+    float pageWidthDip,
+    float pageHeightDip,
+    winrt::Windows::Media::Ocr::OcrEngine arEngine,
+    winrt::Windows::Media::Ocr::OcrEngine enEngine,
+    OcrPageItem& outOcrPage,
+    float scale = 2.0f
+);
+
+/**
+ * @brief Converts an OcrPageItem into a PdfPageText structure for search and selection.
+ * @param ocrPage Source OCR page items.
+ * @param outPageText Target page text structure.
+ */
+void PopulatePageTextFromOcr(const OcrPageItem& ocrPage, PdfPageText& outPageText);
+
 
 /// @brief Represents a single match result on a page, supporting multi-line bounding boxes.
 struct SearchMatch {
