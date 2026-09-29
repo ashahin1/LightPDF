@@ -391,3 +391,60 @@ TEST_CASE("OCR: Bilingual OCR on Scanned Document (123.pdf)") {
     }
 }
 
+// ============================================================================
+// Multi-character word search in CIDFont Document (Exam_Schedule_472.pdf)
+// ============================================================================
+TEST_CASE("Search: Multi-character Word Search in CIDFont Document (Exam_Schedule_472.pdf)") {
+    std::wstring pdfPath = L"tests\\PDF\\Exam_Schedule_472.pdf";
+    if (!std::filesystem::exists(pdfPath)) return;
+
+    PdfParser parser;
+    REQUIRE(parser.Load(pdfPath));
+    PdfPageText pageText;
+    REQUIRE(parser.ExtractPageText(0, pageText));
+    CHECK(pageText.hasDigitalText);
+
+    // Verify no null characters in extracted text
+    size_t nullCount = 0;
+    for (wchar_t ch : pageText.fullText) {
+        if (ch == L'\0') nullCount++;
+    }
+    CHECK(nullCount == 0);
+
+    // Verify multi-character English words are found
+    CHECK(pageText.fullText.find(L"Buraydah") != std::wstring::npos);
+    CHECK(pageText.fullText.find(L"Private") != std::wstring::npos);
+    CHECK(pageText.fullText.find(L"College") != std::wstring::npos);
+    CHECK(pageText.fullText.find(L"Date") != std::wstring::npos);
+    CHECK(pageText.fullText.find(L"Page") != std::wstring::npos);
+
+    // Verify multi-character Arabic words are found (with normalization)
+    std::wstring normText = NormalizeArabic(pageText.fullText);
+    CHECK(normText.find(NormalizeArabic(L"كليات")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"بريدة")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"جدول")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"الاختبارات")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"الفصل")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"الثاني")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"التاريخ")) != std::wstring::npos);
+    CHECK(normText.find(NormalizeArabic(L"الصفحة")) != std::wstring::npos);
+
+    // Test PdfSearchEngine integration
+    auto textCache = std::make_shared<PageTextCache>();
+    textCache->pages.resize(parser.GetPageCount());
+
+    PdfSearchEngine engine;
+    engine.StartSearch(nullptr, pdfPath, 1, L"Buraydah", false, false, nullptr, textCache);
+    while (engine.IsSearching()) {
+        Sleep(5);
+    }
+    CHECK(engine.GetTotalMatches() >= 1);
+
+    engine.StartSearch(nullptr, pdfPath, 1, L"جدول", false, false, nullptr, textCache);
+    while (engine.IsSearching()) {
+        Sleep(5);
+    }
+    CHECK(engine.GetTotalMatches() >= 1);
+}
+
+
