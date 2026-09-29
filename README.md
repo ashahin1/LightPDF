@@ -188,7 +188,8 @@ This writes directly to `HKCU\Software\Classes` (per-user scope only) and calls 
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # 787 KB standalone release binary (zero DLLs)
+│   ├── LightPDF.exe              # ~766 KB standalone release binary (zero DLLs)
+│   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
 ├── dict/
@@ -200,23 +201,33 @@ LightPDF/
 │   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
 ├── src/
 │   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
-│   ├── app_window.hpp/.cpp       # Win32 controller, tab state, input routing, tools
-│   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 pipeline, HUDs, overlays
-│   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper
+│   ├── app_window.hpp/.cpp       # Window lifecycle, thread coordination, message routing
+│   ├── tab_controller.hpp/.cpp   # Document tabs, multi-tab layout, continuous scroll metrics
+│   ├── search_controller.hpp/.cpp# Interactive find in page, match navigation & debounce
+│   ├── selection_controller.hpp/.cpp# Text selection, dictionary lookup card lifecycle
+│   ├── ui_views.hpp/.cpp         # Modular D2D views: TabStrip, ScrollBar, Search, Overlays
+│   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 zero-copy hardware render pipeline
+│   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper & prefetch
 │   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal
 │   ├── pdf_search.hpp/.cpp       # Multilingual search engine, normalization, numerals
 │   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich
 │   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
-│   ├── benchmark_startup.cpp     # Cold-launch & memory profiler
-│   ├── test_samples.ps1          # Automated multi-document test suite
-│   ├── verify_dictionary.cpp     # Offline dictionary unit test suite
-│   ├── verify_presenter.cpp      # Presenter & laser pointer test suite
-│   └── verify_searchable_pdf.cpp # Searchable PDF baking verification suite
+│   ├── fixtures/                 # Minimal synthetic PDF fixtures committed to git
+│   │   ├── sample_1page.pdf
+│   │   └── sample_2page.pdf
+│   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
+│   ├── unified_tests.cpp         # Complete test suite (81 assertions, <30ms runtime)
+│   ├── run_tests.bat             # Test compilation & execution script (/W4)
+│   ├── test_samples.ps1          # Automated multi-document benchmark test script
+│   └── legacy/                   # Archived one-off interactive test harnesses
 ├── tools/
 │   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
-├── build.ps1                     # PowerShell optimized build script (/O2 /AVX2 /LTCG)
-├── build.bat                     # CMD batch build script
+├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
+├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)
+├── .editorconfig                 # Standard cross-editor styling configuration
+├── .clang-format                 # Chromium/Google C++ 4-space formatting specification
+├── .git-blame-ignore-revs        # Blame exclusion for formatting revisions
 ├── LICENSE                       # MIT License
 └── README.md
 ```
@@ -232,7 +243,7 @@ LightPDF/
 - **MSVC C++ Compiler** supporting C++20 (MSVC v143 / 14.4x recommended)
 
 #### Option A: Visual Studio (if installed)
-Open **Developer PowerShell for VS 2022** and run `.\build.ps1`.
+Open **Developer PowerShell for VS 2022** and run `.\build.ps1` or `build.bat`.
 
 #### Option B: Portable MSVC (Zero Install, No Admin)
 If you don't have Visual Studio installed, bootstrap a portable compiler into `tools/msvc/` using [portable-msvc](https://github.com/mmozeiko/portable-msvc):
@@ -256,24 +267,25 @@ The build scripts (`build.ps1` / `build.bat`) automatically detect and activate 
 build.bat
 ```
 
-Output: `bin\LightPDF.exe` (**787 KB**)
+Output: `bin\LightPDF.exe` (**~766 KB**)
 
 ### Compiler Flags
 
 ```
-/O2 /Ob3 /fp:fast /arch:AVX2 /GA /Oi /GF /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX
+/O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4
+/Fo"bin\obj\\" /Fd"bin\obj\\"
 /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS
       /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest
 ```
 
 | Flag | Purpose |
 | :--- | :--- |
-| `/O2` `/Ob3` | Maximum aggressive speed optimization and inline expansion |
-| `/arch:AVX2` | SIMD vector acceleration for parser and geometry calculations |
-| `/fp:fast` | Fast floating-point math for Direct2D layout and transformations |
+| `/O2` | Aggressive speed optimization for release code |
+| `/W4` | Level 4 compiler diagnostics &mdash; strict zero-warning policy enforced |
 | `/MT` | Static CRT linking &mdash; eliminates `VCRUNTIME140.dll` / `MSVCP140.dll` dependencies |
-| `/GL` + `/LTCG` | Whole-program link-time code generation for cross-module inlining |
-| `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding |
+| `/GL` + `/LTCG` | Whole-program link-time code generation for maximum inter-procedural inlining |
+| `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding for minimal binary size |
+| `/Gy` + `/Gw` | Function-level and global data-level linking for granular dead-code removal |
 
 ---
 
