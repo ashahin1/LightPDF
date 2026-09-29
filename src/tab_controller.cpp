@@ -151,7 +151,7 @@ std::vector<TabRenderInfo> TabController::GetTabRenderInfos() const {
     return infos;
 }
 
-void TabController::UpdateContinuousOffsets(DocumentTab* pTab, float /*winWidth*/, float /*dipW*/, float /*dipH*/) {
+void TabController::UpdateContinuousOffsets(const DocumentTab* pTab, float /*winWidth*/, float /*dipW*/, float /*dipH*/) const {
     if (!pTab || !pTab->document.IsLoaded()) return;
     uint32_t count = pTab->document.GetPageCount();
     if (count == 0) {
@@ -180,7 +180,7 @@ void TabController::UpdateContinuousOffsets(DocumentTab* pTab, float /*winWidth*
 float TabController::GetTotalDocumentHeight(const DocumentTab* pTab) const {
     if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
     if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
-        const_cast<TabController*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab), 0, 0, 0);
+        UpdateContinuousOffsets(pTab, 0, 0, 0);
     }
     return pTab->totalDocHeight;
 }
@@ -188,7 +188,7 @@ float TabController::GetTotalDocumentHeight(const DocumentTab* pTab) const {
 float TabController::GetPageYOffset(const DocumentTab* pTab, uint32_t pageIndex) const {
     if (!pTab || !pTab->document.IsLoaded()) return 0.0f;
     if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != pTab->document.GetPageCount()) {
-        const_cast<TabController*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab), 0, 0, 0);
+        UpdateContinuousOffsets(pTab, 0, 0, 0);
     }
     if (pageIndex < pTab->pageOffsets.size()) {
         return pTab->pageOffsets[pageIndex];
@@ -202,7 +202,7 @@ uint32_t TabController::GetPageAtScrollOffset(const DocumentTab* pTab) const {
     if (count <= 1) return 0;
 
     if (pTab->lastOffsetsZoom != pTab->zoom || pTab->pageOffsets.size() != count) {
-        const_cast<TabController*>(this)->UpdateContinuousOffsets(const_cast<DocumentTab*>(pTab), 0, 0, 0);
+        UpdateContinuousOffsets(pTab, 0, 0, 0);
     }
 
     float targetY = pTab->scrollY + 400.0f;

@@ -329,6 +329,74 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_MOUSEWHEEL:
+    case WM_LBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_SETCURSOR:
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_CAPTURECHANGED:
+    case WM_LBUTTONDBLCLK:
+        return HandleMouseEvent(msg, wParam, lParam);
+
+    case WM_SYSKEYDOWN: {
+        if (wParam >= '1' && wParam <= '9') {
+            size_t targetIndex = (size_t)(wParam - '1');
+            if (targetIndex < m_tabController.GetTabCount()) {
+                SelectTab(targetIndex);
+                return 0;
+            }
+        }
+        break;
+    }
+
+    case WM_KEYDOWN:
+        return HandleKeyDown(wParam, lParam);
+
+    case WM_KEYUP:
+        if (wParam == VK_SPACE && !m_isPanning) {
+            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
+        }
+        return 0;
+
+    case WM_CHAR:
+        if (m_showProperties) {
+            return 0;
+        }
+        if (m_showGoToPage) {
+            return 0;
+        }
+        if (m_searchController.IsOpen()) {
+            if (wParam == VK_BACK) {
+                if (!m_searchController.GetQuery().empty()) {
+                    m_searchController.PopQueryChar();
+                    ScheduleSearchDebounce();
+                }
+                return 0;
+            } else if (wParam >= 32 && wParam != 127) {
+                m_searchController.AppendQueryChar((wchar_t)wParam);
+                ScheduleSearchDebounce();
+                return 0;
+            } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
+                return 0;
+            }
+        }
+        break;
+
+    case WM_ERASEBKGND:
+        return 1; // Direct2D handles entire background, avoid flicker
+
+    case WM_DESTROY:
+        m_renderer.Cleanup();
+        PostQuitMessage(0);
+        return 0;
+    }
+
+    return DefWindowProcW(m_hwnd, msg, wParam, lParam);
+}
+LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
     case WM_MOUSEWHEEL: {
         if (m_showProperties) return 0;
         if (m_isDraggingScrollbar) return 0;
@@ -972,18 +1040,13 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
-    case WM_SYSKEYDOWN: {
-        if (wParam >= '1' && wParam <= '9') {
-            size_t targetIndex = (size_t)(wParam - '1');
-            if (targetIndex < m_tabController.GetTabCount()) {
-                SelectTab(targetIndex);
-                return 0;
-            }
-        }
+    default:
         break;
     }
+    return DefWindowProcW(m_hwnd, msg, wParam, lParam);
+}
 
-    case WM_KEYDOWN: {
+LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) {
         if (m_isDraggingScrollbar) return 0;
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -1460,50 +1523,10 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         }
-        break;
-    }
 
-    case WM_KEYUP:
-        if (wParam == VK_SPACE && !m_isPanning) {
-            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
-        }
-        return 0;
-
-    case WM_CHAR:
-        if (m_showProperties) {
-            return 0;
-        }
-        if (m_showGoToPage) {
-            return 0;
-        }
-        if (m_searchController.IsOpen()) {
-            if (wParam == VK_BACK) {
-                if (!m_searchController.GetQuery().empty()) {
-                    m_searchController.PopQueryChar();
-                    ScheduleSearchDebounce();
-                }
-                return 0;
-            } else if (wParam >= 32 && wParam != 127) {
-                m_searchController.AppendQueryChar((wchar_t)wParam);
-                ScheduleSearchDebounce();
-                return 0;
-            } else if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
-                return 0;
-            }
-        }
-        break;
-
-    case WM_ERASEBKGND:
-        return 1; // Direct2D handles entire background, avoid flicker
-
-    case WM_DESTROY:
-        m_renderer.Cleanup();
-        PostQuitMessage(0);
-        return 0;
-    }
-
-    return DefWindowProcW(m_hwnd, msg, wParam, lParam);
+    return DefWindowProcW(m_hwnd, WM_KEYDOWN, wParam, lParam);
 }
+
 
 void AppWindow::EnqueueOpenFile(const std::wstring& path) {
     if (path.empty()) return;
