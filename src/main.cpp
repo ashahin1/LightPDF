@@ -58,7 +58,7 @@ static bool UnregisterFileAssociation() {
     return true;
 }
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PWSTR lpCmdLine, int nCmdShow) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, [[maybe_unused]] PWSTR lpCmdLine, int nCmdShow) {
     // 1. Initialize High-DPI Awareness for crisp rendering on 4K/retina displays
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
