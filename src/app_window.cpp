@@ -50,8 +50,7 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     wc.hCursor = m_cursorArrow;
     wc.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED);
-    static HBRUSH s_hbrDarkBg = CreateSolidBrush(RGB(31, 31, 31));
-    wc.hbrBackground = s_hbrDarkBg;
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = WINDOW_CLASS_NAME;
 
     RegisterClassExW(&wc);
@@ -1073,7 +1072,11 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 GoToPage((uint32_t)(p - 1));
                             }
                         }
-                    } catch (...) {}
+                    } catch (const std::exception& ex) {
+                        OutputDebugStringA(("[LightPDF] GoToPage invalid number: " + std::string(ex.what()) + "\n").c_str());
+                    } catch (...) {
+                        OutputDebugStringW(L"[LightPDF] GoToPage unknown error\n");
+                    }
                 }
                 m_showGoToPage = false;
                 m_goToPageBuffer.clear();
@@ -1798,7 +1801,13 @@ void AppWindow::PromptPrint() {
                                         bool hasType3 = (pageIndex < type3Pages.size()) ? type3Pages[pageIndex] : false;
                                         m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3);
                                     }
-                                } catch (...) {}
+                                } catch (const winrt::hresult_error& ex) {
+                                    OutputDebugStringW((L"[LightPDF] Print page render failed: " + std::wstring(ex.message()) + L"\n").c_str());
+                                } catch (const std::exception& ex) {
+                                    OutputDebugStringA(("[LightPDF] Print page render std::exception: " + std::string(ex.what()) + "\n").c_str());
+                                } catch (...) {
+                                    OutputDebugStringW(L"[LightPDF] Print page render unknown error\n");
+                                }
                                 EndPage(pdex.hDC);
                             }
                         }
@@ -2007,6 +2016,8 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
     m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages]() {
         try {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
+        } catch (const winrt::hresult_error& ex) {
+            OutputDebugStringW((L"[LightPDF] Baking thread apartment init note: " + std::wstring(ex.message()) + L"\n").c_str());
         } catch (...) {}
 
         PdfParser parser;
@@ -2037,6 +2048,9 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                         if (storageFile) {
                             doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(storageFile).get();
                         }
+                    } catch (const winrt::hresult_error& ex) {
+                        OutputDebugStringW((L"[LightPDF] OCR document load failed: " + std::wstring(ex.message()) + L"\n").c_str());
+                        doc = nullptr;
                     } catch (...) {
                         doc = nullptr;
                     }
@@ -2049,7 +2063,7 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                         if (!ocrEngine) {
                             auto arGen = winrt::Windows::Globalization::Language(L"ar");
                             if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+                                 ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
                             }
                         }
                         if (!ocrEngine) {
@@ -2061,6 +2075,8 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                                 ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
                             }
                         }
+                    } catch (const winrt::hresult_error& ex) {
+                        OutputDebugStringW((L"[LightPDF] OCR engine language creation note: " + std::wstring(ex.message()) + L"\n").c_str());
                     } catch (...) {}
                 }
 
@@ -2103,6 +2119,10 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                             ocrPages.push_back(std::move(pageItem));
                         }
                     }
+                } catch (const winrt::hresult_error& ex) {
+                    OutputDebugStringW((L"[LightPDF] OCR recognition failed: " + std::wstring(ex.message()) + L"\n").c_str());
+                } catch (const std::exception& ex) {
+                    OutputDebugStringA(("[LightPDF] OCR recognition std::exception: " + std::string(ex.what()) + "\n").c_str());
                 } catch (...) {}
             }
 

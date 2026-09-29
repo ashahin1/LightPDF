@@ -30,6 +30,10 @@ class PdfDocumentWrapper {
 public:
     PdfDocumentWrapper();
     ~PdfDocumentWrapper();
+    PdfDocumentWrapper(PdfDocumentWrapper&& other) noexcept;
+    PdfDocumentWrapper& operator=(PdfDocumentWrapper&& other) noexcept;
+    PdfDocumentWrapper(const PdfDocumentWrapper&) = delete;
+    PdfDocumentWrapper& operator=(const PdfDocumentWrapper&) = delete;
 
     bool Open(const std::wstring& filePath, HWND hwndNotify = nullptr);
     void Close();
@@ -52,5 +56,6 @@ private:
 
     // Cache of page dimensions to avoid querying pages on every paint
     std::shared_ptr<PageSizesData> m_sizesData;
+    std::thread m_prefetchThread;
 };
 

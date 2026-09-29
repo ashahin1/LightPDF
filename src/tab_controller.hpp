@@ -58,6 +58,13 @@ struct TextSelection {
 };
 
 struct DocumentTab {
+    DocumentTab() = default;
+    ~DocumentTab() = default;
+    DocumentTab(DocumentTab&&) noexcept = default;
+    DocumentTab& operator=(DocumentTab&&) noexcept = default;
+    DocumentTab(const DocumentTab&) = delete;
+    DocumentTab& operator=(const DocumentTab&) = delete;
+
     PdfDocumentWrapper document;
     uint32_t currentPage = 0;
     ZoomMode zoomMode = ZoomMode::FitPage;
