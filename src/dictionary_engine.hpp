@@ -1,3 +1,8 @@
+/**
+ * @file dictionary_engine.hpp
+ * @brief Zero-overhead memory-mapped offline dictionary and translation engine.
+ */
+
 #pragma once
 
 #ifndef NOMINMAX
@@ -11,22 +16,25 @@
 #include <memory>
 #include <cstdint>
 
+/// @brief Technical domain categories for dictionary entries.
 enum class DictionaryCategory : uint16_t {
-    General = 0,
-    Architecture = 1,
-    NetworksIoT = 2,
-    AIMachineLearning = 3,
-    Cybersecurity = 4,
-    AcademicAccreditation = 5,
-    QualityAssurance = 6,
-    AlgorithmsOptimization = 7
+    General = 0,                ///< General computing and general lexicon
+    Architecture = 1,           ///< Computer architecture and hardware systems
+    NetworksIoT = 2,            ///< Computer networks, IoT, and wireless sensor networks
+    AIMachineLearning = 3,      ///< Artificial intelligence, ML, and computer vision
+    Cybersecurity = 4,          ///< Cybersecurity, cryptography, and network defense
+    AcademicAccreditation = 5,  ///< Academic terminology (ABET / NCAAA standards)
+    QualityAssurance = 6,       ///< Software testing and quality assurance
+    AlgorithmsOptimization = 7  ///< Algorithms, data structures, and computational optimization
 };
 
+/// @brief Represents a successful dictionary query lookup result.
 struct DictionaryResult {
-    std::wstring word;
-    std::wstring definition;
-    DictionaryCategory category = DictionaryCategory::General;
+    std::wstring word;                                          ///< Target word or stemmed form
+    std::wstring definition;                                    ///< Arabic definition / translation text
+    DictionaryCategory category = DictionaryCategory::General;  ///< Technical domain classification
 
+    /// @brief Human-readable localized category display label.
     std::wstring GetCategoryName() const {
         switch (category) {
         case DictionaryCategory::Architecture:
@@ -49,24 +57,47 @@ struct DictionaryResult {
     }
 };
 
+/**
+ * @class DictionaryEngine
+ * @brief High-speed binary search dictionary engine backed by memory-mapped storage.
+ */
 class DictionaryEngine {
 public:
     DictionaryEngine();
     ~DictionaryEngine();
 
-    // Initializes dictionary file. If path is empty, searches default locations.
-    // Returns false if file not found (graceful degradation, zero crash).
+    /**
+     * @brief Initializes dictionary file.
+     * @details If path is empty, searches default locations (relative to executable and working dir).
+     *          Provides graceful degradation: returns false without crashing if dictionary file is missing.
+     * @param explicitPath Optional explicit file path to dictionary binary (.dat).
+     * @return true if dictionary mapped successfully, false otherwise.
+     */
     bool Initialize(const std::wstring& explicitPath = L"");
+
+    /**
+     * @brief Closes memory mapping and file handles.
+     */
     void Close();
 
+    /// @brief Returns whether a dictionary is actively loaded and mapped.
     bool IsLoaded() const { return m_mappedData != nullptr && m_entryCount > 0; }
+
+    /// @brief Total number of indexed entries in the active dictionary.
     uint32_t GetEntryCount() const { return m_entryCount; }
 
-    // Looks up a word or phrase with automatic normalization and stemming.
+    /**
+     * @brief Looks up a word or phrase with automatic normalization, stemming, and fallback.
+     * @param query Word or phrase to look up.
+     * @param outResult Populated with definition, category, and matched term if found.
+     * @return true if a definition was found; false otherwise.
+     */
     bool Lookup(const std::wstring& query, DictionaryResult& outResult);
 
-    // Static helper to find standard dictionary file path relative to executable or working dir
+    /// @brief Locates the standard dictionary binary file relative to executable or working directory.
     static std::wstring FindDictionaryFile();
+
+    /// @brief Locates custom user terms file (user_terms.txt) if available.
     static std::wstring FindUserTermsFile();
 
 private:

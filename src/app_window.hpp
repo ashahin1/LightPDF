@@ -1,3 +1,8 @@
+/**
+ * @file app_window.hpp
+ * @brief Main Win32 application window, lifecycle coordination, input routing, and multi-threaded event dispatching.
+ */
+
 #pragma once
 
 #ifndef NOMINMAX
@@ -22,24 +27,45 @@
 #include "search_controller.hpp"
 #include "selection_controller.hpp"
 
+/// @brief Windows message posted when an external process opens a file via IPC (single-instance).
 #define WM_APP_OPEN_FILE (WM_APP + 1)
+/// @brief Windows message posted when background OCR searchable PDF baking finishes.
 #define WM_APP_BAKE_PDF_DONE (WM_APP + 4)
+/// @brief Windows message posted to initiate background OCR searchable PDF baking.
 #define WM_APP_BAKE_PDF_START (WM_APP + 5)
+/// @brief Windows message posted periodically with OCR baking progress.
 #define WM_APP_BAKE_PDF_PROGRESS (WM_APP + 6)
 
 extern const wchar_t* WINDOW_CLASS_NAME;
 
+/// @brief Interactive tool mode for mouse cursor manipulation.
 enum class ToolMode {
-    TextSelect,
-    Hand
+    TextSelect, ///< Marquee text selection and double-click word lookup
+    Hand        ///< Click-and-drag viewport panning
 };
 
+/**
+ * @class AppWindow
+ * @brief Top-level Win32 application window orchestrating controllers, rendering, and background tasks.
+ */
 class AppWindow {
 public:
     AppWindow();
     ~AppWindow();
 
+    /**
+     * @brief Creates the native Win32 window, registers window class, and initializes Direct2D.
+     * @param hInstance Application instance handle.
+     * @param nCmdShow Window display command (e.g. SW_SHOWDEFAULT).
+     * @param initialFile Optional file path to open upon startup.
+     * @return true if window creation succeeded.
+     */
     bool Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile = L"");
+
+    /**
+     * @brief Enters the Win32 message pump until WM_QUIT is received.
+     * @return Exit code from WM_QUIT wParam.
+     */
     int Run();
 
 private:

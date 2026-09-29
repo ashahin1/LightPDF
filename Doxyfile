@@ -1,0 +1,18 @@
+# Doxyfile for LightPDF
+PROJECT_NAME           = "LightPDF"
+PROJECT_BRIEF          = "Ultra-Fast Minimalist Windows PDF Viewer"
+PROJECT_NUMBER         = "2.0"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = src README.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.hpp *.cpp *.md
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+OPTIMIZE_OUTPUT_FOR_C  = NO
+BUILTIN_STL_SUPPORT    = YES
+HAVE_DOT               = NO

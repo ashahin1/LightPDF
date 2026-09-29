@@ -1,3 +1,8 @@
+/**
+ * @file ui_views.hpp
+ * @brief Modular Direct2D HUD and overlay rendering components for LightPDF.
+ */
+
 #pragma once
 
 #ifndef NOMINMAX
@@ -12,11 +17,17 @@
 #include <vector>
 #include "d2d_renderer.hpp"
 
+/**
+ * @namespace UIViews
+ * @brief Encapsulates decoupled Direct2D drawing subroutines for controls, HUDs, and popups.
+ */
 namespace UIViews {
 
 // =========================================================================
 // 1. TabStrip View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for rendering the tab strip.
 struct TabStripResources {
     ID2D1SolidColorBrush* brushTabBarBg = nullptr;
     ID2D1SolidColorBrush* brushTabBorder = nullptr;
@@ -32,8 +43,17 @@ struct TabStripResources {
     IDWriteTextFormat* textFormatTabAdd = nullptr;
 };
 
+/// @brief Renders the multi-tab navigation bar at the top of the window.
 class TabStripView {
 public:
+    /**
+     * @brief Renders the tab strip bar.
+     * @param ctx Active Direct2D device context.
+     * @param tabs Vector of tab descriptions.
+     * @param isAddHovered Whether the '+' new tab button is hovered.
+     * @param dipWidth Window client width in DIPs.
+     * @param res Resource bundle for tab strip rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const std::vector<TabRenderInfo>& tabs,
@@ -46,6 +66,8 @@ public:
 // =========================================================================
 // 2. ScrollBar View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for scrollbar and HUD badge.
 struct ScrollBarResources {
     ID2D1SolidColorBrush* brushScrollbarTrack = nullptr;
     ID2D1SolidColorBrush* brushScrollbarThumb = nullptr;
@@ -56,8 +78,16 @@ struct ScrollBarResources {
     IDWriteTextFormat* textFormatHud = nullptr;
 };
 
+/// @brief Renders the minimalist auto-hiding scrollbar and page number bubble HUD.
 class ScrollBarView {
 public:
+    /**
+     * @brief Renders the scrollbar track, thumb, and hover tooltip.
+     * @param ctx Active Direct2D device context.
+     * @param scrollbar Scrollbar layout and state metrics.
+     * @param dipWidth Window client width in DIPs.
+     * @param res Resource bundle for scrollbar rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const ScrollbarRenderInfo& scrollbar,
@@ -69,6 +99,8 @@ public:
 // =========================================================================
 // 3. GoToPage Overlay View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the Go To Page modal popup.
 struct GoToPageOverlayResources {
     ID2D1SolidColorBrush* brushHelpBackdrop = nullptr;
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
@@ -83,8 +115,18 @@ struct GoToPageOverlayResources {
     IDWriteTextFormat* textFormatHelpSub = nullptr;
 };
 
+/// @brief Renders the modal numeric jump-to-page dialog (Ctrl+G).
 class GoToPageOverlayView {
 public:
+    /**
+     * @brief Renders the Go To Page dialog card.
+     * @param ctx Active Direct2D device context.
+     * @param buffer Current text input digits typed by the user.
+     * @param totalPages Total page count of the active document.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for Go To Page rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const std::wstring& buffer,
@@ -98,6 +140,8 @@ public:
 // =========================================================================
 // 4. SearchBar View
 // =========================================================================
+
+/// @brief Text layout cache for the search bar input query and blinking caret.
 struct SearchBarCache {
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
     std::wstring query;
@@ -106,6 +150,7 @@ struct SearchBarCache {
     FLOAT caretX = 0.0f;
 };
 
+/// @brief Pre-allocated brush and typography resources for the floating search bar.
 struct SearchBarResources {
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
     ID2D1SolidColorBrush* brushHudBg = nullptr;
@@ -122,8 +167,18 @@ struct SearchBarResources {
     IDWriteTextFormat* textFormatSearchBtn = nullptr;
 };
 
+/// @brief Renders the floating search bar with match count badge and navigation buttons.
 class SearchBarView {
 public:
+    /**
+     * @brief Renders the floating search bar.
+     * @param ctx Active Direct2D device context.
+     * @param dwriteFactory DirectWrite factory for creating text layouts.
+     * @param searchBar Search bar state descriptor.
+     * @param dipWidth Window client width in DIPs.
+     * @param res Resource bundle for search bar rendering.
+     * @param cache Reusable text layout cache for the input box.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         IDWriteFactory* dwriteFactory,
@@ -137,6 +192,8 @@ public:
 // =========================================================================
 // 5. HelpOverlay View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the keyboard shortcut cheatsheet.
 struct HelpOverlayResources {
     ID2D1SolidColorBrush* brushHelpBackdrop = nullptr;
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
@@ -170,8 +227,17 @@ struct HelpOverlayResources {
     IDWriteTextFormat* textFormatHelpFooterRight = nullptr;
 };
 
+/// @brief Renders the categorization-enabled keyboard shortcuts and mouse actions cheatsheet modal (F1 / ?).
 class HelpOverlayView {
 public:
+    /**
+     * @brief Renders the shortcuts cheatsheet modal dialog.
+     * @param ctx Active Direct2D device context.
+     * @param help State and category filter descriptor.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for help overlay.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const HelpOverlayRenderInfo& help,
@@ -179,12 +245,23 @@ public:
         float dipHeight,
         const HelpOverlayResources& res
     );
+
+    /**
+     * @brief Hit-tests category tabs and close button in help modal.
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @return Button/category index hit.
+     */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
 };
 
 // =========================================================================
 // 6. DocProperties View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for document metadata dialog.
 struct DocPropertiesResources {
     ID2D1SolidColorBrush* brushHelpBackdrop = nullptr;
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
@@ -207,8 +284,17 @@ struct DocPropertiesResources {
     IDWriteTextFormat* textFormatTab = nullptr;
 };
 
+/// @brief Renders the PDF metadata properties modal dialog (Ctrl+D).
 class DocPropertiesView {
 public:
+    /**
+     * @brief Renders the document properties dialog card.
+     * @param ctx Active Direct2D device context.
+     * @param props Extracted document metadata properties.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for document properties.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const DocumentPropertiesRenderInfo& props,
@@ -216,12 +302,23 @@ public:
         float dipHeight,
         const DocPropertiesResources& res
     );
+
+    /**
+     * @brief Hit-tests action buttons in document properties dialog (Close, Copy, OK).
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @return Button index hit.
+     */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
 };
 
 // =========================================================================
 // 7. DictionaryCard View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the dictionary lookup card.
 struct DictionaryCardResources {
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
     ID2D1SolidColorBrush* brushDictCardBg = nullptr;
@@ -237,8 +334,19 @@ struct DictionaryCardResources {
     IDWriteTextFormat* textFormatDictHint = nullptr;
 };
 
+/// @brief Renders the floating contextual definition popup card near selected text.
 class DictionaryCardView {
 public:
+    /**
+     * @brief Renders the dictionary lookup card with category badge and Arabic translation.
+     * @param ctx Active Direct2D device context.
+     * @param dwriteFactory DirectWrite factory.
+     * @param dictCard Dictionary entry descriptor and anchor rect.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param topOffset Tab strip height offset.
+     * @param res Resource bundle for dictionary card.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         IDWriteFactory* dwriteFactory,
@@ -253,6 +361,8 @@ public:
 // =========================================================================
 // 8. PresenterBar View
 // =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for presenter floating controls.
 struct PresenterBarResources {
     ID2D1SolidColorBrush* brushPageShadow = nullptr;
     ID2D1SolidColorBrush* brushHudBg = nullptr;
@@ -264,8 +374,17 @@ struct PresenterBarResources {
     IDWriteTextFormat* textFormatPresenter = nullptr;
 };
 
+/// @brief Renders the bottom floating toolbar for presenter mode (F5) and laser pointer controls (L / C).
 class PresenterBarView {
 public:
+    /**
+     * @brief Renders the presenter floating toolbar.
+     * @param ctx Active Direct2D device context.
+     * @param presenterBar Presenter bar state and laser color descriptor.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for presenter bar.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const PresenterBarRenderInfo& presenterBar,
@@ -273,6 +392,15 @@ public:
         float dipHeight,
         const PresenterBarResources& res
     );
+
+    /**
+     * @brief Hit-tests action buttons in presenter toolbar (prev, next, laser, color, exit).
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @return Button index hit.
+     */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
 };
 

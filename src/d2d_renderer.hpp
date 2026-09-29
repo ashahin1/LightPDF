@@ -1,3 +1,8 @@
+/**
+ * @file d2d_renderer.hpp
+ * @brief Zero-copy hardware-accelerated Direct2D 1.1 / Direct3D 11 rendering pipeline.
+ */
+
 #pragma once
 
 #ifndef NOMINMAX
@@ -18,20 +23,22 @@
 
 using Microsoft::WRL::ComPtr;
 
+/// @brief Cache entry for a rendered page Direct2D bitmap.
 struct PageBitmapCache {
-    uint32_t pageIndex = UINT32_MAX;
-    float zoom = 0.0f;
-    UINT32 pixelW = 0;
-    UINT32 pixelH = 0;
-    uint64_t lastUsedTime = 0;
-    ComPtr<ID2D1Bitmap1> bitmap;
+    uint32_t pageIndex = UINT32_MAX;    ///< 0-based page index
+    float zoom = 0.0f;                  ///< Render zoom factor
+    UINT32 pixelW = 0;                  ///< Bitmap pixel width
+    UINT32 pixelH = 0;                  ///< Bitmap pixel height
+    uint64_t lastUsedTime = 0;          ///< Timestamp for MRU/LRU eviction
+    ComPtr<ID2D1Bitmap1> bitmap;        ///< GPU texture bitmap
 };
 
+/// @brief Tab state information passed to renderer for drawing tab strip.
 struct TabRenderInfo {
-    std::wstring title;
-    bool isActive = false;
-    bool isHovered = false;
-    bool isCloseHovered = false;
+    std::wstring title;                 ///< Tab title
+    bool isActive = false;              ///< Whether tab is currently active
+    bool isHovered = false;             ///< Whether tab header is hovered
+    bool isCloseHovered = false;        ///< Whether tab close button is hovered
 };
 
 struct ContinuousPageInfo {
@@ -297,15 +304,48 @@ struct HelpOverlayLayout {
     }
 };
 
+/**
+ * @class D2DRenderer
+ * @brief High-performance Direct2D 1.1 / Direct3D 11 hardware-accelerated rendering engine.
+ */
 class D2DRenderer {
 public:
     D2DRenderer();
     ~D2DRenderer();
 
+    /**
+     * @brief Initializes Direct3D device, Direct2D context, and DXGI swap chain.
+     * @param hwnd Target window handle.
+     * @return true if graphics pipeline initialized successfully.
+     */
     bool Initialize(HWND hwnd);
+
+    /**
+     * @brief Releases all device-dependent graphics resources.
+     */
     void Cleanup();
+
+    /**
+     * @brief Handles window resize events and re-creates swap chain buffers.
+     * @param width New client width in physical pixels.
+     * @param height New client height in physical pixels.
+     */
     void Resize(UINT width, UINT height);
 
+    /**
+     * @brief Renders the empty/blank state (welcome screen or error message).
+     * @param message Informational message to display.
+     * @param help Help overlay descriptor.
+     * @param tabs Tab strip descriptor.
+     * @param isAddHovered Add tab button hover state.
+     * @param showGoToPage Whether Go To Page modal is active.
+     * @param goToPageBuffer Go To Page input text.
+     * @param searchBar Search bar descriptor.
+     * @param docProps Document properties descriptor.
+     * @param dictCard Dictionary card descriptor.
+     * @param laser Laser pointer descriptor.
+     * @param presenterBar Presenter bar descriptor.
+     */
     void RenderBlank(
         const std::wstring& message,
         const HelpOverlayRenderInfo& help = {},
@@ -319,6 +359,10 @@ public:
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {}
     );
+
+    /**
+     * @brief Renders a single PDF page centered or panned with all active HUD overlays.
+     */
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
         float zoom,
@@ -343,6 +387,10 @@ public:
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {}
     );
+
+    /**
+     * @brief Renders multiple visible pages in continuous vertical scroll layout.
+     */
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,
         float zoom,
@@ -365,14 +413,32 @@ public:
         const PresenterBarRenderInfo& presenterBar = {}
     );
 
+    /// @brief Draws the floating dictionary translation card.
     void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
+
+    /// @brief Draws the presentation laser pointer dot and halo glow.
     void DrawLaserPointer(const LaserPointerRenderInfo& laser);
+
+    /// @brief Draws the presenter floating control bar.
     void DrawPresenterBar(const PresenterBarRenderInfo& presenterBar);
 
+    /// @brief Hit-tests document properties modal buttons.
     int HitTestDocumentProperties(POINT pt) const;
+
+    /// @brief Hit-tests keyboard shortcut help modal buttons.
     int HitTestHelpOverlay(POINT pt) const;
+
+    /// @brief Hit-tests presenter floating toolbar buttons.
     int HitTestPresenterBar(POINT pt) const;
 
+    /**
+     * @brief Renders a page directly to a printer device context (HDC).
+     * @param page WinRT PDF page.
+     * @param hdc Printer device context.
+     * @param pageSize Dimensions of page.
+     * @param hasType3Font Whether page uses Type 3 fonts.
+     * @return true on success.
+     */
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
         HDC hdc,
@@ -380,10 +446,16 @@ public:
         bool hasType3Font = false
     );
 
+    /// @brief Returns current monitor DPI.
     float GetDpi() const { return m_dpi; }
+
+    /// @brief Updates DPI scaling and recreates typography layouts.
     void UpdateDpi(float dpi);
 
+    /// @brief Window client width in physical pixels.
     UINT GetWidth() const { return m_width; }
+
+    /// @brief Window client height in physical pixels.
     UINT GetHeight() const { return m_height; }
 
     void InvalidatePageCache() {
