@@ -127,17 +127,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PWSTR lpCm
     }
 
     // 5. Create application window and enter event pump
-    AppWindow app;
-    if (!app.Create(hInstance, nCmdShow, initialFile)) {
-        if (hMutex) CloseHandle(hMutex);
-        return 1;
-    }
+    int exitCode = 0;
+    {
+        AppWindow app;
+        if (!app.Create(hInstance, nCmdShow, initialFile)) {
+            if (hMutex) CloseHandle(hMutex);
+            return 1;
+        }
 
-    int exitCode = app.Run();
+        exitCode = app.Run();
+    }
 
     if (hMutex) CloseHandle(hMutex);
 
-    // Instant exit: skip redundant heap traversal on shutdown
+    // Instant exit: skip redundant heap traversal on shutdown (app is cleanly destructed)
     ExitProcess((UINT)exitCode);
     return exitCode;
 }

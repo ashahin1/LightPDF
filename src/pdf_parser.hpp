@@ -169,6 +169,11 @@ private:
     std::string m_idString;
     std::vector<uint32_t> m_pageObjectNums;
     std::map<uint32_t, PdfXRefEntry> m_xref;
+    // Thread safety contract:
+    // PdfParser instances are designed to be thread-confined. Each background worker
+    // (such as OCR baking or search threads) creates its own local PdfParser instance,
+    // and the UI thread exclusively owns tab-level parsers.
+    // Do not share a single PdfParser instance concurrently across threads.
     mutable std::map<uint32_t, std::map<uint32_t, std::string>> m_objStmCache;
     mutable std::map<uint32_t, bool> m_pageHasType3Cache;
 };

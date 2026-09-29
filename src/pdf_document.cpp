@@ -7,6 +7,35 @@ PdfDocumentWrapper::~PdfDocumentWrapper() {
     Close();
 }
 
+PdfDocumentWrapper::PdfDocumentWrapper(PdfDocumentWrapper&& other) noexcept
+    : m_doc(std::move(other.m_doc))
+    , m_filePath(std::move(other.m_filePath))
+    , m_fileName(std::move(other.m_fileName))
+    , m_pageCount(other.m_pageCount)
+    , m_loaded(other.m_loaded)
+    , m_sizesData(std::move(other.m_sizesData))
+    , m_prefetchThread(std::move(other.m_prefetchThread))
+{
+    other.m_pageCount = 0;
+    other.m_loaded = false;
+}
+
+PdfDocumentWrapper& PdfDocumentWrapper::operator=(PdfDocumentWrapper&& other) noexcept {
+    if (this != &other) {
+        Close();
+        m_doc = std::move(other.m_doc);
+        m_filePath = std::move(other.m_filePath);
+        m_fileName = std::move(other.m_fileName);
+        m_pageCount = other.m_pageCount;
+        m_loaded = other.m_loaded;
+        m_sizesData = std::move(other.m_sizesData);
+        m_prefetchThread = std::move(other.m_prefetchThread);
+        other.m_pageCount = 0;
+        other.m_loaded = false;
+    }
+    return *this;
+}
+
 bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
     Close();
 
@@ -34,7 +63,11 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
             if (SUCCEEDED(hrStream) && stream) {
                 doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromStreamAsync(stream).get();
             }
+        } catch (const winrt::hresult_error& ex) {
+            OutputDebugStringW((L"[LightPDF] Stream load failed: " + std::wstring(ex.message()) + L"\n").c_str());
+            doc = nullptr;
         } catch (...) {
+            OutputDebugStringW(L"[LightPDF] Stream load failed with unknown exception\n");
             doc = nullptr;
         }
 
@@ -45,7 +78,11 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
                 if (file) {
                     doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file).get();
                 }
+            } catch (const winrt::hresult_error& ex) {
+                OutputDebugStringW((L"[LightPDF] StorageFile fallback failed: " + std::wstring(ex.message()) + L"\n").c_str());
+                doc = nullptr;
             } catch (...) {
+                OutputDebugStringW(L"[LightPDF] StorageFile fallback failed with unknown exception\n");
                 doc = nullptr;
             }
         }
@@ -70,7 +107,11 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
             if (sz.Width <= 0.0f || sz.Height <= 0.0f) {
                 return false;
             }
+        } catch (const winrt::hresult_error& ex) {
+            OutputDebugStringW((L"[LightPDF] Page 0 verification failed: " + std::wstring(ex.message()) + L"\n").c_str());
+            return false;
         } catch (...) {
+            OutputDebugStringW(L"[LightPDF] Page 0 verification failed: unknown exception\n");
             return false;
         }
 
@@ -98,7 +139,7 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         // Launch background thread to prefetch remaining page sizes without blocking the UI thread
         if (m_pageCount > 1) {
             auto data = m_sizesData;
-            auto doc = m_doc;
+            auto docInst = m_doc;
             uint32_t count = m_pageCount;
             D2D1_SIZE_F p0 = D2D1::SizeF(0.0f, 0.0f);
             {
@@ -106,7 +147,11 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
                 if (!data->sizes.empty()) p0 = data->sizes[0];
             }
 
-            std::thread([data, doc, count, p0, hwndNotify]() {
+            if (m_prefetchThread.joinable()) {
+                m_prefetchThread.join();
+            }
+
+            m_prefetchThread = std::thread([data, docInst, count, p0, hwndNotify]() {
                 bool anyDiffer = false;
                 for (uint32_t i = 1; i < count; ++i) {
                     if (data->cancel.load()) break;
@@ -121,7 +166,7 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
 
                     if (!alreadyKnown) {
                         try {
-                            auto page = doc.GetPage(i);
+                            auto page = docInst.GetPage(i);
                             if (page) {
                                 auto sz = page.Size();
                                 D2D1_SIZE_F size = D2D1::SizeF(sz.Width, sz.Height);
@@ -133,6 +178,8 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
                                     anyDiffer = true;
                                 }
                             }
+                        } catch (const winrt::hresult_error& ex) {
+                            OutputDebugStringW((L"[LightPDF] Page size prefetch failed: " + std::wstring(ex.message()) + L"\n").c_str());
                         } catch (...) {}
                     }
                 }
@@ -140,11 +187,16 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
                 if (anyDiffer && !data->cancel.load() && hwndNotify && IsWindow(hwndNotify)) {
                     PostMessageW(hwndNotify, WM_APP_PAGE_SIZES_READY, 0, 0);
                 }
-            }).detach();
+            });
         }
 
         return true;
+    } catch (const winrt::hresult_error& ex) {
+        OutputDebugStringW((L"[LightPDF] PdfDocumentWrapper::Open failed: " + std::wstring(ex.message()) + L"\n").c_str());
+        Close();
+        return false;
     } catch (...) {
+        OutputDebugStringW(L"[LightPDF] PdfDocumentWrapper::Open failed with unknown exception\n");
         Close();
         return false;
     }
@@ -153,8 +205,11 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
 void PdfDocumentWrapper::Close() {
     if (m_sizesData) {
         m_sizesData->cancel.store(true);
-        m_sizesData = nullptr;
     }
+    if (m_prefetchThread.joinable()) {
+        m_prefetchThread.join();
+    }
+    m_sizesData = nullptr;
     m_doc = nullptr;
     m_pageCount = 0;
     m_loaded = false;
@@ -176,6 +231,9 @@ winrt::Windows::Data::Pdf::PdfPage PdfDocumentWrapper::GetPage(uint32_t pageInde
             }
         }
         return page;
+    } catch (const winrt::hresult_error& ex) {
+        OutputDebugStringW((L"[LightPDF] GetPage failed: " + std::wstring(ex.message()) + L"\n").c_str());
+        return nullptr;
     } catch (...) {
         return nullptr;
     }
@@ -208,6 +266,8 @@ D2D1_SIZE_F PdfDocumentWrapper::GetPageSize(uint32_t pageIndex) const {
             m_sizesData->sizes[pageIndex] = s;
             return s;
         }
+    } catch (const winrt::hresult_error& ex) {
+        OutputDebugStringW((L"[LightPDF] GetPageSize failed: " + std::wstring(ex.message()) + L"\n").c_str());
     } catch (...) {}
 
     return D2D1::SizeF(0.0f, 0.0f);
