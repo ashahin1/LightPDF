@@ -64,6 +64,9 @@ public:
     /// @brief Toggles OCR fallback mode.
     void ToggleOcr() { m_searchOcrEnabled = !m_searchOcrEnabled; InvalidateHighlights(); }
 
+    /// @brief Sets OCR fallback mode explicitly.
+    void SetOcrEnabled(bool enabled) { m_searchOcrEnabled = enabled; InvalidateHighlights(); }
+
     /// @brief Returns 1-based index of hovered button in search bar (0=none).
     int GetHoveredButton() const { return m_searchHoveredBtn; }
 

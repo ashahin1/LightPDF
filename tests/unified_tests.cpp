@@ -313,3 +313,81 @@ TEST_CASE("Document: Validate Test PDFs in tests/PDF/") {
         }
     }
 }
+
+// ============================================================================
+// Bilingual OCR & Searchable PDF Baking Test for 123.pdf
+// ============================================================================
+TEST_CASE("OCR: Bilingual OCR on Scanned Document (123.pdf)") {
+    std::wstring testPath = L"tests\\PDF\\123.pdf";
+    if (!std::filesystem::exists(testPath)) return;
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    auto engines = CreateBilingualOcrEngines();
+    if (!engines.IsValid()) {
+        if (SUCCEEDED(hr)) CoUninitialize();
+        return;
+    }
+
+    try {
+        std::filesystem::path absPath = std::filesystem::absolute(testPath);
+        auto storageFile = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(absPath.wstring()).get();
+        auto doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(storageFile).get();
+        REQUIRE(doc != nullptr);
+        REQUIRE(doc.PageCount() > 0);
+
+        auto page = doc.GetPage(0);
+        REQUIRE(page != nullptr);
+
+        PdfParser parser;
+        REQUIRE(parser.Load(testPath));
+        PdfPageText origPageText;
+        parser.ExtractPageText(0, origPageText);
+        CHECK(!origPageText.hasDigitalText);
+
+        OcrPageItem ocrPage;
+        bool ocrSuccess = ExtractBilingualPageOcr(page, 0, origPageText.pageWidth, origPageText.pageHeight, engines.arEngine, engines.enEngine, ocrPage, 2.0f);
+        REQUIRE(ocrSuccess);
+        CHECK(ocrPage.words.size() > 50);
+
+        bool foundArabic = false;
+        bool foundEnglish = false;
+        for (const auto& w : ocrPage.words) {
+            if (ContainsArabic(w.text)) foundArabic = true;
+            for (wchar_t ch : w.text) {
+                if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z')) {
+                    foundEnglish = true;
+                }
+            }
+        }
+        CHECK(foundArabic);
+        CHECK(foundEnglish);
+
+        // Test baking and verification of embedded text layer
+        std::wstring outBaked = L"tests\\PDF\\123_test_baked.pdf";
+        std::vector<OcrPageItem> allOcr = { ocrPage };
+        bool baked = PdfSearchableWriter::WriteSearchablePdf(testPath, outBaked, allOcr);
+        REQUIRE(baked);
+
+        PdfParser bakedParser;
+        REQUIRE(bakedParser.Load(outBaked));
+        PdfPageText bakedText;
+        REQUIRE(bakedParser.ExtractPageText(0, bakedText));
+        CHECK(bakedText.hasDigitalText);
+        CHECK(ContainsArabic(bakedText.fullText));
+        CHECK((bakedText.fullText.find(L"mohe") != std::wstring::npos ||
+               bakedText.fullText.find(L"casm") != std::wstring::npos ||
+               bakedText.fullText.find(L"WWW") != std::wstring::npos ||
+               bakedText.fullText.find(L"www") != std::wstring::npos));
+
+        bakedParser.Close();
+        std::error_code ec;
+        std::filesystem::remove(outBaked, ec);
+    } catch (...) {
+        CHECK(false);
+    }
+
+    if (SUCCEEDED(hr)) {
+        CoUninitialize();
+    }
+}
+

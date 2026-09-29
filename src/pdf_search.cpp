@@ -266,6 +266,175 @@ std::wstring NormalizeArabic(const std::wstring& in, std::vector<size_t>* outCha
     return out;
 }
 
+BilingualOcrEngines CreateBilingualOcrEngines() {
+    BilingualOcrEngines engines;
+    try {
+        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
+        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
+            engines.arEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
+        }
+        if (!engines.arEngine) {
+            auto arGen = winrt::Windows::Globalization::Language(L"ar");
+            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
+                engines.arEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
+            }
+        }
+    } catch (...) {}
+
+    try {
+        auto enLang = winrt::Windows::Globalization::Language(L"en-US");
+        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(enLang)) {
+            engines.enEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
+        }
+        if (!engines.enEngine) {
+            engines.enEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
+        }
+    } catch (...) {}
+
+    return engines;
+}
+
+bool ExtractBilingualPageOcr(
+    winrt::Windows::Data::Pdf::PdfPage page,
+    uint32_t pageIndex,
+    float pageWidthDip,
+    float pageHeightDip,
+    winrt::Windows::Media::Ocr::OcrEngine arEngine,
+    winrt::Windows::Media::Ocr::OcrEngine enEngine,
+    OcrPageItem& outOcrPage,
+    float scale
+) {
+    outOcrPage.pageIndex = pageIndex;
+    outOcrPage.pageWidthDip = pageWidthDip;
+    outOcrPage.pageHeightDip = pageHeightDip;
+    outOcrPage.words.clear();
+
+    if (!page || (!arEngine && !enEngine)) {
+        return false;
+    }
+
+    try {
+        winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
+        winrt::Windows::Data::Pdf::PdfPageRenderOptions options;
+        if (scale > 1.0f) {
+            options.DestinationWidth((uint32_t)(pageWidthDip * scale));
+            options.DestinationHeight((uint32_t)(pageHeightDip * scale));
+            page.RenderToStreamAsync(stream, options).get();
+        } else {
+            page.RenderToStreamAsync(stream).get();
+        }
+
+        auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
+        auto bitmap = decoder.GetSoftwareBitmapAsync().get();
+        if (!bitmap) return false;
+
+        float effectiveScaleX = (bitmap.PixelWidth() > 0) ? (pageWidthDip / (float)bitmap.PixelWidth()) : (1.0f / scale);
+        float effectiveScaleY = (bitmap.PixelHeight() > 0) ? (pageHeightDip / (float)bitmap.PixelHeight()) : (1.0f / scale);
+
+        // 1. Process Arabic OCR pass
+        if (arEngine) {
+            auto arResult = arEngine.RecognizeAsync(bitmap).get();
+            for (auto line : arResult.Lines()) {
+                std::vector<OcrWordItem> lineWords;
+                for (auto word : line.Words()) {
+                    auto r = word.BoundingRect();
+                    D2D1_RECT_F wRect = D2D1::RectF(
+                        r.X * effectiveScaleX,
+                        r.Y * effectiveScaleY,
+                        (r.X + r.Width) * effectiveScaleX,
+                        (r.Y + r.Height) * effectiveScaleY
+                    );
+                    lineWords.push_back({ std::wstring(word.Text()), wRect });
+                }
+
+                // If line contains Arabic characters, sort words from right to left (descending X)
+                if (ContainsArabic(std::wstring(line.Text()))) {
+                    std::sort(lineWords.begin(), lineWords.end(), [](const OcrWordItem& a, const OcrWordItem& b) {
+                        return a.dipRect.left > b.dipRect.left;
+                    });
+                }
+
+                for (auto& wb : lineWords) {
+                    outOcrPage.words.push_back(std::move(wb));
+                }
+            }
+        }
+
+        // 2. Process English/Latin OCR pass (capturing URLs, emails, technical terms)
+        if (enEngine) {
+            auto enResult = enEngine.RecognizeAsync(bitmap).get();
+            for (auto line : enResult.Lines()) {
+                for (auto word : line.Words()) {
+                    std::wstring wText = std::wstring(word.Text());
+                    // Filter for tokens containing Latin letters or digits
+                    bool hasLatinOrAlnum = false;
+                    for (wchar_t ch : wText) {
+                        if ((ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') || ch == L'@' || ch == L'.') {
+                            hasLatinOrAlnum = true;
+                            break;
+                        }
+                    }
+                    if (!hasLatinOrAlnum) continue;
+
+                    auto r = word.BoundingRect();
+                    D2D1_RECT_F wRect = D2D1::RectF(
+                        r.X * effectiveScaleX,
+                        r.Y * effectiveScaleY,
+                        (r.X + r.Width) * effectiveScaleX,
+                        (r.Y + r.Height) * effectiveScaleY
+                    );
+
+                    // Check for overlap with already registered Arabic words
+                    bool overlaps = false;
+                    for (const auto& existing : outOcrPage.words) {
+                        float interL = (std::max)(existing.dipRect.left, wRect.left);
+                        float interT = (std::max)(existing.dipRect.top, wRect.top);
+                        float interR = (std::min)(existing.dipRect.right, wRect.right);
+                        float interB = (std::min)(existing.dipRect.bottom, wRect.bottom);
+                        if (interR > interL && interB > interT) {
+                            float interArea = (interR - interL) * (interB - interT);
+                            float wArea = (wRect.right - wRect.left) * (wRect.bottom - wRect.top);
+                            if (wArea > 0.0f && interArea > 0.4f * wArea) {
+                                overlaps = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!overlaps) {
+                        outOcrPage.words.push_back({ std::move(wText), wRect });
+                    }
+                }
+            }
+        }
+
+        return !outOcrPage.words.empty();
+    } catch (...) {
+        return false;
+    }
+}
+
+void PopulatePageTextFromOcr(const OcrPageItem& ocrPage, PdfPageText& outPageText) {
+    outPageText.fullText.clear();
+    outPageText.chars.clear();
+    outPageText.pageIndex = ocrPage.pageIndex;
+    outPageText.pageWidth = ocrPage.pageWidthDip;
+    outPageText.pageHeight = ocrPage.pageHeightDip;
+
+    for (const auto& wd : ocrPage.words) {
+        if (wd.text.empty()) continue;
+        float charW = (wd.dipRect.right - wd.dipRect.left) / (float)(std::max)(1ULL, (unsigned long long)wd.text.size());
+        for (size_t ci = 0; ci < wd.text.size(); ++ci) {
+            float cx = wd.dipRect.left + ci * charW;
+            outPageText.fullText.push_back(wd.text[ci]);
+            outPageText.chars.push_back({ wd.text[ci], D2D1::RectF(cx, wd.dipRect.top, cx + charW, wd.dipRect.bottom) });
+        }
+        outPageText.fullText.push_back(L' ');
+        outPageText.chars.push_back({ L' ', D2D1::RectF(wd.dipRect.right, wd.dipRect.top, wd.dipRect.right + 4.0f, wd.dipRect.bottom) });
+    }
+    outPageText.hasDigitalText = !outPageText.chars.empty();
+}
+
 void PdfSearchEngine::SearchWorker(
     HWND hwndNotify,
     std::wstring filePath,
@@ -327,25 +496,9 @@ void PdfSearchEngine::SearchWorker(
             std::wstring workerNormBuf;
             std::vector<size_t> workerCharMap;
 
-            winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+            BilingualOcrEngines ocrEngines;
             if (ocrEnabled && doc) {
-                try {
-                    if (isQueryArabic) {
-                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
-                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
-                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
-                        }
-                        if (!ocrEngine) {
-                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
-                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
-                            }
-                        }
-                    }
-                    if (!ocrEngine) {
-                        ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
-                    }
-                } catch (...) {}
+                ocrEngines = CreateBilingualOcrEngines();
             }
 
             PdfPageText pageText;
@@ -373,41 +526,15 @@ void PdfSearchEngine::SearchWorker(
                     if (!pageText.hasDigitalText) {
                         m_hasScannedPages = true;
 
-                        // OCR fallback if enabled by user
-                        if (ocrEnabled && doc && ocrEngine) {
+                        // Bilingual high-resolution OCR fallback if enabled by user
+                        if (ocrEnabled && doc && ocrEngines.IsValid()) {
                             try {
                                 auto page = doc.GetPage(p);
                                 if (page) {
-                                    winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
-                                    page.RenderToStreamAsync(stream).get();
-                                    auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
-                                    auto bitmap = decoder.GetSoftwareBitmapAsync().get();
-                                    auto ocrResult = ocrEngine.RecognizeAsync(bitmap).get();
-
-                                    float scaleX = (bitmap.PixelWidth() > 0) ? (pageText.pageWidth / (float)bitmap.PixelWidth()) : 1.0f;
-                                    float scaleY = (bitmap.PixelHeight() > 0) ? (pageText.pageHeight / (float)bitmap.PixelHeight()) : 1.0f;
-
-                                    for (auto line : ocrResult.Lines()) {
-                                        for (auto word : line.Words()) {
-                                            auto r = word.BoundingRect();
-                                            D2D1_RECT_F wRect = D2D1::RectF(
-                                                r.X * scaleX,
-                                                r.Y * scaleY,
-                                                (r.X + r.Width) * scaleX,
-                                                (r.Y + r.Height) * scaleY
-                                            );
-                                            std::wstring wText = std::wstring(word.Text());
-                                            float charW = (wRect.right - wRect.left) / (float)std::max(1ULL, (unsigned long long)wText.size());
-                                            for (size_t ci = 0; ci < wText.size(); ++ci) {
-                                                float cx = wRect.left + ci * charW;
-                                                pageText.fullText.push_back(wText[ci]);
-                                                pageText.chars.push_back({ wText[ci], D2D1::RectF(cx, wRect.top, cx + charW, wRect.bottom) });
-                                            }
-                                            pageText.fullText.push_back(L' ');
-                                            pageText.chars.push_back({ L' ', D2D1::RectF(wRect.right, wRect.top, wRect.right + 4.0f, wRect.bottom) });
-                                        }
+                                    OcrPageItem ocrPage;
+                                    if (ExtractBilingualPageOcr(page, p, pageText.pageWidth, pageText.pageHeight, ocrEngines.arEngine, ocrEngines.enEngine, ocrPage, 2.0f)) {
+                                        PopulatePageTextFromOcr(ocrPage, pageText);
                                     }
-                                    pageText.hasDigitalText = !pageText.chars.empty();
                                 }
                             } catch (...) {}
                         }

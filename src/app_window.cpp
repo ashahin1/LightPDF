@@ -1158,6 +1158,10 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             if (isCtrlDown) {
                 auto* pTab = GetActiveTab();
                 if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
+                    auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+                    if (pageText && !pageText->hasDigitalText) {
+                        m_searchController.SetOcrEnabled(true);
+                    }
                     m_searchController.Open();
                     m_showGoToPage = false;
                     m_showHelp = false;
@@ -1443,6 +1447,10 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             auto* pTab = GetActiveTab();
             if (pTab && pTab->document.IsLoaded()) {
                 if (!m_searchController.IsOpen()) {
+                    auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+                    if (pageText && !pageText->hasDigitalText) {
+                        m_searchController.SetOcrEnabled(true);
+                    }
                     m_searchController.Open();
                     if (!m_searchController.GetQuery().empty()) {
                         TriggerSearch();
@@ -2050,7 +2058,7 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
 
         std::vector<OcrPageItem> ocrPages;
         winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
-        winrt::Windows::Media::Ocr::OcrEngine ocrEngine{ nullptr };
+        BilingualOcrEngines ocrEngines;
         bool ocrInitAttempted = false;
 
         for (uint32_t p = 0; p < totalPages; ++p) {
@@ -2077,32 +2085,10 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                         doc = nullptr;
                     }
 
-                    try {
-                        auto arLang = winrt::Windows::Globalization::Language(L"ar-SA");
-                        if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arLang)) {
-                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arLang);
-                        }
-                        if (!ocrEngine) {
-                            auto arGen = winrt::Windows::Globalization::Language(L"ar");
-                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(arGen)) {
-                                 ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(arGen);
-                            }
-                        }
-                        if (!ocrEngine) {
-                            ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromUserProfileLanguages();
-                        }
-                        if (!ocrEngine) {
-                            auto enLang = winrt::Windows::Globalization::Language(L"en-US");
-                            if (winrt::Windows::Media::Ocr::OcrEngine::IsLanguageSupported(enLang)) {
-                                ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(enLang);
-                            }
-                        }
-                    } catch (const winrt::hresult_error& ex) {
-                        OutputDebugStringW((L"[LightPDF] OCR engine language creation note: " + std::wstring(ex.message()) + L"\n").c_str());
-                    } catch (...) {}
+                    ocrEngines = CreateBilingualOcrEngines();
                 }
 
-                if (!ocrEngine || !doc) {
+                if (!ocrEngines.IsValid() || !doc) {
                     PostMessageW(hwnd, WM_APP_BAKE_PDF_DONE, 0, 0);
                     return;
                 }
@@ -2110,34 +2096,8 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                 try {
                     auto page = doc.GetPage(p);
                     if (page) {
-                        winrt::Windows::Storage::Streams::InMemoryRandomAccessStream stream;
-                        page.RenderToStreamAsync(stream).get();
-                        auto decoder = winrt::Windows::Graphics::Imaging::BitmapDecoder::CreateAsync(stream).get();
-                        auto bitmap = decoder.GetSoftwareBitmapAsync().get();
-                        auto ocrResult = ocrEngine.RecognizeAsync(bitmap).get();
-
-                        float scaleX = (bitmap.PixelWidth() > 0) ? (pageText.pageWidth / (float)bitmap.PixelWidth()) : 1.0f;
-                        float scaleY = (bitmap.PixelHeight() > 0) ? (pageText.pageHeight / (float)bitmap.PixelHeight()) : 1.0f;
-
                         OcrPageItem pageItem;
-                        pageItem.pageIndex = p;
-                        pageItem.pageWidthDip = pageText.pageWidth;
-                        pageItem.pageHeightDip = pageText.pageHeight;
-
-                        for (auto line : ocrResult.Lines()) {
-                            for (auto word : line.Words()) {
-                                auto r = word.BoundingRect();
-                                D2D1_RECT_F wRect = D2D1::RectF(
-                                    r.X * scaleX,
-                                    r.Y * scaleY,
-                                    (r.X + r.Width) * scaleX,
-                                    (r.Y + r.Height) * scaleY
-                                );
-                                pageItem.words.push_back({ std::wstring(word.Text()), wRect });
-                            }
-                        }
-
-                        if (!pageItem.words.empty()) {
+                        if (ExtractBilingualPageOcr(page, p, pageText.pageWidth, pageText.pageHeight, ocrEngines.arEngine, ocrEngines.enEngine, pageItem, 2.0f)) {
                             ocrPages.push_back(std::move(pageItem));
                         }
                     }
