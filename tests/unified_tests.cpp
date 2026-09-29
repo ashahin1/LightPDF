@@ -236,8 +236,67 @@ TEST_CASE("SearchablePDF: Bake and Parse Searchable PDF Layer") {
 }
 
 // ============================================================================
+// Arabic Normalization & Detection Tests
+// ============================================================================
+TEST_CASE("Search: Arabic Script Detection and Normalization") {
+    SUBCASE("Script Detection") {
+        CHECK(ContainsArabic(L"مرحبا بكم"));
+        CHECK(ContainsArabic(L"LightPDF - قارئ ملفات"));
+        CHECK(!ContainsArabic(L"LightPDF Ultra-Fast Windows Viewer"));
+        CHECK(!ContainsArabic(L"1234567890 !@#$%^&*()"));
+        CHECK(HasArabicLetters(L"كتاب"));
+        CHECK(!HasArabicLetters(L"12345"));
+    }
+
+    SUBCASE("Tashkeel Diacritics Stripping") {
+        // "الْحَمْدُ لِلَّهِ" -> "الحمد لله"
+        std::wstring withTashkeel = L"\u0627\u0644\u0652\u062d\u064e\u0645\u0652\u062f\u064f \u0644\u0650\u0644\u0651\u064e\u0647\u0650";
+        std::wstring normalized = NormalizeArabic(withTashkeel);
+        CHECK(normalized.find(L"\u0652") == std::wstring::npos); // Sukun stripped
+        CHECK(normalized.find(L"\u064e") == std::wstring::npos); // Fatha stripped
+        CHECK(normalized.find(L"\u064f") == std::wstring::npos); // Damma stripped
+        CHECK(normalized.find(L"\u0650") == std::wstring::npos); // Kasra stripped
+    }
+
+    SUBCASE("Alef Normalization") {
+        // أ, إ, آ, ٱ should all normalize to bare Alef ا
+        CHECK(NormalizeArabic(L"\u0623\u062d\u0645\u062f") == L"\u0627\u062d\u0645\u062f"); // أحمد -> احمد
+        CHECK(NormalizeArabic(L"\u0625\u0628\u0631\u0627\u0647\u064a\u0645") == L"\u0627\u0628\u0631\u0627\u0647\u064a\u0645"); // إبراهيم -> ابراهيم
+        CHECK(NormalizeArabic(L"\u0622\u0645\u0646\u0629") == L"\u0627\u0645\u0646\u0647"); // آمنة -> امنه
+    }
+
+    SUBCASE("Taa Marbuta & Alef Maksura Normalization") {
+        CHECK(NormalizeArabic(L"\u0645\u062f\u0631\u0633\u0629") == L"\u0645\u062f\u0631\u0633\u0647"); // مدرسة -> مدرسه
+        CHECK(NormalizeArabic(L"\u0639\u0644\u0649") == L"\u0639\u0644\u064a"); // على -> علي
+    }
+
+    SUBCASE("Arabic-Indic and Eastern Digit Normalization") {
+        // ٠١٢٣٤٥٦٧٨٩ -> 0123456789
+        std::wstring arabicDigits = L"\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669";
+        CHECK(NormalizeArabic(arabicDigits) == L"0123456789");
+        // Eastern digits ۰۱۲۳۴۵۶۷۸۹ -> 0123456789
+        std::wstring easternDigits = L"\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9";
+        CHECK(NormalizeArabic(easternDigits) == L"0123456789");
+    }
+}
+
+// ============================================================================
 // Real Document Loading & Parsing Tests
 // ============================================================================
+TEST_CASE("Document: Validate Committed Fixtures in tests/fixtures/") {
+    PdfParser parser1;
+    bool loaded1 = parser1.Load(L"tests\\fixtures\\sample_1page.pdf");
+    REQUIRE(loaded1);
+    CHECK(parser1.GetPageCount() == 1);
+    parser1.Close();
+
+    PdfParser parser2;
+    bool loaded2 = parser2.Load(L"tests\\fixtures\\sample_2page.pdf");
+    REQUIRE(loaded2);
+    CHECK(parser2.GetPageCount() == 2);
+    parser2.Close();
+}
+
 TEST_CASE("Document: Validate Test PDFs in tests/PDF/") {
     const std::wstring testDir = L"tests\\PDF";
     if (std::filesystem::exists(testDir)) {
