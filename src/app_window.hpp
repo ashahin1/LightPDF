@@ -45,6 +45,8 @@ public:
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT HandleKeyDown(WPARAM wParam, LPARAM lParam);
+    LRESULT HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam);
 
     void OpenTab(const std::wstring& path);
     void CloseTab(size_t index);

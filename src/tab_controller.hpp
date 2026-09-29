@@ -74,10 +74,13 @@ struct DocumentTab {
     bool continuousScroll = false;
     float scrollY = 0.0f;
 
-    // Continuous scroll prefix sums & dimensions cache
-    std::vector<float> pageOffsets;
-    float totalDocHeight = 0.0f;
-    float lastOffsetsZoom = -1.0f;
+    // Thread safety contract:
+    // Layout caching fields are mutable to enable const-correct geometry queries
+    // (GetTotalDocumentHeight, GetPageYOffset, GetPageAtScrollOffset).
+    // These fields are accessed exclusively from the main UI thread.
+    mutable std::vector<float> pageOffsets;
+    mutable float totalDocHeight = 0.0f;
+    mutable float lastOffsetsZoom = -1.0f;
 
     // Metadata cache for document properties (Ctrl+D)
     PdfMetadata metadata;
@@ -134,7 +137,7 @@ public:
     void UpdateTabRenderInfos(std::vector<TabRenderInfo>& infos) const;
 
     // Layout & scroll helpers
-    void UpdateContinuousOffsets(DocumentTab* pTab, float winWidth, float dipW, float dipH);
+    void UpdateContinuousOffsets(const DocumentTab* pTab, float winWidth, float dipW, float dipH) const;
     float GetTotalDocumentHeight(const DocumentTab* pTab) const;
     float GetPageYOffset(const DocumentTab* pTab, uint32_t pageIndex) const;
     uint32_t GetPageAtScrollOffset(const DocumentTab* pTab) const;
