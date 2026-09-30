@@ -26,6 +26,7 @@
 #include "tab_controller.hpp"
 #include "search_controller.hpp"
 #include "selection_controller.hpp"
+#include "read_aloud_controller.hpp"
 
 /// @brief Windows message posted when an external process opens a file via IPC (single-instance).
 #define WM_APP_OPEN_FILE (WM_APP + 1)
@@ -35,6 +36,8 @@
 #define WM_APP_BAKE_PDF_START (WM_APP + 5)
 /// @brief Windows message posted periodically with OCR baking progress.
 #define WM_APP_BAKE_PDF_PROGRESS (WM_APP + 6)
+/// @brief Windows message posted by SAPI when a word boundary or end-of-stream event occurs.
+#define WM_APP_TTS_EVENT (WM_APP + 7)
 
 extern const wchar_t* WINDOW_CLASS_NAME;
 
@@ -136,6 +139,8 @@ private:
 
     void SetToolMode(ToolMode mode);
     void ShowToast(const std::wstring& text);
+    void ToggleReadAloud();
+    void StopReadAloud();
     std::shared_ptr<PdfPageText> GetOrExtractPageText(DocumentTab* pTab, uint32_t pageIndex);
     bool HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar);
     std::vector<SelectionHighlightSpan> GetSelectionSpans() const;
@@ -168,6 +173,7 @@ private:
     TabController m_tabController;
     SearchController m_searchController;
     SelectionController m_selectionController;
+    ReadAloudController m_readAloudController;
 
     // Mouse Panning
     bool m_isPanning = false;

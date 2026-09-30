@@ -249,6 +249,38 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
 
+    case WM_APP_TTS_EVENT: {
+        if (m_readAloudController.OnTtsEvent()) {
+            if (m_readAloudController.NeedsNextPage()) {
+                auto* pTab = GetActiveTab();
+                if (pTab && pTab->document.IsLoaded()) {
+                    uint32_t nextPage = m_readAloudController.GetCurrentPage() + 1;
+                    if (nextPage < pTab->document.GetPageCount()) {
+                        GoToPage(nextPage);
+                        auto pageText = GetOrExtractPageText(pTab, nextPage);
+                        if (pageText && !pageText->hasDigitalText && pageText->fullText.empty()) {
+                            auto engines = CreateBilingualOcrEngines();
+                            if (engines.IsValid()) {
+                                auto page = pTab->document.GetPage(nextPage);
+                                auto pSize = pTab->document.GetPageSize(nextPage);
+                                OcrPageItem ocrItem;
+                                if (ExtractBilingualPageOcr(page, nextPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
+                                    PopulatePageTextFromOcr(ocrItem, *pageText);
+                                }
+                            }
+                        }
+                        m_readAloudController.ContinueWithPage(pageText, nextPage);
+                    } else {
+                        m_readAloudController.Stop();
+                        ShowToast(L"Read Aloud: Finished document");
+                    }
+                }
+            }
+            Render();
+        }
+        return 0;
+    }
+
     case WM_TIMER: {
         if (wParam == 1) {
             float targetAlpha = 0.0f;
@@ -428,6 +460,30 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipX = (float)pt.x * dipScale;
         float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
+
+        // 00. If Read Aloud bar is active, handle button clicks
+        if (msg == WM_LBUTTONDOWN && m_readAloudController.IsActive()) {
+            int ttsHit = m_renderer.HitTestTtsBar(pt, m_tabController.GetTabCount() > 1);
+            if (ttsHit >= 0 && ttsHit <= 4) {
+                switch (ttsHit) {
+                case 0: m_readAloudController.SkipBackward(); break;
+                case 1:
+                    m_readAloudController.TogglePause();
+                    ShowToast(m_readAloudController.IsPaused() ? L"⏸ Paused" : L"▶ Resumed");
+                    break;
+                case 2: m_readAloudController.SkipForward(); break;
+                case 3:
+                    m_readAloudController.SpeedUp();
+                    ShowToast(L"Speed: " + m_readAloudController.GetRateLabel());
+                    break;
+                case 4: StopReadAloud(); break;
+                }
+                Render();
+                return 0;
+            } else if (ttsHit == 100) {
+                return 0; // Clicked on bar body
+            }
+        }
 
         // 0a. If Presenter Bar is visible in fullscreen, handle button clicks
         if (msg == WM_LBUTTONDOWN && m_isFullscreen && m_showPresenterBar) {
@@ -685,6 +741,18 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (m_showPresenterBar) {
             m_showPresenterBar = false;
             m_presenterBarHoveredBtn = -1;
+        }
+
+        // 00a2. Read Aloud bar hover detection
+        if (m_readAloudController.IsActive()) {
+            int ttsHit = m_renderer.HitTestTtsBar(pt, m_tabController.GetTabCount() > 1);
+            int newBtn = (ttsHit >= 0 && ttsHit <= 4) ? ttsHit : -1;
+            m_readAloudController.SetBarHoveredBtn(newBtn);
+            if (newBtn >= 0) {
+                SetCursor(m_cursorHand);
+                Render();
+                return 0;
+            }
         }
 
         // 00b. Laser pointer tracking
@@ -1290,6 +1358,28 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
                 return 0;
             }
             break;
+        case 'R':
+            if (isCtrlDown) {
+                ToggleReadAloud();
+                return 0;
+            }
+            break;
+        case VK_OEM_6: // ']'
+            if (isCtrlDown && m_readAloudController.IsActive()) {
+                m_readAloudController.SpeedUp();
+                ShowToast(L"Speed: " + m_readAloudController.GetRateLabel());
+                Render();
+                return 0;
+            }
+            break;
+        case VK_OEM_4: // '['
+            if (isCtrlDown && m_readAloudController.IsActive()) {
+                m_readAloudController.SpeedDown();
+                ShowToast(L"Speed: " + m_readAloudController.GetRateLabel());
+                Render();
+                return 0;
+            }
+            break;
         case '0':
             if (isCtrlDown) {
                 SetZoomMode(ZoomMode::FitPage);
@@ -1353,6 +1443,12 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             return 0;
         }
         case VK_SPACE: {
+            if (m_readAloudController.IsActive()) {
+                m_readAloudController.TogglePause();
+                ShowToast(m_readAloudController.IsPaused() ? L"⏸ Paused" : L"▶ Resumed");
+                Render();
+                return 0;
+            }
             auto* pTab = GetActiveTab();
             if (pTab && pTab->continuousScroll) {
                 float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
@@ -1365,9 +1461,19 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             return 0;
         }
         case VK_RIGHT:
+            if (m_readAloudController.IsActive()) {
+                m_readAloudController.SkipForward();
+                Render();
+                return 0;
+            }
             NextPage();
             return 0;
         case VK_LEFT:
+            if (m_readAloudController.IsActive()) {
+                m_readAloudController.SkipBackward();
+                Render();
+                return 0;
+            }
             PrevPage();
             return 0;
         case VK_DOWN: {
@@ -1492,6 +1598,10 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             if (m_isBakingPdf) {
                 CancelBakingSearchablePdf();
                 ShowToast(L"Cancelling Searchable PDF generation...");
+                return 0;
+            }
+            if (m_readAloudController.IsActive()) {
+                StopReadAloud();
                 return 0;
             }
             if (m_isLaserActive) {
@@ -2574,6 +2684,11 @@ void AppWindow::Render() {
     presenterBarInfo.isLaserActive = m_isLaserActive;
     presenterBarInfo.laserColor = m_laserColor;
 
+    TtsBarRenderInfo ttsBarInfo;
+    if (m_readAloudController.IsActive()) {
+        ttsBarInfo = m_readAloudController.GetBarInfo();
+    }
+
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
         if (m_hudToastTime > 0 && (GetTickCount64() - m_hudToastTime < 1500)) {
@@ -2585,6 +2700,12 @@ void AppWindow::Render() {
         }
 
         auto selectionSpans = GetSelectionSpans();
+        if (m_readAloudController.IsActive()) {
+            auto ttsSpan = m_readAloudController.GetActiveWordSpan();
+            if (!ttsSpan.rects.empty()) {
+                selectionSpans.push_back(std::move(ttsSpan));
+            }
+        }
 
         if (pTab->continuousScroll) {
             float dipW = m_renderer.GetWidth() * (96.0f / m_renderer.GetDpi());
@@ -2648,7 +2769,8 @@ void AppWindow::Render() {
                 selectionSpans,
                 dictCardInfo,
                 laserInfo,
-                presenterBarInfo
+                presenterBarInfo,
+                ttsBarInfo
             );
             return;
         }
@@ -2680,7 +2802,8 @@ void AppWindow::Render() {
                 selectionSpans,
                 dictCardInfo,
                 laserInfo,
-                presenterBarInfo
+                presenterBarInfo,
+                ttsBarInfo
             );
             return;
         }
@@ -2697,7 +2820,8 @@ void AppWindow::Render() {
         m_docPropsInfo,
         dictCardInfo,
         laserInfo,
-        presenterBarInfo
+        presenterBarInfo,
+        ttsBarInfo
     );
 }
 
@@ -3243,5 +3367,59 @@ void AppWindow::CopyDictionaryDefinitionToClipboard() {
     if (m_selectionController.CopyDictionaryDefinitionToClipboard(m_hwnd)) {
         ShowToast(L"Definition copied to clipboard");
     }
+}
+
+void AppWindow::ToggleReadAloud() {
+    if (m_readAloudController.IsActive()) {
+        StopReadAloud();
+        return;
+    }
+
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+
+    if (!m_readAloudController.Init(m_hwnd)) {
+        ShowToast(L"Read Aloud: No speech voices available");
+        return;
+    }
+
+    auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+    if (pageText && !pageText->hasDigitalText && pageText->fullText.empty()) {
+        auto engines = CreateBilingualOcrEngines();
+        if (engines.IsValid()) {
+            ShowToast(L"Extracting text via OCR...");
+            auto page = pTab->document.GetPage(pTab->currentPage);
+            auto pSize = pTab->document.GetPageSize(pTab->currentPage);
+            OcrPageItem ocrItem;
+            if (ExtractBilingualPageOcr(page, pTab->currentPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
+                PopulatePageTextFromOcr(ocrItem, *pageText);
+            }
+        }
+    }
+
+    if (!pageText || pageText->fullText.empty()) {
+        ShowToast(L"Read Aloud: No readable text on this page");
+        return;
+    }
+
+    if (pTab->selection.HasSelection()) {
+        D2D1_RECT_F anchor{};
+        std::wstring selText = GetSelectedWordOrText(anchor);
+        size_t startChar = (std::min)(pTab->selection.startIndex, pTab->selection.endIndex);
+        size_t endChar = (std::max)(pTab->selection.startIndex, pTab->selection.endIndex);
+        size_t count = (endChar > startChar) ? (endChar - startChar) : selText.size();
+        m_readAloudController.Start(selText, pageText, pTab->currentPage, startChar, count);
+    } else {
+        m_readAloudController.Start(L"", pageText, pTab->currentPage);
+    }
+
+    ShowToast(L"▶ Read Aloud");
+    Render();
+}
+
+void AppWindow::StopReadAloud() {
+    m_readAloudController.Stop();
+    ShowToast(L"Read Aloud stopped");
+    Render();
 }
 

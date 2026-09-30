@@ -404,4 +404,50 @@ public:
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
 };
 
+// =========================================================================
+// 9. TtsBar View (Read Aloud Floating HUD)
+// =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the Read Aloud floating toolbar.
+struct TtsBarResources {
+    ID2D1SolidColorBrush* brushTtsBarBg = nullptr;
+    ID2D1SolidColorBrush* brushTtsBarBorder = nullptr;
+    ID2D1SolidColorBrush* brushTtsBarText = nullptr;
+    ID2D1SolidColorBrush* brushTtsBarBtnHover = nullptr;
+    ID2D1SolidColorBrush* brushTtsBarBtnActive = nullptr;
+    IDWriteTextFormat* textFormatTtsBar = nullptr;
+    IDWriteTextFormat* textFormatTtsSpeed = nullptr;
+};
+
+/// @brief Renders the floating playback toolbar for Read Aloud (Ctrl+R).
+class TtsBarView {
+public:
+    /**
+     * @brief Renders the Read Aloud floating playback bar.
+     * @param ctx Active Direct2D device context.
+     * @param ttsBar Read Aloud descriptor.
+     * @param dipWidth Window client width in DIPs.
+     * @param topOffset Tab strip height offset.
+     * @param res Resource bundle for TTS bar.
+     */
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        const TtsBarRenderInfo& ttsBar,
+        float dipWidth,
+        float topOffset,
+        const TtsBarResources& res
+    );
+
+    /**
+     * @brief Hit-tests action buttons in Read Aloud toolbar (prev, play/pause, next, speed, close).
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @param topOffset Tab strip offset.
+     * @return Button index hit (0=prev, 1=play/pause, 2=next, 3=speed, 4=close, -1=none).
+     */
+    static int HitTest(POINT pt, UINT width, UINT height, float dpi, float topOffset);
+};
+
 } // namespace UIViews

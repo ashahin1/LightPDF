@@ -215,6 +215,13 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     if (FAILED(hr)) return false;
     m_textFormatHelpColKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
     m_textFormatHelpColKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    m_textFormatHelpColKey->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    {
+        DWRITE_TRIMMING trim = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        ComPtr<IDWriteInlineObject> inlineEllipsis;
+        m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatHelpColKey.Get(), &inlineEllipsis);
+        m_textFormatHelpColKey->SetTrimming(&trim, inlineEllipsis.Get());
+    }
 
     // Help Column Description: Segoe UI, 10.5pt, Regular, Left-aligned with ellipsis trimming
     hr = m_dwriteFactory->CreateTextFormat(
@@ -515,6 +522,36 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     m_textFormatPresenter->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     m_textFormatPresenter->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
+    // Read Aloud Bar Format: Segoe UI, 12.0pt, Semi-Bold, Center
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        12.0f,
+        L"en-us",
+        &m_textFormatTtsBar
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatTtsBar->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatTtsBar->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+    // Read Aloud Speed Format: Segoe UI, 11.0pt, Medium, Center
+    hr = m_dwriteFactory->CreateTextFormat(
+        L"Segoe UI",
+        nullptr,
+        DWRITE_FONT_WEIGHT_MEDIUM,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        11.0f,
+        L"en-us",
+        &m_textFormatTtsSpeed
+    );
+    if (FAILED(hr)) return false;
+    m_textFormatTtsSpeed->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    m_textFormatTtsSpeed->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
     hr = CoCreateInstance(
         CLSID_WICImagingFactory,
         nullptr,
@@ -638,6 +675,14 @@ bool D2DRenderer::CreateDeviceResources() {
     // Presenter Bar Brushes
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), &m_brushPresenterBtnHover);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.24f), &m_brushPresenterBtnActive);
+
+    // Read Aloud (TTS) Brushes
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 0.72f, 0.0f, 0.35f), &m_brushTtsHighlight);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.14f, 0.95f), &m_brushTtsBarBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.30f, 0.32f, 0.36f, 0.90f), &m_brushTtsBarBorder);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.95f, 0.95f, 0.96f, 1.0f), &m_brushTtsBarText);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.15f), &m_brushTtsBarBtnHover);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.25f), &m_brushTtsBarBtnActive);
 
     return true;
 }
@@ -770,6 +815,12 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushLaserCore = nullptr;
     m_brushPresenterBtnHover = nullptr;
     m_brushPresenterBtnActive = nullptr;
+    m_brushTtsHighlight = nullptr;
+    m_brushTtsBarBg = nullptr;
+    m_brushTtsBarBorder = nullptr;
+    m_brushTtsBarText = nullptr;
+    m_brushTtsBarBtnHover = nullptr;
+    m_brushTtsBarBtnActive = nullptr;
     m_pageCache = PageBitmapCache();
     m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
@@ -796,7 +847,8 @@ void D2DRenderer::RenderBlank(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const TtsBarRenderInfo& ttsBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -821,7 +873,7 @@ void D2DRenderer::RenderBlank(
         m_brushBlankText.Get()
     );
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -942,7 +994,8 @@ void D2DRenderer::RenderPage(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const TtsBarRenderInfo& ttsBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -971,7 +1024,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1110,15 +1163,17 @@ void D2DRenderer::RenderPage(
     }
 
     // 3a. Draw Text Selection Highlights over page
-    if (m_brushTextSelection) {
-        for (const auto& span : selectionSpans) {
-            if (span.pageIndex == currentPageIndex) {
-                for (const auto& pr : span.rects) {
-                    float hx = offsetX + pr.left * zoom;
-                    float hy = pageY + pr.top * zoom;
-                    float hw = (pr.right - pr.left) * zoom;
-                    float hh = (pr.bottom - pr.top) * zoom;
-                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+    for (const auto& span : selectionSpans) {
+        if (span.pageIndex == currentPageIndex) {
+            for (const auto& pr : span.rects) {
+                float hx = offsetX + pr.left * zoom;
+                float hy = pageY + pr.top * zoom;
+                float hw = (pr.right - pr.left) * zoom;
+                float hh = (pr.bottom - pr.top) * zoom;
+                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                if (span.isTtsHighlight && m_brushTtsHighlight) {
+                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 3.0f, 3.0f), m_brushTtsHighlight.Get());
+                } else if (m_brushTextSelection) {
                     m_d2dContext->FillRectangle(r, m_brushTextSelection.Get());
                 }
             }
@@ -1191,7 +1246,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1227,7 +1282,8 @@ void D2DRenderer::RenderContinuous(
     const std::vector<SelectionHighlightSpan>& selectionSpans,
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
-    const PresenterBarRenderInfo& presenterBar
+    const PresenterBarRenderInfo& presenterBar,
+    const TtsBarRenderInfo& ttsBar
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1385,15 +1441,17 @@ void D2DRenderer::RenderContinuous(
         }
 
         // 3a. Draw Text Selection Highlights for this page
-        if (m_brushTextSelection) {
-            for (const auto& span : selectionSpans) {
-                if (span.pageIndex == vp.pageIndex) {
-                    for (const auto& pr : span.rects) {
-                        float hx = pageX + pr.left * zoom;
-                        float hy = pageY + pr.top * zoom;
-                        float hw = (pr.right - pr.left) * zoom;
-                        float hh = (pr.bottom - pr.top) * zoom;
-                        D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+        for (const auto& span : selectionSpans) {
+            if (span.pageIndex == vp.pageIndex) {
+                for (const auto& pr : span.rects) {
+                    float hx = pageX + pr.left * zoom;
+                    float hy = pageY + pr.top * zoom;
+                    float hw = (pr.right - pr.left) * zoom;
+                    float hh = (pr.bottom - pr.top) * zoom;
+                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                    if (span.isTtsHighlight && m_brushTtsHighlight) {
+                        m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 3.0f, 3.0f), m_brushTtsHighlight.Get());
+                    } else if (m_brushTextSelection) {
                         m_d2dContext->FillRectangle(r, m_brushTextSelection.Get());
                     }
                 }
@@ -1467,7 +1525,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1496,7 +1554,8 @@ void D2DRenderer::DrawOverlays(
     const DocumentPropertiesRenderInfo& docProps,
     const DictionaryCardRenderInfo* pDictCard,
     const LaserPointerRenderInfo* pLaser,
-    const PresenterBarRenderInfo* pPresenterBar
+    const PresenterBarRenderInfo* pPresenterBar,
+    const TtsBarRenderInfo* pTtsBar
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1538,7 +1597,13 @@ void D2DRenderer::DrawOverlays(
         DrawPresenterBar(*pPresenterBar);
     }
 
-    // 9. Draw Laser Pointer if active (topmost element)
+    // 9. Draw Read Aloud Floating Bar if visible
+    if (pTtsBar && pTtsBar->visible) {
+        float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
+        DrawTtsBar(*pTtsBar, topOffset);
+    }
+
+    // 10. Draw Laser Pointer if active (topmost element)
     if (pLaser && pLaser->active) {
         DrawLaserPointer(*pLaser);
     }
@@ -1970,4 +2035,25 @@ void D2DRenderer::DrawPresenterBar(const PresenterBarRenderInfo& presenterBar) {
 
 int D2DRenderer::HitTestPresenterBar(POINT pt) const {
     return UIViews::PresenterBarView::HitTest(pt, m_width, m_height, m_dpi);
+}
+
+void D2DRenderer::DrawTtsBar(const TtsBarRenderInfo& ttsBar, float topOffset) {
+    if (!ttsBar.visible || !m_d2dContext) return;
+    float dipScale = 96.0f / (m_dpi > 0.0f ? m_dpi : 96.0f);
+    float dipWidth = (float)m_width * dipScale;
+    UIViews::TtsBarResources res{
+        m_brushTtsBarBg.Get(),
+        m_brushTtsBarBorder.Get(),
+        m_brushTtsBarText.Get(),
+        m_brushTtsBarBtnHover.Get(),
+        m_brushTtsBarBtnActive.Get(),
+        m_textFormatTtsBar.Get(),
+        m_textFormatTtsSpeed.Get()
+    };
+    UIViews::TtsBarView::Render(m_d2dContext.Get(), ttsBar, dipWidth, topOffset, res);
+}
+
+int D2DRenderer::HitTestTtsBar(POINT pt, bool hasTabs) const {
+    float topOffset = hasTabs ? 34.0f : 0.0f;
+    return UIViews::TtsBarView::HitTest(pt, m_width, m_height, m_dpi, topOffset);
 }
