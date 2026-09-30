@@ -585,8 +585,8 @@ void HelpOverlayView::Render(
     };
 
     static const ShortcutItem navItems[] = {
-        { L"Page Down / Space",     L"Advance to next page" },
-        { L"Page Up / Shift+Space", L"Go to previous page" },
+        { L"PgDn / Space",          L"Advance to next page" },
+        { L"PgUp / Shift+Space",    L"Go to previous page" },
         { L"Right / Left Arrow",    L"Next / Previous page" },
         { L"Home / End",            L"Jump to first / last page" },
         { L"Mouse Wheel",           L"Scroll page vertically" },
@@ -596,22 +596,22 @@ void HelpOverlayView::Render(
     };
 
     static const ShortcutItem zoomItems[] = {
-        { L"Ctrl + Wheel / + / -",  L"Zoom in / out centered on cursor" },
+        { L"Ctrl + Wheel / +/-",    L"Zoom in / out centered on cursor" },
         { L"Ctrl + 0",              L"Fit full page to window" },
         { L"Ctrl + 1",              L"Actual size (100% zoom)" },
         { L"Ctrl + 2",              L"Fit page width to window" },
         { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
-        { L"Double Click",          L"Fit Page / Fit Width (or Open file)" },
+        { L"Double Click",          L"Fit Page / Fit Width" },
         { L"F11",                   L"Toggle borderless fullscreen" },
         { L"Scrollbar Drag",        L"Scrub through document pages" }
     };
 
     static const ShortcutItem tabItems[] = {
-        { L"Ctrl + O / Ctrl + T",    L"Open PDF document in new tab" },
+        { L"Ctrl + O / Ctrl + T",   L"Open PDF document in new tab" },
         { L"Ctrl + S / Shift+S",    L"Save as Searchable PDF (Bake OCR)" },
         { L"Ctrl + W",              L"Close active tab" },
         { L"Ctrl + Tab",            L"Switch to next tab" },
-        { L"Ctrl + Shift + Tab",    L"Switch to previous tab" },
+        { L"Ctrl + Shift+Tab",      L"Switch to previous tab" },
         { L"Alt + 1..9",            L"Jump directly to tab 1 through 9" },
         { L"Middle Click Tab",      L"Close clicked tab" },
         { L"Drag & Drop",           L"Open dropped PDF files as tabs" }
@@ -620,30 +620,31 @@ void HelpOverlayView::Render(
     static const ShortcutItem toolItems[] = {
         { L"Ctrl + F",              L"Find text in document (search)" },
         { L"F3 / Shift + F3",       L"Next / previous search match" },
-        { L"L",                     L"Toggle Presentation Laser Pointer" },
-        { L"C",                     L"Cycle Laser Color (Red/Green/Cyan/Gold)" },
+        { L"Ctrl + R",              L"Read Aloud (toggle speech)" },
+        { L"Ctrl + [ / ]",          L"Speech rate (slower / faster)" },
+        { L"L / C",                 L"Laser pointer (toggle / color)" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
         { L"D / Double-Click",      L"Offline English-Arabic Dictionary" },
-        { L"Ctrl + P",              L"Print document (All / Current / Range)" },
-        { L"Ctrl + G",              L"Go to specific page number prompt" },
-        { L"Ctrl + D",              L"Document properties (Information)" },
-        { L"F1 / Esc",              L"Toggle / dismiss this help overlay" }
+        { L"Ctrl + P",              L"Print document (All / Range)" },
+        { L"Ctrl + G",              L"Go to specific page prompt" },
+        { L"Ctrl + D",              L"Document properties (Information)" }
     };
 
     if (help.activeCategory == 0) {
-        // Mode 0: All (34) shortcuts in balanced 2-column layout
+        // Mode 0: All shortcuts in balanced 2-column layout
         float col1Left = card.left + 24.0f;
-        float col2Left = card.left + 434.0f;
-        float keyColW = 165.0f;
-        float gap = 12.0f;
-        float descColW = 205.0f;
+        float divX = card.left + 424.0f;
+        float col2Left = card.left + 438.0f;
+        float keyColW = 168.0f;
+        float gap = 10.0f;
+        float descColW = 210.0f;
         float rowH = 19.5f;
         float headerH = 18.0f;
 
-        // Vertical divider line between columns
+        // Vertical divider line between columns (anchored dynamically)
         ctx->DrawLine(
-            D2D1::Point2F(card.left + 420.0f, card.top + 88.0f),
-            D2D1::Point2F(card.left + 420.0f, card.top + 508.0f),
+            D2D1::Point2F(divX, card.top + 84.0f),
+            D2D1::Point2F(divX, card.bottom - 48.0f),
             res.brushTabBorder,
             1.0f
         );
@@ -665,12 +666,12 @@ void HelpOverlayView::Render(
         };
 
         // Left Column: Navigation (8) + Tabs & Files (8)
-        float curY1 = drawSection(col1Left, card.top + 88.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
-        drawSection(col1Left, curY1 + 12.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
+        float curY1 = drawSection(col1Left, card.top + 86.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
+        drawSection(col1Left, curY1 + 10.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
 
         // Right Column: Zoom & View (8) + Search & Tools (10)
-        float curY2 = drawSection(col2Left, card.top + 88.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
-        drawSection(col2Left, curY2 + 12.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
+        float curY2 = drawSection(col2Left, card.top + 86.0f, L"ZOOM & VIEW", zoomItems, sizeof(zoomItems) / sizeof(zoomItems[0]));
+        drawSection(col2Left, curY2 + 10.0f, L"SEARCH & TOOLS", toolItems, sizeof(toolItems) / sizeof(toolItems[0]));
     } else {
         // Modes 1..4: Single category view with spacious row badges
         const ShortcutItem* catItems = nullptr;
@@ -696,8 +697,9 @@ void HelpOverlayView::Render(
         }
 
         if (catItems && catCount > 0) {
-            float startY = card.top + 92.0f;
-            float rowH = 38.0f;
+            float startY = card.top + 90.0f;
+            float availH = (card.bottom - 50.0f) - startY;
+            float rowH = (std::min)(36.0f, availH / (float)catCount);
             float rowW = card.right - card.left - 48.0f;
 
             for (size_t i = 0; i < catCount; ++i) {
@@ -705,15 +707,15 @@ void HelpOverlayView::Render(
 
                 // Subtle alternating row background
                 if (i % 2 == 1) {
-                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + 33.0f);
+                    D2D1_RECT_F altRect = D2D1::RectF(card.left + 24.0f, y, card.left + 24.0f + rowW, y + rowH - 4.0f);
                     ctx->FillRoundedRectangle(D2D1::RoundedRect(altRect, 4.0f, 4.0f), res.brushHelpRowAlt);
                 }
 
                 // Keycap badge
                 float keycapX = card.left + 32.0f;
-                float keycapY = y + 3.0f;
-                float keycapW = 200.0f;
-                float keycapH = 27.0f;
+                float keycapW = 210.0f;
+                float keycapH = 26.0f;
+                float keycapY = y + (rowH - keycapH) * 0.5f;
                 D2D1_RECT_F keycapRect = D2D1::RectF(keycapX, keycapY, keycapX + keycapW, keycapY + keycapH);
                 D2D1_ROUNDED_RECT rKeycap = D2D1::RoundedRect(keycapRect, 4.0f, 4.0f);
 
@@ -731,7 +733,7 @@ void HelpOverlayView::Render(
                 // Description
                 float descX = keycapX + keycapW + 20.0f;
                 float descW = card.right - 32.0f - descX;
-                D2D1_RECT_F descRect = D2D1::RectF(descX, y, descX + descW, y + 33.0f);
+                D2D1_RECT_F descRect = D2D1::RectF(descX, keycapY, descX + descW, keycapY + keycapH);
 
                 ctx->DrawText(
                     catItems[i].desc,
@@ -744,19 +746,22 @@ void HelpOverlayView::Render(
         }
     }
 
-    // 5. Footer: Divider line and Keyboard Hints
+    // 5. Footer: Divider line and Keyboard Hints (anchored dynamically to card bottom)
+    float footerLineY = card.bottom - 44.0f;
+    float footerTextY = card.bottom - 36.0f;
+
     ctx->DrawLine(
-        D2D1::Point2F(card.left + 24.0f, card.top + 518.0f),
-        D2D1::Point2F(card.right - 24.0f, card.top + 518.0f),
+        D2D1::Point2F(card.left + 24.0f, footerLineY),
+        D2D1::Point2F(card.right - 24.0f, footerLineY),
         res.brushHelpCardBorder,
         1.0f
     );
 
-    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, card.top + 524.0f, card.left + 420.0f, card.top + 546.0f);
+    D2D1_RECT_F footLeftRect = D2D1::RectF(card.left + 24.0f, footerTextY, card.left + 420.0f, footerTextY + 22.0f);
     const wchar_t* footLeftStr = L"Switch tabs: 1\x2013\x0035, Tab / Shift+Tab, or \x2190 \x2192";
     ctx->DrawText(footLeftStr, (UINT32)wcslen(footLeftStr), res.textFormatHelpFooterLeft, footLeftRect, res.brushHelpSubText);
 
-    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 240.0f, card.top + 524.0f, card.right - 24.0f, card.top + 546.0f);
+    D2D1_RECT_F footRightRect = D2D1::RectF(card.right - 240.0f, footerTextY, card.right - 24.0f, footerTextY + 22.0f);
     const wchar_t* footRightStr = L"Press Esc or F1 to close";
     ctx->DrawText(footRightStr, (UINT32)wcslen(footRightStr), res.textFormatHelpFooterRight, footRightRect, res.brushHelpSubText);
 }
@@ -1200,6 +1205,95 @@ int PresenterBarView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
     if (inRect(PresenterBarLayout::GetLaserBtnRect(bar))) return 2;
     if (inRect(PresenterBarLayout::GetColorBtnRect(bar))) return 3;
     if (inRect(PresenterBarLayout::GetExitBtnRect(bar))) return 4;
+
+    return 100; // Inside bar body
+}
+
+// =========================================================================
+// 9. TtsBar View (Read Aloud Floating HUD)
+// =========================================================================
+
+void TtsBarView::Render(
+    ID2D1DeviceContext* ctx,
+    const TtsBarRenderInfo& ttsBar,
+    float dipWidth,
+    float topOffset,
+    const TtsBarResources& res
+) {
+    if (!ctx || !ttsBar.visible) return;
+
+    D2D1_RECT_F bar = TtsBarLayout::GetBarRect(dipWidth, topOffset);
+
+    // Main bar background and border
+    if (res.brushTtsBarBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(bar, 8.0f, 8.0f), res.brushTtsBarBg);
+    }
+    if (res.brushTtsBarBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(bar, 8.0f, 8.0f), res.brushTtsBarBorder, 1.0f);
+    }
+
+    auto drawButton = [&](int btnIdx, const wchar_t* symbol, IDWriteTextFormat* fmt) {
+        D2D1_RECT_F btnRect = TtsBarLayout::GetBtnRect(bar, btnIdx);
+        if (ttsBar.hoveredBtn == btnIdx && res.brushTtsBarBtnHover) {
+            ctx->FillRoundedRectangle(D2D1::RoundedRect(btnRect, 4.0f, 4.0f), res.brushTtsBarBtnHover);
+        }
+        if (fmt && res.brushTtsBarText) {
+            ctx->DrawText(symbol, (UINT32)wcslen(symbol), fmt, btnRect, res.brushTtsBarText);
+        }
+    };
+
+    // Button 0: Prev sentence ⏮
+    drawButton(0, L"\x23EE", res.textFormatTtsBar);
+
+    // Button 1: Play/Pause ▶ / ⏸
+    drawButton(1, ttsBar.isPaused ? L"\x25B6" : L"\x23F8", res.textFormatTtsBar);
+
+    // Button 2: Next sentence ⏭
+    drawButton(2, L"\x23ED", res.textFormatTtsBar);
+
+    // Middle Voice & Status display
+    D2D1_RECT_F voiceRect = TtsBarLayout::GetVoiceInfoRect(bar);
+    std::wstring voiceText = ttsBar.voiceName;
+    if (ttsBar.isPaused) {
+        voiceText += L" (Paused)";
+    }
+    if (res.textFormatTtsBar && res.brushTtsBarText) {
+        ctx->DrawText(
+            voiceText.c_str(),
+            (UINT32)voiceText.length(),
+            res.textFormatTtsBar,
+            voiceRect,
+            res.brushTtsBarText
+        );
+    }
+
+    // Button 3: Speed rate pill (e.g. "1.0x", "1.2x")
+    drawButton(3, ttsBar.rateLabel.c_str(), res.textFormatTtsSpeed ? res.textFormatTtsSpeed : res.textFormatTtsBar);
+
+    // Button 4: Close [✕]
+    drawButton(4, L"\x2715", res.textFormatTtsBar);
+}
+
+int TtsBarView::HitTest(POINT pt, UINT width, [[maybe_unused]] UINT height, float dpi, float topOffset) {
+    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipW = (float)width * dipScale;
+
+    D2D1_RECT_F bar = TtsBarLayout::GetBarRect(dipW, topOffset);
+    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
+        return -1;
+    }
+
+    auto inRect = [&](const D2D1_RECT_F& r) {
+        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
+    };
+
+    if (inRect(TtsBarLayout::GetBtnRect(bar, 0))) return 0;
+    if (inRect(TtsBarLayout::GetBtnRect(bar, 1))) return 1;
+    if (inRect(TtsBarLayout::GetBtnRect(bar, 2))) return 2;
+    if (inRect(TtsBarLayout::GetBtnRect(bar, 3))) return 3;
+    if (inRect(TtsBarLayout::GetBtnRect(bar, 4))) return 4;
 
     return 100; // Inside bar body
 }

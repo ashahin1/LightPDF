@@ -23,6 +23,8 @@
 #include "pdf_searchable_writer.hpp"
 #include "pdf_search.hpp"
 #include "ui_views.hpp"
+#include "tts_engine.hpp"
+#include "read_aloud_controller.hpp"
 
 // ============================================================================
 // Dictionary Engine Tests
@@ -445,6 +447,115 @@ TEST_CASE("Search: Multi-character Word Search in CIDFont Document (Exam_Schedul
         Sleep(5);
     }
     CHECK(engine.GetTotalMatches() >= 1);
+}
+
+// ============================================================================
+// Read Aloud (TTS) Tests
+// ============================================================================
+TEST_CASE("TTS: Engine Initialization, Voice Enumeration, and Controls") {
+    CoInitialize(NULL);
+
+    TtsEngine engine;
+    bool ok = engine.Init(NULL, WM_USER + 100);
+    REQUIRE(ok);
+    REQUIRE(engine.IsInitialized());
+
+    const auto& voices = engine.GetVoices();
+    CHECK(!voices.empty());
+
+    bool hasEnglish = false;
+    bool hasArabic = false;
+    for (const auto& v : voices) {
+        if (v.isArabic) hasArabic = true;
+        else hasEnglish = true;
+    }
+    CHECK(hasEnglish);
+    CHECK(hasArabic); // Microsoft Naayf is installed on this system
+
+    // Speed Rate adjustments
+    engine.SetRate(0);
+    CHECK(engine.GetRate() == 0);
+    CHECK(engine.GetRateLabel() == L"1.0x");
+
+    engine.SetRate(3);
+    CHECK(engine.GetRate() == 3);
+    CHECK(engine.GetRateLabel() == L"1.6x");
+
+    engine.SetRate(-3);
+    CHECK(engine.GetRate() == -3);
+    CHECK(engine.GetRateLabel() == L"0.7x");
+
+    engine.SetRate(10); // clamped to 5
+    CHECK(engine.GetRate() == 5);
+    CHECK(engine.GetRateLabel() == L"2.0x");
+
+    engine.SetRate(-10); // clamped to -5
+    CHECK(engine.GetRate() == -5);
+    CHECK(engine.GetRateLabel() == L"0.5x");
+
+    // Language routing
+    CHECK(engine.SelectVoiceForLanguage(true));
+    CHECK(voices[engine.GetCurrentVoiceIndex()].isArabic);
+
+    CHECK(engine.SelectVoiceForLanguage(false));
+    CHECK(!voices[engine.GetCurrentVoiceIndex()].isArabic);
+
+    engine.Shutdown();
+    CHECK(!engine.IsInitialized());
+    CoUninitialize();
+}
+
+TEST_CASE("TTS: ReadAloudController Chunking, Language Tagging, and Word Mapping") {
+    CoInitialize(NULL);
+
+    ReadAloudController controller;
+    bool ok = controller.Init(NULL);
+    REQUIRE(ok);
+
+    // Build synthetic page text with both English and Arabic sentences
+    auto pageText = std::make_shared<PdfPageText>();
+    pageText->pageIndex = 0;
+    pageText->pageWidth = 600.0f;
+    pageText->pageHeight = 800.0f;
+    pageText->hasDigitalText = true;
+
+    std::wstring text = L"LightPDF is an ultra-fast PDF viewer. مرحباً بكم في تطبيق قراءة المستندات! Enjoy reading.";
+    pageText->fullText = text;
+    pageText->chars.resize(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        pageText->chars[i].ch = text[i];
+        pageText->chars[i].rect = D2D1::RectF((float)i * 10.0f, 100.0f, (float)(i + 1) * 10.0f, 120.0f);
+    }
+
+    // Start reading full page
+    controller.Start(L"", pageText, 0);
+    CHECK(controller.IsActive());
+    CHECK(!controller.IsPaused());
+    CHECK(controller.GetCurrentPage() == 0);
+
+    auto barInfo = controller.GetBarInfo();
+    CHECK(barInfo.visible);
+    CHECK(!barInfo.isPaused);
+    CHECK(!barInfo.voiceName.empty());
+
+    // Test Pause / Resume
+    controller.TogglePause();
+    CHECK(controller.IsPaused());
+    controller.TogglePause();
+    CHECK(!controller.IsPaused());
+
+    // Test Stop
+    controller.Stop();
+    CHECK(!controller.IsActive());
+
+    // Test selection reading
+    std::wstring sel = L"LightPDF is an ultra-fast PDF viewer.";
+    controller.Start(sel, pageText, 0, 0, sel.size());
+    CHECK(controller.IsActive());
+    controller.Stop();
+    CHECK(!controller.IsActive());
+
+    CoUninitialize();
 }
 
 

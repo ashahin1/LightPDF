@@ -31,6 +31,7 @@ echo Compiling optimized C++20 release binary with /W4...
 cl.exe /nologo /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4 /Fo"bin\obj\\" /Fd"bin\obj\\" ^
     src\main.cpp src\app_window.cpp src\d2d_renderer.cpp src\pdf_document.cpp src\pdf_parser.cpp src\pdf_search.cpp src\dictionary_engine.cpp src\pdf_searchable_writer.cpp ^
     src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp src\ui_views.cpp ^
+    src\tts_engine.cpp src\read_aloud_controller.cpp ^
     resources\app.res ^
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS ^
     /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest ^

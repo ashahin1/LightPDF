@@ -132,6 +132,66 @@ struct SearchHighlight {
 struct SelectionHighlightSpan {
     uint32_t pageIndex = 0;
     std::vector<D2D1_RECT_F> rects;        // PDF page coordinates in DIPs
+    bool isTtsHighlight = false;           // true = warm amber TTS word highlight, false = blue selection
+};
+
+/// @brief Render info for the floating TTS playback control bar.
+struct TtsBarRenderInfo {
+    bool visible = false;
+    bool isPaused = false;
+    std::wstring rateLabel;                ///< e.g. "1.0x", "1.5x"
+    std::wstring voiceName;                ///< e.g. "Microsoft Naayf" or "Microsoft David"
+    int hoveredBtn = -1;                   ///< -1=none, 0=prev, 1=play/pause, 2=next, 3=speed, 4=close
+};
+
+/// @brief Layout calculations for the floating TTS playback bar.
+struct TtsBarLayout {
+    static constexpr float BAR_WIDTH = 340.0f;
+    static constexpr float BAR_HEIGHT = 38.0f;
+    static constexpr float BTN_SIZE = 28.0f;
+
+    static inline D2D1_RECT_F GetBarRect(float dipWidth, float topOffset) {
+        float left = (dipWidth - BAR_WIDTH) * 0.5f;
+        float top = topOffset + 12.0f;
+        return D2D1::RectF(left, top, left + BAR_WIDTH, top + BAR_HEIGHT);
+    }
+
+    static inline D2D1_RECT_F GetBtnRect(const D2D1_RECT_F& bar, int index) {
+        float cy = (bar.top + bar.bottom) * 0.5f;
+        float by0 = cy - BTN_SIZE * 0.5f;
+        float by1 = cy + BTN_SIZE * 0.5f;
+
+        switch (index) {
+        case 0: { // Prev sentence
+            float bx0 = bar.left + 8.0f;
+            return D2D1::RectF(bx0, by0, bx0 + BTN_SIZE, by1);
+        }
+        case 1: { // Play / Pause
+            float bx0 = bar.left + 8.0f + BTN_SIZE + 4.0f;
+            return D2D1::RectF(bx0, by0, bx0 + BTN_SIZE, by1);
+        }
+        case 2: { // Next sentence
+            float bx0 = bar.left + 8.0f + (BTN_SIZE + 4.0f) * 2.0f;
+            return D2D1::RectF(bx0, by0, bx0 + BTN_SIZE, by1);
+        }
+        case 3: { // Speed button
+            float bx1 = bar.right - 8.0f - BTN_SIZE - 6.0f;
+            return D2D1::RectF(bx1 - 50.0f, by0, bx1, by1);
+        }
+        case 4: { // Close [X]
+            float bx1 = bar.right - 8.0f;
+            return D2D1::RectF(bx1 - BTN_SIZE, by0, bx1, by1);
+        }
+        default:
+            return D2D1::RectF(0, 0, 0, 0);
+        }
+    }
+
+    static inline D2D1_RECT_F GetVoiceInfoRect(const D2D1_RECT_F& bar) {
+        float left = bar.left + 8.0f + (BTN_SIZE + 4.0f) * 3.0f + 6.0f;
+        float right = bar.right - 8.0f - BTN_SIZE - 6.0f - 54.0f;
+        return D2D1::RectF(left, bar.top, (std::max)(left, right), bar.bottom);
+    }
 };
 
 struct DictionaryCardRenderInfo {
@@ -276,8 +336,8 @@ struct HelpOverlayRenderInfo {
 };
 
 struct HelpOverlayLayout {
-    static constexpr float WIDTH = 840.0f;
-    static constexpr float HEIGHT = 560.0f;
+    static constexpr float WIDTH = 860.0f;
+    static constexpr float HEIGHT = 580.0f;
 
     static inline D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight) {
         float w = (std::min)(WIDTH, dipWidth - 24.0f);
@@ -357,7 +417,8 @@ public:
         const DocumentPropertiesRenderInfo& docProps = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {}
+        const PresenterBarRenderInfo& presenterBar = {},
+        const TtsBarRenderInfo& ttsBar = {}
     );
 
     /**
@@ -385,7 +446,8 @@ public:
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {}
+        const PresenterBarRenderInfo& presenterBar = {},
+        const TtsBarRenderInfo& ttsBar = {}
     );
 
     /**
@@ -410,7 +472,8 @@ public:
         const std::vector<SelectionHighlightSpan>& selectionSpans = {},
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
-        const PresenterBarRenderInfo& presenterBar = {}
+        const PresenterBarRenderInfo& presenterBar = {},
+        const TtsBarRenderInfo& ttsBar = {}
     );
 
     /// @brief Draws the floating dictionary translation card.
@@ -422,6 +485,9 @@ public:
     /// @brief Draws the presenter floating control bar.
     void DrawPresenterBar(const PresenterBarRenderInfo& presenterBar);
 
+    /// @brief Draws the Read Aloud floating playback control bar.
+    void DrawTtsBar(const TtsBarRenderInfo& ttsBar, float topOffset = 0.0f);
+
     /// @brief Hit-tests document properties modal buttons.
     int HitTestDocumentProperties(POINT pt) const;
 
@@ -430,6 +496,9 @@ public:
 
     /// @brief Hit-tests presenter floating toolbar buttons.
     int HitTestPresenterBar(POINT pt) const;
+
+    /// @brief Hit-tests Read Aloud floating toolbar buttons.
+    int HitTestTtsBar(POINT pt, bool hasTabs = false) const;
 
     /**
      * @brief Renders a page directly to a printer device context (HDC).
@@ -487,7 +556,8 @@ private:
         const DocumentPropertiesRenderInfo& docProps,
         const DictionaryCardRenderInfo* pDictCard = nullptr,
         const LaserPointerRenderInfo* pLaser = nullptr,
-        const PresenterBarRenderInfo* pPresenterBar = nullptr
+        const PresenterBarRenderInfo* pPresenterBar = nullptr,
+        const TtsBarRenderInfo* pTtsBar = nullptr
     );
 
     HWND m_hwnd = nullptr;
@@ -605,6 +675,16 @@ private:
     ComPtr<ID2D1SolidColorBrush> m_brushLaserCore;
     ComPtr<ID2D1SolidColorBrush> m_brushPresenterBtnHover;
     ComPtr<ID2D1SolidColorBrush> m_brushPresenterBtnActive;
+
+    // Read Aloud (TTS) Formats & Brushes
+    ComPtr<IDWriteTextFormat> m_textFormatTtsBar;
+    ComPtr<IDWriteTextFormat> m_textFormatTtsSpeed;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsHighlight;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsBarBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsBarBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsBarText;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsBarBtnHover;
+    ComPtr<ID2D1SolidColorBrush> m_brushTtsBarBtnActive;
 
     // Native PDF Hardware Renderer
     ComPtr<IPdfRendererNative> m_pdfRenderer;

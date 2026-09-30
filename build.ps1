@@ -50,7 +50,9 @@ $sources = @(
     "src\tab_controller.cpp",
     "src\search_controller.cpp",
     "src\selection_controller.cpp",
-    "src\ui_views.cpp"
+    "src\ui_views.cpp",
+    "src\tts_engine.cpp",
+    "src\read_aloud_controller.cpp"
 )
 
 Write-Host "Compiling Windows resource script (app.rc)..." -ForegroundColor Green

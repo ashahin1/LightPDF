@@ -20,6 +20,7 @@ cl.exe /nologo /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /W4 /Fo"bin\obj\\" /Fd
     tests\unified_tests.cpp src\pdf_document.cpp src\dictionary_engine.cpp ^
     src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp ^
     src\pdf_parser.cpp src\pdf_searchable_writer.cpp src\pdf_search.cpp src\ui_views.cpp ^
+    src\tts_engine.cpp src\read_aloud_controller.cpp ^
     /link /OUT:tests\unified_tests.exe ^
     d3d11.lib d2d1.lib dxgi.lib dwrite.lib windows.data.pdf.lib windowsapp.lib ^
     user32.lib gdi32.lib shell32.lib ole32.lib shcore.lib windowscodecs.lib
