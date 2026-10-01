@@ -558,4 +558,66 @@ TEST_CASE("TTS: ReadAloudController Chunking, Language Tagging, and Word Mapping
     CoUninitialize();
 }
 
+TEST_CASE("Navigation: Horizontal Offset Clamping & Scroll Calculation") {
+    const float dipW = 1000.0f;
+    const float margin = 24.0f;
+
+    SUBCASE("Single-page: Normal unzoomed page fits within viewport") {
+        float renderedW = 800.0f;
+        // renderedW <= dipW - margin * 2.0f (800 <= 952)
+        CHECK(renderedW <= dipW - margin * 2.0f);
+        float expectedOffsetX = (dipW - renderedW) * 0.5f;
+        CHECK(expectedOffsetX == doctest::Approx(100.0f));
+    }
+
+    SUBCASE("Single-page: Zoomed-in page wider than viewport") {
+        float renderedW = 1600.0f; // e.g., zoomed to 200%
+        CHECK(renderedW > dipW - margin * 2.0f);
+        float minOffsetX = dipW - renderedW - margin; // 1000 - 1600 - 24 = -624
+        float maxOffsetX = margin;                     // 24
+        CHECK(minOffsetX == doctest::Approx(-624.0f));
+        CHECK(maxOffsetX == doctest::Approx(24.0f));
+
+        // Start at left margin
+        float currentOffsetX = maxOffsetX;
+        
+        // Tilt wheel / swipe right: delta > 0 -> should shift viewport right (content left)
+        short delta = 120;
+        float deltaX = (float)delta * 0.6f; // 72.0f
+        currentOffsetX -= deltaX;
+        float clamped = std::clamp(currentOffsetX, minOffsetX, maxOffsetX);
+        CHECK(clamped == doctest::Approx(-48.0f));
+
+        // Scroll all the way past right edge
+        currentOffsetX -= 1000.0f;
+        clamped = std::clamp(currentOffsetX, minOffsetX, maxOffsetX);
+        CHECK(clamped == doctest::Approx(minOffsetX)); // bounded at -624
+
+        // Tilt wheel / swipe left: delta < 0 -> should shift viewport left (content right)
+        delta = -120;
+        deltaX = (float)delta * 0.6f;
+        currentOffsetX = clamped - deltaX; // -624 - (-72) = -552
+        clamped = std::clamp(currentOffsetX, minOffsetX, maxOffsetX);
+        CHECK(clamped == doctest::Approx(-552.0f));
+    }
+
+    SUBCASE("Continuous scroll: Horizontal boundary clamping") {
+        float maxPageW = 1500.0f;
+        float minOffsetX = dipW - maxPageW - margin * 2.0f; // 1000 - 1500 - 48 = -548
+        float maxOffsetX = 0.0f;
+        CHECK(minOffsetX == doctest::Approx(-548.0f));
+
+        float currentOffsetX = 0.0f;
+        // Scroll right
+        currentOffsetX -= 100.0f;
+        float clamped = std::clamp(currentOffsetX, minOffsetX, maxOffsetX);
+        CHECK(clamped == doctest::Approx(-100.0f));
+
+        // Scroll past left edge
+        currentOffsetX = 50.0f;
+        clamped = std::clamp(currentOffsetX, minOffsetX, maxOffsetX);
+        CHECK(clamped == doctest::Approx(0.0f));
+    }
+}
+
 

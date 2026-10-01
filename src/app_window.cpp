@@ -362,6 +362,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
     case WM_LBUTTONDOWN:
     case WM_MBUTTONDOWN:
     case WM_SETCURSOR:
@@ -435,21 +436,36 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
 
-        ShowScrollbar();
-
         short delta = GET_WHEEL_DELTA_WPARAM(wParam);
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
         if (isCtrlDown) {
             float factor = (delta > 0) ? 1.15f : (1.0f / 1.15f);
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ScreenToClient(m_hwnd, &pt);
             AdjustZoom(factor, pt);
-        } else if (pTab->continuousScroll) {
-            ScrollContinuous((float)delta * 0.6f);
+        } else if (isShiftDown) {
+            ScrollHorizontal((float)delta * 0.6f);
         } else {
-            ScrollSinglePage((float)delta * 0.6f);
+            ShowScrollbar();
+            if (pTab->continuousScroll) {
+                ScrollContinuous((float)delta * 0.6f);
+            } else {
+                ScrollSinglePage((float)delta * 0.6f);
+            }
         }
+        return 0;
+    }
+
+    case WM_MOUSEHWHEEL: {
+        if (m_showProperties) return 0;
+        if (m_isDraggingScrollbar) return 0;
+        auto* pTab = GetActiveTab();
+        if (!pTab || !pTab->document.IsLoaded()) return 0;
+
+        short delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        ScrollHorizontal((float)delta * 0.6f);
         return 0;
     }
 
@@ -1243,7 +1259,11 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             break;
         case 'H':
             if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
-                SetToolMode((m_toolMode == ToolMode::Hand) ? ToolMode::TextSelect : ToolMode::Hand);
+                if (m_isLaserActive) {
+                    SetToolMode(ToolMode::Hand);
+                } else {
+                    SetToolMode((m_toolMode == ToolMode::Hand) ? ToolMode::TextSelect : ToolMode::Hand);
+                }
                 return 0;
             }
             break;
@@ -2567,6 +2587,42 @@ void AppWindow::ScrollSinglePage(float deltaY) {
     }
 }
 
+void AppWindow::ScrollHorizontal(float deltaX) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    float dipScale = 96.0f / m_renderer.GetDpi();
+    float dipW = (float)m_renderer.GetWidth() * dipScale;
+    const float margin = 24.0f;
+
+    if (pTab->continuousScroll) {
+        float maxPageW = 0.0f;
+        uint32_t count = pTab->document.GetPageCount();
+        for (uint32_t i = 0; i < count; ++i) {
+            float w = pTab->document.GetPageSize(i).width * pTab->zoom;
+            if (w > maxPageW) maxPageW = w;
+        }
+
+        if (maxPageW > dipW - margin * 2.0f) {
+            pTab->offsetX -= deltaX;
+            ClampCanvasOffsets(pTab);
+            Render();
+        }
+    } else {
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+        float renderedW = pSize.width * pTab->zoom;
+
+        if (renderedW > dipW - margin * 2.0f) {
+            pTab->offsetX -= deltaX;
+            if (renderedW > dipW - 48.0f) {
+                pTab->zoomMode = ZoomMode::Custom;
+            }
+            ClampCanvasOffsets(pTab);
+            Render();
+        }
+    }
+}
+
 void AppWindow::UpdateContinuousOffsets(DocumentTab* pTab) {
     float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
     m_tabController.UpdateContinuousOffsets(pTab, (float)m_renderer.GetWidth(), (float)m_renderer.GetWidth() * 96.0f / m_renderer.GetDpi(), dipH);
@@ -3213,6 +3269,7 @@ void AppWindow::CopyPropertiesToClipboard() {
 
 void AppWindow::SetToolMode(ToolMode mode) {
     m_toolMode = mode;
+    m_isLaserActive = false;
     if (m_toolMode == ToolMode::Hand) {
         SetCursor(m_cursorHand);
         ShowToast(L"Hand Tool");
