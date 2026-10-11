@@ -407,6 +407,8 @@ public:
      * @param dictCard Dictionary card descriptor.
      * @param laser Laser pointer descriptor.
      * @param presenterBar Presenter bar descriptor.
+     * @param ttsBar Read aloud control bar descriptor.
+     * @param pRecent Optional recent files and switcher descriptor.
      */
     void RenderBlank(
         const std::wstring& message,

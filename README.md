@@ -4,11 +4,11 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>799 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>828 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/binary-799_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-828_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
   <img src="https://img.shields.io/badge/C%2B%2B20-MSVC_14.44-E65100?style=flat-square" alt="C++20">
@@ -39,7 +39,8 @@ LightPDF.exe /register /silent
 | | |
 |---|---|
 | ⚡ **Instant Launch** | Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader |
-| 🪶 **Sub-Megabyte Footprint** | **799 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
+| 🪶 **Sub-Megabyte Footprint** | **828 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
+| 🕒 **Recent Documents & Tab Recovery** | `Ctrl+Shift+T` instant closed tab recovery with exact page, zoom, and continuous scroll restoration. Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). `Ctrl+H` centered quick switcher modal and Windows Taskbar Jump List integration |
 | 🗣️ **Native Read Aloud (TTS)** | `Ctrl+R` high-fidelity bilingual text-to-speech with real-time visual word tracking. Automatic Arabic (`Microsoft Naayf`) and English voice discovery via Windows OneCore & SAPI. Floating frosted HUD with rate tuning (`Ctrl+[` / `]`), sentence skip, and automatic continuous multi-page reading |
 | 📄 **Native Searchable PDF Export** | `Ctrl+S` / `Ctrl+Shift+S`: bakes an invisible text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Atomic in-place overwrite or Save As new file with zero image quality degradation |
 | 🎯 **Presentation & Laser Pointer** | Press `L` to activate an optical glowing laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold. Automatically dismisses upon switching to navigation tools |
@@ -65,7 +66,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **799 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **828 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
@@ -93,6 +94,7 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Middle Drag` / `Space + Drag` | Smooth canvas panning |
 | `H` | Hand Tool (toggle drag pan mode; dismisses laser) |
 | `V` / `S` | Text Selection Tool (dismisses laser) |
+| `1` … `9` | Open recent document directly (from empty-state dashboard) |
 
 ### Zoom & View
 
@@ -122,6 +124,9 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | Shortcut | Description |
 | :--- | :--- |
 | `Ctrl + O` / `Ctrl + T` | Open PDF document in new tab |
+| `Ctrl + Shift + T` | Reopen last closed tab (restoring exact page, zoom, scroll position) |
+| `Ctrl + H` | Toggle Recent Documents Quick Switcher modal |
+| `1` … `9` | Jump directly to recent document (in Quick Switcher or Dashboard) |
 | `Ctrl + S` | Save Searchable PDF prompt (Overwrite original or Save As new copy) |
 | `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
 | `Ctrl + W` | Close active tab |
@@ -201,7 +206,7 @@ This writes directly to `HKCU\Software\Classes` (per-user scope only) and calls 
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~799 KB standalone release binary (zero DLLs)
+│   ├── LightPDF.exe              # ~828 KB standalone release binary (zero DLLs)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -226,13 +231,14 @@ LightPDF/
 │   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich
 │   ├── tts_engine.hpp/.cpp       # Pure COM SAPI voice engine, Desktop & OneCore voice discovery
 │   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
+│   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
 │   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
 │   ├── fixtures/                 # Minimal synthetic PDF fixtures committed to git
 │   │   ├── sample_1page.pdf
 │   │   └── sample_2page.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (16 test cases, 162 assertions, <35ms runtime)
+│   ├── unified_tests.cpp         # Complete test suite (21 test cases, 228 assertions, <45ms runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
@@ -284,7 +290,7 @@ The build scripts (`build.ps1` / `build.bat`) automatically detect and activate 
 build.bat
 ```
 
-Output: `bin\LightPDF.exe` (**~799 KB**)
+Output: `bin\LightPDF.exe` (**~828 KB**)
 
 ### Compiler Flags
 
