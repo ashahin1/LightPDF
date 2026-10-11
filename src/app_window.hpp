@@ -27,6 +27,7 @@
 #include "search_controller.hpp"
 #include "selection_controller.hpp"
 #include "read_aloud_controller.hpp"
+#include "recent_files_controller.hpp"
 
 /// @brief Windows message posted when an external process opens a file via IPC (single-instance).
 #define WM_APP_OPEN_FILE (WM_APP + 1)
@@ -78,6 +79,8 @@ private:
     LRESULT HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam);
 
     void OpenTab(const std::wstring& path);
+    void OpenRecentFile(size_t index);
+    void ReopenClosedTab();
     void CloseTab(size_t index);
     void SelectTab(size_t index);
     void NextTab();
@@ -175,6 +178,9 @@ private:
     SearchController m_searchController;
     SelectionController m_selectionController;
     ReadAloudController m_readAloudController;
+    RecentFilesController m_recentController;
+
+    bool m_justOpenedRecent = false;
 
     // Mouse Panning
     bool m_isPanning = false;

@@ -25,6 +25,7 @@
 #include "ui_views.hpp"
 #include "tts_engine.hpp"
 #include "read_aloud_controller.hpp"
+#include "recent_files_controller.hpp"
 
 // ============================================================================
 // Dictionary Engine Tests
@@ -619,5 +620,224 @@ TEST_CASE("Navigation: Horizontal Offset Clamping & Scroll Calculation") {
         CHECK(clamped == doctest::Approx(0.0f));
     }
 }
+
+// ============================================================================
+// Recent Files & Closed Tab Recovery Tests
+// ============================================================================
+TEST_CASE("Recent Files: Path Normalization and Filename Extraction") {
+    CHECK(RecentFilesController::ExtractFileName(L"C:\\Docs\\report.pdf") == L"report.pdf");
+    CHECK(RecentFilesController::ExtractFileName(L"report.pdf") == L"report.pdf");
+    CHECK(RecentFilesController::ExtractFileName(L"C:/Docs/sub/manual.pdf") == L"manual.pdf");
+
+    std::wstring p1 = RecentFilesController::NormalizePath(L"C:\\Docs\\..\\Docs\\report.pdf");
+    CHECK(!p1.empty());
+}
+
+TEST_CASE("Recent Files: MRU Management, Capping, and Registry Persistence") {
+    const std::wstring testKey = L"Software\\LightPDF\\UnitTestRecent";
+    RecentFilesController controller(testKey);
+    controller.ClearRecentFiles();
+    CHECK(controller.IsEmpty());
+    CHECK(controller.GetCount() == 0);
+
+    // Add files
+    controller.AddRecentFile(L"C:\\Test\\doc1.pdf", 10, 2);
+    controller.AddRecentFile(L"C:\\Test\\doc2.pdf", 25, 5);
+    controller.AddRecentFile(L"C:\\Test\\doc3.pdf", 100, 42);
+
+    CHECK(controller.GetCount() == 3);
+    // Most recent is doc3
+    CHECK(controller.GetItems()[0].filePath == RecentFilesController::NormalizePath(L"C:\\Test\\doc3.pdf"));
+    CHECK(controller.GetItems()[0].lastPage == 42);
+    CHECK(controller.GetItems()[0].totalPages == 100);
+
+    // Re-adding existing doc1 moves it to front
+    controller.AddRecentFile(L"C:\\Test\\doc1.pdf", 10, 7);
+    CHECK(controller.GetCount() == 3);
+    CHECK(controller.GetItems()[0].filePath == RecentFilesController::NormalizePath(L"C:\\Test\\doc1.pdf"));
+    CHECK(controller.GetItems()[0].lastPage == 7);
+
+    // Update last page
+    controller.UpdateLastPage(L"C:\\Test\\doc1.pdf", 9);
+    CHECK(controller.GetItems()[0].lastPage == 9);
+
+    // Add up to > 9 files to test MRU capping
+    for (int i = 4; i <= 15; ++i) {
+        controller.AddRecentFile(L"C:\\Test\\doc" + std::to_wstring(i) + L".pdf", 50, 1);
+    }
+    CHECK(controller.GetCount() == RecentFilesController::MAX_MRU_COUNT);
+    CHECK(controller.GetCount() == 9);
+
+    // Save to registry and reload with a fresh controller instance
+    controller.SaveToRegistry();
+
+    RecentFilesController reloaded(testKey);
+    reloaded.LoadFromRegistry();
+    CHECK(reloaded.GetCount() == 9);
+    CHECK(reloaded.GetItems()[0].filePath == controller.GetItems()[0].filePath);
+    CHECK(reloaded.GetItems()[0].lastPage == controller.GetItems()[0].lastPage);
+
+    // Remove single item by index
+    size_t beforeCount = reloaded.GetCount();
+    CHECK(reloaded.RemoveRecentFile(0));
+    CHECK(reloaded.GetCount() == beforeCount - 1);
+
+    // Remove item by path
+    std::wstring toRemove = reloaded.GetItems()[0].filePath;
+    CHECK(reloaded.RemoveRecentFileByPath(toRemove));
+    CHECK(reloaded.GetCount() == beforeCount - 2);
+
+    // Cleanup registry
+    reloaded.ClearRecentFiles();
+    CHECK(reloaded.IsEmpty());
+
+    RecentFilesController verifyClean(testKey);
+    verifyClean.LoadFromRegistry();
+    CHECK(verifyClean.IsEmpty());
+}
+
+TEST_CASE("Closed Tabs: LIFO Stack State Retention & Cap") {
+    RecentFilesController controller;
+    CHECK(!controller.CanReopenClosedTab());
+
+    ClosedTabInfo tab1;
+    tab1.filePath = L"C:\\Test\\closed1.pdf";
+    tab1.currentPage = 4;
+    tab1.zoom = 1.25f;
+    tab1.zoomMode = ZoomMode::Custom;
+    tab1.scrollY = 150.0f;
+    tab1.continuousScroll = true;
+
+    ClosedTabInfo tab2;
+    tab2.filePath = L"C:\\Test\\closed2.pdf";
+    tab2.currentPage = 12;
+    tab2.zoom = 0.85f;
+    tab2.zoomMode = ZoomMode::FitWidth;
+    tab2.scrollY = 0.0f;
+    tab2.continuousScroll = false;
+
+    controller.PushClosedTab(tab1);
+    controller.PushClosedTab(tab2);
+    CHECK(controller.CanReopenClosedTab());
+
+    // LIFO Pop: tab2 comes first
+    ClosedTabInfo popped;
+    REQUIRE(controller.PopClosedTab(popped));
+    CHECK(popped.filePath == tab2.filePath);
+    CHECK(popped.currentPage == 12);
+    CHECK(popped.zoom == doctest::Approx(0.85f));
+    CHECK(popped.zoomMode == ZoomMode::FitWidth);
+    CHECK(!popped.continuousScroll);
+
+    // Next pop: tab1
+    REQUIRE(controller.PopClosedTab(popped));
+    CHECK(popped.filePath == tab1.filePath);
+    CHECK(popped.currentPage == 4);
+    CHECK(popped.zoom == doctest::Approx(1.25f));
+    CHECK(popped.scrollY == doctest::Approx(150.0f));
+    CHECK(popped.continuousScroll);
+
+    CHECK(!controller.CanReopenClosedTab());
+    CHECK(!controller.PopClosedTab(popped));
+
+    // Cap check (> 15 items)
+    for (int i = 0; i < 20; ++i) {
+        ClosedTabInfo t;
+        t.filePath = L"C:\\Test\\t" + std::to_wstring(i) + L".pdf";
+        controller.PushClosedTab(t);
+    }
+    // Should be capped at 15
+    int popCount = 0;
+    while (controller.PopClosedTab(popped)) {
+        popCount++;
+    }
+    CHECK(popCount == 15);
+}
+
+TEST_CASE("Recent Switcher: Keyboard Navigation & Hit Testing") {
+    RecentFilesController controller;
+    for (int i = 1; i <= 5; ++i) {
+        controller.AddRecentFile(L"C:\\Test\\file" + std::to_wstring(i) + L".pdf", 10, i);
+    }
+
+    CHECK(!controller.IsSwitcherOpen());
+    controller.OpenSwitcher();
+    CHECK(controller.IsSwitcherOpen());
+    CHECK(controller.GetSwitcherSelectedIndex() == 0);
+
+    // Down navigation
+    controller.SelectNextSwitcherItem();
+    CHECK(controller.GetSwitcherSelectedIndex() == 1);
+    controller.SelectNextSwitcherItem();
+    CHECK(controller.GetSwitcherSelectedIndex() == 2);
+
+    // Up navigation
+    controller.SelectPrevSwitcherItem();
+    CHECK(controller.GetSwitcherSelectedIndex() == 1);
+
+    // Wrap around up
+    controller.SelectPrevSwitcherItem();
+    CHECK(controller.GetSwitcherSelectedIndex() == 0);
+    controller.SelectPrevSwitcherItem();
+    CHECK(controller.GetSwitcherSelectedIndex() == 4); // Wrapped to last
+
+    controller.CloseSwitcher();
+    CHECK(!controller.IsSwitcherOpen());
+    CHECK(controller.GetSwitcherSelectedIndex() == -1);
+
+    // Hit-testing geometry
+    const float dipW = 1200.0f;
+    const float dipH = 800.0f;
+    D2D1_RECT_F card = RecentFilesController::CalculateSwitcherCardRect(dipW, dipH);
+    CHECK(card.right > card.left);
+    CHECK(card.bottom > card.top);
+
+    bool cardClicked = false;
+    // Click outside modal card
+    int outsideHit = RecentFilesController::HitTestSwitcher(D2D1::Point2F(10.0f, 10.0f), dipW, dipH, 5, cardClicked);
+    CHECK(outsideHit == -1);
+    CHECK(!cardClicked);
+
+    // Click inside first item
+    D2D1_RECT_F item0 = RecentFilesController::CalculateSwitcherItemRect(card, 0);
+    int item0Hit = RecentFilesController::HitTestSwitcher(
+        D2D1::Point2F((item0.left + item0.right) * 0.5f, (item0.top + item0.bottom) * 0.5f),
+        dipW, dipH, 5, cardClicked);
+    CHECK(cardClicked);
+    CHECK(item0Hit == 0);
+}
+
+TEST_CASE("Empty-State Dashboard: Layout Geometry & Hit Testing") {
+    const float dipW = 1200.0f;
+    const float dipH = 800.0f;
+    const size_t totalItems = 4;
+
+    RecentItemLayout layout0 = RecentFilesController::CalculateDashboardCardLayout(dipW, dipH, 0, totalItems);
+    CHECK(layout0.itemRect.right > layout0.itemRect.left);
+    CHECK(layout0.itemRect.bottom > layout0.itemRect.top);
+    CHECK(layout0.removeBtnRect.right > layout0.removeBtnRect.left);
+
+    // Hit card body
+    bool removeClicked = false;
+    int hitCard = RecentFilesController::HitTestDashboard(
+        D2D1::Point2F((layout0.itemRect.left + layout0.badgeRect.right) * 0.5f, (layout0.itemRect.top + layout0.itemRect.bottom) * 0.5f),
+        dipW, dipH, totalItems, removeClicked);
+    CHECK(hitCard == 0);
+    CHECK(!removeClicked);
+
+    // Hit remove button
+    int hitRemove = RecentFilesController::HitTestDashboard(
+        D2D1::Point2F((layout0.removeBtnRect.left + layout0.removeBtnRect.right) * 0.5f,
+                      (layout0.removeBtnRect.top + layout0.removeBtnRect.bottom) * 0.5f),
+        dipW, dipH, totalItems, removeClicked);
+    CHECK(hitRemove == 0);
+    CHECK(removeClicked);
+
+    // Hit outside all cards
+    int hitOutside = RecentFilesController::HitTestDashboard(
+        D2D1::Point2F(5.0f, 5.0f), dipW, dipH, totalItems, removeClicked);
+    CHECK(hitOutside == -1);
+}
+
 
 

@@ -848,7 +848,8 @@ void D2DRenderer::RenderBlank(
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
-    const TtsBarRenderInfo& ttsBar
+    const TtsBarRenderInfo& ttsBar,
+    const RecentRenderInfo* pRecent
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -864,16 +865,44 @@ void D2DRenderer::RenderBlank(
     float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
     D2D1_RECT_F layoutRect = D2D1::RectF(20.0f, 20.0f + topOffset, dipWidth - 20.0f, dipHeight - 20.0f);
 
-    std::wstring displayMsg = message.empty() ? L"Drag and drop a PDF file here,\ndouble-click to browse, or press Ctrl+O\n\n(Press F1 for keyboard shortcuts)" : message;
-    m_d2dContext->DrawText(
-        displayMsg.c_str(),
-        (UINT32)displayMsg.length(),
-        m_textFormatBlank.Get(),
-        layoutRect,
-        m_brushBlankText.Get()
-    );
+    UIViews::RecentFilesResources res;
+    res.brushCardBg = m_brushHelpCardBg.Get();
+    res.brushBackdrop = m_brushHelpBackdrop.Get();
+    res.brushBorder = m_brushTabBorder.Get();
+    res.brushAccent = m_brushTabAccent.Get();
+    res.brushHoverBg = m_brushTabHoverBg.Get();
+    res.brushActiveBg = m_brushTabActiveBg.Get();
+    res.brushText = m_brushHudText.Get();
+    res.brushTextDim = m_brushTabTextInactive.Get();
+    res.brushCloseHover = m_brushTabCloseHover.Get();
+    res.textFormatTitle = m_textFormatHelpTitle.Get();
+    res.textFormatSub = m_textFormatHelpSub.Get();
+    res.textFormatItemTitle = m_textFormatTab.Get();
+    res.textFormatItemSub = m_textFormatHelpColDesc.Get();
+    res.textFormatBadge = m_textFormatTabClose.Get();
+    res.textFormatBlank = m_textFormatBlank.Get();
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
+    if (pRecent) {
+        UIViews::RecentDashboardView::Render(
+            m_d2dContext.Get(),
+            dipWidth,
+            dipHeight,
+            *pRecent,
+            message,
+            res
+        );
+    } else {
+        std::wstring displayMsg = message.empty() ? L"Drag and drop a PDF file here,\ndouble-click to browse, or press Ctrl+O\n\n(Press F1 for keyboard shortcuts)" : message;
+        m_d2dContext->DrawText(
+            displayMsg.c_str(),
+            (UINT32)displayMsg.length(),
+            m_textFormatBlank.Get(),
+            layoutRect,
+            m_brushBlankText.Get()
+        );
+    }
+
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -995,7 +1024,8 @@ void D2DRenderer::RenderPage(
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
-    const TtsBarRenderInfo& ttsBar
+    const TtsBarRenderInfo& ttsBar,
+    const RecentRenderInfo* pRecent
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1024,7 +1054,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1246,7 +1276,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1283,7 +1313,8 @@ void D2DRenderer::RenderContinuous(
     const DictionaryCardRenderInfo& dictCard,
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
-    const TtsBarRenderInfo& ttsBar
+    const TtsBarRenderInfo& ttsBar,
+    const RecentRenderInfo* pRecent
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1525,7 +1556,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1555,7 +1586,8 @@ void D2DRenderer::DrawOverlays(
     const DictionaryCardRenderInfo* pDictCard,
     const LaserPointerRenderInfo* pLaser,
     const PresenterBarRenderInfo* pPresenterBar,
-    const TtsBarRenderInfo* pTtsBar
+    const TtsBarRenderInfo* pTtsBar,
+    const RecentRenderInfo* pRecent
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1606,6 +1638,36 @@ void D2DRenderer::DrawOverlays(
     // 10. Draw Laser Pointer if active (topmost element)
     if (pLaser && pLaser->active) {
         DrawLaserPointer(*pLaser);
+    }
+
+    // 11. Draw Recent Documents Switcher if active (modal overlay)
+    if (pRecent && pRecent->showSwitcher) {
+        float dipWidth = m_width * (96.0f / m_dpi);
+        float dipHeight = m_height * (96.0f / m_dpi);
+        UIViews::RecentFilesResources res;
+        res.brushCardBg = m_brushHelpCardBg.Get();
+        res.brushBackdrop = m_brushHelpBackdrop.Get();
+        res.brushBorder = m_brushTabBorder.Get();
+        res.brushAccent = m_brushTabAccent.Get();
+        res.brushHoverBg = m_brushTabHoverBg.Get();
+        res.brushActiveBg = m_brushTabActiveBg.Get();
+        res.brushText = m_brushHudText.Get();
+        res.brushTextDim = m_brushTabTextInactive.Get();
+        res.brushCloseHover = m_brushTabCloseHover.Get();
+        res.textFormatTitle = m_textFormatHelpTitle.Get();
+        res.textFormatSub = m_textFormatHelpSub.Get();
+        res.textFormatItemTitle = m_textFormatTab.Get();
+        res.textFormatItemSub = m_textFormatHelpColDesc.Get();
+        res.textFormatBadge = m_textFormatTabClose.Get();
+        res.textFormatBlank = m_textFormatBlank.Get();
+
+        UIViews::RecentSwitcherView::Render(
+            m_d2dContext.Get(),
+            dipWidth,
+            dipHeight,
+            *pRecent,
+            res
+        );
     }
 }
 

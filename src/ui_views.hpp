@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include "d2d_renderer.hpp"
+#include "recent_files_controller.hpp"
 
 /**
  * @namespace UIViews
@@ -448,6 +449,54 @@ public:
      * @return Button index hit (0=prev, 1=play/pause, 2=next, 3=speed, 4=close, -1=none).
      */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi, float topOffset);
+};
+
+// =========================================================================
+// 10. RecentFiles Views (Empty-State Dashboard & Ctrl+H Quick Switcher)
+// =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for Recent Files Dashboard and Switcher.
+struct RecentFilesResources {
+    ID2D1SolidColorBrush* brushCardBg = nullptr;
+    ID2D1SolidColorBrush* brushBackdrop = nullptr;
+    ID2D1SolidColorBrush* brushBorder = nullptr;
+    ID2D1SolidColorBrush* brushAccent = nullptr;
+    ID2D1SolidColorBrush* brushHoverBg = nullptr;
+    ID2D1SolidColorBrush* brushActiveBg = nullptr;
+    ID2D1SolidColorBrush* brushText = nullptr;
+    ID2D1SolidColorBrush* brushTextDim = nullptr;
+    ID2D1SolidColorBrush* brushCloseHover = nullptr;
+    IDWriteTextFormat* textFormatTitle = nullptr;
+    IDWriteTextFormat* textFormatSub = nullptr;
+    IDWriteTextFormat* textFormatItemTitle = nullptr;
+    IDWriteTextFormat* textFormatItemSub = nullptr;
+    IDWriteTextFormat* textFormatBadge = nullptr;
+    IDWriteTextFormat* textFormatBlank = nullptr;
+};
+
+/// @brief Renders the recent documents cards on the empty canvas.
+class RecentDashboardView {
+public:
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        float dipWidth,
+        float dipHeight,
+        const RecentRenderInfo& info,
+        const std::wstring& errorMessage,
+        const RecentFilesResources& res
+    );
+};
+
+/// @brief Renders the floating Ctrl+H modal palette for recent documents.
+class RecentSwitcherView {
+public:
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        float dipWidth,
+        float dipHeight,
+        const RecentRenderInfo& info,
+        const RecentFilesResources& res
+    );
 };
 
 } // namespace UIViews

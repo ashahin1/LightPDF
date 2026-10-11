@@ -2,6 +2,7 @@
 #include "pdf_parser.hpp"
 #include <windowsx.h>
 #include <shobjidl.h>
+#include <shlobj.h>
 #include <commdlg.h>
 #include <commctrl.h>
 #include <algorithm>
@@ -19,6 +20,14 @@ const wchar_t* WINDOW_CLASS_NAME = L"LightPDF_WindowClass";
 AppWindow::AppWindow() = default;
 
 AppWindow::~AppWindow() {
+    for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
+        const auto* tab = m_tabController.GetTab(i);
+        if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
+            m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+        }
+    }
+    m_recentController.SaveToRegistry();
+
     m_cancelBakingPdf = true;
     if (m_bakePdfThread.joinable()) {
         m_bakePdfThread.join();
@@ -80,12 +89,16 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     // Initialize offline dictionary engine (non-blocking, graceful fallback if missing)
     m_selectionController.GetDictEngine().Initialize();
 
+    // Load persistent recent files history from registry
+    m_recentController.LoadFromRegistry();
+
     if (!initialFile.empty()) {
         OpenTab(initialFile);
     }
     if (m_tabController.IsEmpty()) {
         UpdateTitle();
-        m_renderer.RenderBlank(L"");
+        auto recentInfo = m_recentController.GetRenderInfo();
+        m_renderer.RenderBlank(L"", {}, {}, false, false, L"", {}, {}, {}, {}, {}, {}, &recentInfo);
     }
 
     ShowWindow(m_hwnd, nCmdShow);
@@ -420,7 +433,26 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_ERASEBKGND:
         return 1; // Direct2D handles entire background, avoid flicker
 
+    case WM_ENDSESSION:
+        if (wParam) {
+            for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
+                const auto* tab = m_tabController.GetTab(i);
+                if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
+                    m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+                }
+            }
+            m_recentController.SaveToRegistry();
+        }
+        return 0;
+
     case WM_DESTROY:
+        for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
+            const auto* tab = m_tabController.GetTab(i);
+            if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
+                m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+            }
+        }
+        m_recentController.SaveToRegistry();
         m_renderer.Cleanup();
         PostQuitMessage(0);
         return 0;
@@ -534,6 +566,27 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         // 0b. If Dictionary Card is open and clicked outside, dismiss it
         if (m_selectionController.IsDictCardVisible() && !HitTestDictionaryCard(pt)) {
             DismissDictionaryCard();
+        }
+
+        // 0c. If Quick Switcher (Ctrl+H) is open, handle clicks
+        if (m_recentController.IsSwitcherOpen()) {
+            if (msg == WM_LBUTTONDOWN) {
+                float dipW = (float)m_renderer.GetWidth() * dipScale;
+                float dipH = (float)m_renderer.GetHeight() * dipScale;
+                bool outCardClicked = false;
+                int hit = RecentFilesController::HitTestSwitcher(
+                    D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outCardClicked);
+                if (!outCardClicked) {
+                    m_recentController.CloseSwitcher();
+                    Render();
+                    return 0;
+                } else if (hit >= 0) {
+                    m_recentController.CloseSwitcher();
+                    OpenRecentFile(static_cast<size_t>(hit));
+                    return 0;
+                }
+            }
+            return 0;
         }
 
         // 1. If Go to Page overlay is open, click outside closes it
@@ -712,6 +765,25 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 SetCursor(m_cursorSizeAll);
                 return 0;
             }
+        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+            if (msg == WM_LBUTTONDOWN && !m_recentController.IsEmpty()) {
+                float dipW = (float)m_renderer.GetWidth() * dipScale;
+                float dipH = (float)m_renderer.GetHeight() * dipScale;
+                bool outRemove = false;
+                int hit = RecentFilesController::HitTestDashboard(
+                    D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outRemove);
+                if (hit >= 0) {
+                    if (outRemove) {
+                        m_recentController.RemoveRecentFile(static_cast<size_t>(hit));
+                        Render();
+                        return 0;
+                    } else {
+                        m_justOpenedRecent = true;
+                        OpenRecentFile(static_cast<size_t>(hit));
+                        return 0;
+                    }
+                }
+            }
         }
         return 0;
     }
@@ -806,6 +878,25 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 Render();
             }
             if (newCat >= 0 || newClose > 0) {
+                SetCursor(m_cursorHand);
+            } else {
+                SetCursor(m_cursorArrow);
+            }
+            return 0;
+        }
+
+        // 0c. Quick Switcher hover detection
+        if (m_recentController.IsSwitcherOpen()) {
+            float dipH = (float)m_renderer.GetHeight() * dipScale;
+            bool outCardClicked = false;
+            int hit = RecentFilesController::HitTestSwitcher(
+                D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outCardClicked);
+            int prevHover = m_recentController.GetRenderInfo().switcherHoveredIndex;
+            if (hit != prevHover) {
+                m_recentController.SetSwitcherHoveredIndex(hit);
+                Render();
+            }
+            if (hit >= 0) {
                 SetCursor(m_cursorHand);
             } else {
                 SetCursor(m_cursorArrow);
@@ -944,6 +1035,28 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                     SetCursor(m_cursorArrow);
                 }
             }
+        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+            if (!m_recentController.IsEmpty()) {
+                float dipH = (float)m_renderer.GetHeight() * dipScale;
+                bool outRemove = false;
+                int hit = RecentFilesController::HitTestDashboard(
+                    D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outRemove);
+                auto rInfo = m_recentController.GetRenderInfo();
+                int prevHover = rInfo.dashboardHoveredIndex;
+                int prevRem = rInfo.dashboardHoveredRemove;
+                int newRem = outRemove ? hit : -1;
+                if (hit != prevHover || newRem != prevRem) {
+                    m_recentController.SetDashboardHoveredIndex(hit, newRem);
+                    Render();
+                }
+                if (hit >= 0) {
+                    SetCursor(m_cursorHand);
+                } else {
+                    SetCursor(m_cursorArrow);
+                }
+            } else {
+                SetCursor(m_cursorArrow);
+            }
         }
         return 0;
     }
@@ -997,6 +1110,10 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_LBUTTONDBLCLK: {
+        if (m_justOpenedRecent) {
+            m_justOpenedRecent = false;
+            return 0;
+        }
         if (m_showProperties) return 0;
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float topOffset = GetTopOffset();
@@ -1188,6 +1305,57 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             return 0;
         }
 
+        if (m_recentController.IsSwitcherOpen()) {
+            if (wParam == VK_ESCAPE) {
+                m_recentController.CloseSwitcher();
+                Render();
+                return 0;
+            } else if (wParam == VK_UP) {
+                m_recentController.SelectPrevSwitcherItem();
+                Render();
+                return 0;
+            } else if (wParam == VK_DOWN) {
+                m_recentController.SelectNextSwitcherItem();
+                Render();
+                return 0;
+            } else if (wParam == VK_RETURN) {
+                int sel = m_recentController.GetSwitcherSelectedIndex();
+                m_recentController.CloseSwitcher();
+                if (sel >= 0) {
+                    OpenRecentFile(static_cast<size_t>(sel));
+                } else {
+                    Render();
+                }
+                return 0;
+            } else if (wParam == VK_DELETE) {
+                int sel = m_recentController.GetSwitcherSelectedIndex();
+                if (sel >= 0) {
+                    m_recentController.RemoveRecentFile(static_cast<size_t>(sel));
+                    if (m_recentController.IsEmpty()) {
+                        m_recentController.CloseSwitcher();
+                    } else {
+                        m_recentController.SetSwitcherSelectedIndex((std::min)(sel, static_cast<int>(m_recentController.GetCount() - 1)));
+                    }
+                    Render();
+                }
+                return 0;
+            } else if (wParam >= '1' && wParam <= '9' && !isCtrlDown) {
+                size_t idx = static_cast<size_t>(wParam - '1');
+                m_recentController.CloseSwitcher();
+                OpenRecentFile(idx);
+                return 0;
+            }
+            return 0;
+        }
+
+        // Empty state dashboard hotkeys (1..9 to open recent files)
+        if (m_tabController.IsEmpty() && !isCtrlDown && wParam >= '1' && wParam <= '9' &&
+            !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+            size_t idx = static_cast<size_t>(wParam - '1');
+            OpenRecentFile(idx);
+            return 0;
+        }
+
         if (m_showGoToPage) {
             if (wParam >= '0' && wParam <= '9') {
                 if (m_goToPageBuffer.size() < 6) {
@@ -1258,7 +1426,11 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             }
             break;
         case 'H':
-            if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
+            if (isCtrlDown) {
+                m_recentController.ToggleSwitcher();
+                Render();
+                return 0;
+            } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
                 if (m_isLaserActive) {
                     SetToolMode(ToolMode::Hand);
                 } else {
@@ -1354,7 +1526,11 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             break;
         case 'T':
             if (isCtrlDown) {
-                PromptOpenFile();
+                if (isShiftDown) {
+                    ReopenClosedTab();
+                } else {
+                    PromptOpenFile();
+                }
                 return 0;
             }
             break;
@@ -1615,6 +1791,11 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             ToggleFullscreen();
             return 0;
         case VK_ESCAPE:
+            if (m_recentController.IsSwitcherOpen()) {
+                m_recentController.CloseSwitcher();
+                Render();
+                return 0;
+            }
             if (m_isBakingPdf) {
                 CancelBakingSearchablePdf();
                 ShowToast(L"Cancelling Searchable PDF generation...");
@@ -1694,6 +1875,12 @@ void AppWindow::OpenTab(const std::wstring& path) {
     std::wstring resolvedPath;
     bool alreadyOpen = false;
     if (m_tabController.OpenTab(path, m_hwnd, resolvedPath, alreadyOpen)) {
+        auto* pTab = GetActiveTab();
+        uint32_t totalPages = pTab ? pTab->document.GetPageCount() : 0;
+        uint32_t lastPage = pTab ? pTab->currentPage : 0;
+        m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
+
         m_renderer.InvalidatePageCache();
         if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
             TriggerSearch();
@@ -1718,8 +1905,89 @@ void AppWindow::OpenTab(const std::wstring& path) {
     }
 }
 
+void AppWindow::OpenRecentFile(size_t index) {
+    const auto& items = m_recentController.GetItems();
+    if (index >= items.size()) return;
+
+    RecentFileItem item = items[index];
+    std::wstring resolvedPath;
+    bool alreadyOpen = false;
+
+    if (m_tabController.OpenTab(item.filePath, m_hwnd, resolvedPath, alreadyOpen)) {
+        m_renderer.InvalidatePageCache();
+        auto* pTab = GetActiveTab();
+        if (pTab && !alreadyOpen && item.lastPage > 0) {
+            if (item.lastPage < pTab->document.GetPageCount()) {
+                GoToPage(item.lastPage);
+            }
+        }
+        uint32_t totalPages = GetActiveTab() ? GetActiveTab()->document.GetPageCount() : item.totalPages;
+        m_recentController.AddRecentFile(resolvedPath, totalPages, GetActiveTab() ? GetActiveTab()->currentPage : item.lastPage);
+        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
+
+        if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+            TriggerSearch();
+        }
+        RecalculateLayout();
+        UpdateTitle();
+        Render();
+    } else {
+        m_recentController.RemoveRecentFileByPath(item.filePath);
+        ShowToast(L"File not found: " + item.fileName);
+        Render();
+    }
+}
+
+void AppWindow::ReopenClosedTab() {
+    ClosedTabInfo info;
+    if (!m_recentController.PopClosedTab(info)) {
+        ShowToast(L"No closed tabs to reopen");
+        return;
+    }
+
+    std::wstring resolvedPath;
+    bool alreadyOpen = false;
+    if (m_tabController.OpenTab(info.filePath, m_hwnd, resolvedPath, alreadyOpen)) {
+        m_renderer.InvalidatePageCache();
+        auto* pTab = GetActiveTab();
+        if (pTab && !alreadyOpen) {
+            pTab->zoom = info.zoom;
+            pTab->zoomMode = info.zoomMode;
+            pTab->continuousScroll = info.continuousScroll;
+            pTab->scrollY = info.scrollY;
+            if (info.currentPage < pTab->document.GetPageCount()) {
+                pTab->currentPage = info.currentPage;
+            }
+        }
+        std::wstring fileName = RecentFilesController::ExtractFileName(resolvedPath);
+        ShowToast(L"Reopened: " + fileName);
+
+        if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+            TriggerSearch();
+        }
+        RecalculateLayout();
+        UpdateTitle();
+        Render();
+    } else {
+        ShowToast(L"Unable to reopen: " + RecentFilesController::ExtractFileName(info.filePath));
+    }
+}
+
 void AppWindow::CloseTab(size_t index) {
     if (index >= m_tabController.GetTabCount()) return;
+
+    const auto* pTab = m_tabController.GetTab(index);
+    if (pTab && pTab->document.IsLoaded() && !pTab->document.GetFilePath().empty()) {
+        ClosedTabInfo info;
+        info.filePath = pTab->document.GetFilePath();
+        info.currentPage = pTab->currentPage;
+        info.zoom = pTab->zoom;
+        info.scrollY = pTab->scrollY;
+        info.zoomMode = pTab->zoomMode;
+        info.continuousScroll = pTab->continuousScroll;
+        m_recentController.PushClosedTab(info);
+        m_recentController.UpdateLastPage(pTab->document.GetFilePath(), pTab->currentPage);
+    }
 
     m_renderer.InvalidatePageCache();
     m_tabController.CloseTab(index);
@@ -2745,6 +3013,8 @@ void AppWindow::Render() {
         ttsBarInfo = m_readAloudController.GetBarInfo();
     }
 
+    auto recentInfo = m_recentController.GetRenderInfo();
+
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
         if (m_hudToastTime > 0 && (GetTickCount64() - m_hudToastTime < 1500)) {
@@ -2826,7 +3096,8 @@ void AppWindow::Render() {
                 dictCardInfo,
                 laserInfo,
                 presenterBarInfo,
-                ttsBarInfo
+                ttsBarInfo,
+                &recentInfo
             );
             return;
         }
@@ -2859,7 +3130,8 @@ void AppWindow::Render() {
                 dictCardInfo,
                 laserInfo,
                 presenterBarInfo,
-                ttsBarInfo
+                ttsBarInfo,
+                &recentInfo
             );
             return;
         }
@@ -2877,7 +3149,8 @@ void AppWindow::Render() {
         dictCardInfo,
         laserInfo,
         presenterBarInfo,
-        ttsBarInfo
+        ttsBarInfo,
+        &recentInfo
     );
 }
 

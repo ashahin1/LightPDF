@@ -592,7 +592,8 @@ void HelpOverlayView::Render(
         { L"Mouse Wheel",           L"Scroll page vertically" },
         { L"Middle Drag / Space",   L"Smooth pan / drag document" },
         { L"H",                     L"Hand Tool (toggle drag pan)" },
-        { L"V / S",                 L"Text Selection Tool" }
+        { L"V / S",                 L"Text Selection Tool" },
+        { L"1 .. 9",                L"Open recent document (when shown)" }
     };
 
     static const ShortcutItem zoomItems[] = {
@@ -608,6 +609,8 @@ void HelpOverlayView::Render(
 
     static const ShortcutItem tabItems[] = {
         { L"Ctrl + O / Ctrl + T",   L"Open PDF document in new tab" },
+        { L"Ctrl + Shift + T",      L"Reopen last closed tab" },
+        { L"Ctrl + H",              L"Recent Documents Switcher" },
         { L"Ctrl + S / Shift+S",    L"Save as Searchable PDF (Bake OCR)" },
         { L"Ctrl + W",              L"Close active tab" },
         { L"Ctrl + Tab",            L"Switch to next tab" },
@@ -1296,6 +1299,224 @@ int TtsBarView::HitTest(POINT pt, UINT width, [[maybe_unused]] UINT height, floa
     if (inRect(TtsBarLayout::GetBtnRect(bar, 4))) return 4;
 
     return 100; // Inside bar body
+}
+
+// =========================================================================
+// 10. RecentFiles Views (Dashboard & Quick Switcher)
+// =========================================================================
+
+void RecentDashboardView::Render(
+    ID2D1DeviceContext* ctx,
+    float dipWidth,
+    float dipHeight,
+    const RecentRenderInfo& info,
+    const std::wstring& errorMessage,
+    const RecentFilesResources& res
+) {
+    if (!ctx) return;
+
+    // 1. Error Message Precedence: If an explicit error/info message exists, render it
+    if (!errorMessage.empty()) {
+        if (res.textFormatBlank && res.brushText) {
+            D2D1_RECT_F layoutRect = D2D1::RectF(20.0f, 20.0f, dipWidth - 20.0f, dipHeight - 20.0f);
+            ctx->DrawText(
+                errorMessage.c_str(),
+                static_cast<UINT32>(errorMessage.length()),
+                res.textFormatBlank,
+                layoutRect,
+                res.brushText
+            );
+        }
+        return;
+    }
+
+    // 2. Empty History Fallback: Render familiar original welcome text
+    if (info.items.empty()) {
+        if (res.textFormatBlank && res.brushText) {
+            D2D1_RECT_F layoutRect = D2D1::RectF(20.0f, 20.0f, dipWidth - 20.0f, dipHeight - 20.0f);
+            const wchar_t* welcomeMsg = L"Drag and drop a PDF file here,\ndouble-click to browse, or press Ctrl+O\n\n(Press F1 for keyboard shortcuts)";
+            ctx->DrawText(
+                welcomeMsg,
+                static_cast<UINT32>(wcslen(welcomeMsg)),
+                res.textFormatBlank,
+                layoutRect,
+                res.brushText
+            );
+        }
+        return;
+    }
+
+    // 3. Render Modern Recent Documents Dashboard
+    size_t count = info.items.size();
+    RecentItemLayout firstLayout = RecentFilesController::CalculateDashboardCardLayout(dipWidth, dipHeight, 0, count);
+
+    // Section Header (above first card)
+    float headerY = (std::max)(16.0f, firstLayout.itemRect.top - 54.0f);
+    D2D1_RECT_F titleRect = D2D1::RectF(firstLayout.itemRect.left, headerY, firstLayout.itemRect.right, headerY + 28.0f);
+    D2D1_RECT_F subRect = D2D1::RectF(firstLayout.itemRect.left, headerY + 26.0f, firstLayout.itemRect.right, headerY + 46.0f);
+
+    if (res.textFormatTitle && res.brushText) {
+        const wchar_t* titleStr = L"LightPDF";
+        ctx->DrawText(titleStr, static_cast<UINT32>(wcslen(titleStr)), res.textFormatTitle, titleRect, res.brushText);
+    }
+    if (res.textFormatSub && res.brushTextDim) {
+        const wchar_t* subStr = L"Recent Documents \u2014 Press 1-9 to open directly, or drop any file";
+        ctx->DrawText(subStr, static_cast<UINT32>(wcslen(subStr)), res.textFormatSub, subRect, res.brushTextDim);
+    }
+
+    // Render cards
+    for (size_t i = 0; i < count; ++i) {
+        RecentItemLayout layout = RecentFilesController::CalculateDashboardCardLayout(dipWidth, dipHeight, i, count);
+        const auto& item = info.items[i];
+        bool isHovered = (info.dashboardHoveredIndex == static_cast<int>(i));
+        bool isRemoveHovered = isHovered && (info.dashboardHoveredRemove == static_cast<int>(i));
+
+        // Card Background
+        ID2D1SolidColorBrush* bgBrush = isHovered ? (res.brushHoverBg ? res.brushHoverBg : res.brushCardBg) : res.brushCardBg;
+        if (bgBrush) {
+            ctx->FillRectangle(layout.itemRect, bgBrush);
+        }
+        if (res.brushBorder) {
+            ctx->DrawRectangle(layout.itemRect, isHovered ? (res.brushAccent ? res.brushAccent : res.brushBorder) : res.brushBorder, 1.0f);
+        }
+
+        // Digit Pill Badge: [1]..[9]
+        if (res.brushAccent) {
+            ctx->FillRectangle(layout.badgeRect, res.brushAccent);
+        }
+        wchar_t badgeChar[2] = { static_cast<wchar_t>(L'1' + i), L'\0' };
+        if (res.textFormatBadge && res.brushText) {
+            ctx->DrawText(badgeChar, 1, res.textFormatBadge, layout.badgeRect, res.brushText);
+        }
+
+        // Document Title
+        if (res.textFormatItemTitle && res.brushText) {
+            ctx->DrawText(item.fileName.c_str(), static_cast<UINT32>(item.fileName.length()), res.textFormatItemTitle, layout.titleRect, res.brushText);
+        }
+
+        // Document Subtitle (Path & Page progress)
+        std::wstring meta = item.filePath;
+        if (item.totalPages > 0) {
+            meta += L" \x2022 Page " + std::to_wstring(item.lastPage + 1) + L" of " + std::to_wstring(item.totalPages);
+        }
+        if (res.textFormatItemSub && res.brushTextDim) {
+            ctx->DrawText(meta.c_str(), static_cast<UINT32>(meta.length()), res.textFormatItemSub, layout.subRect, res.brushTextDim);
+        }
+
+        // Remove [✕] button on hover
+        if (isHovered && res.brushCloseHover) {
+            if (isRemoveHovered) {
+                ctx->FillRectangle(layout.removeBtnRect, res.brushCloseHover);
+            }
+            if (res.textFormatBadge && res.brushTextDim) {
+                ctx->DrawText(L"\x2715", 1, res.textFormatBadge, layout.removeBtnRect, isRemoveHovered ? res.brushText : res.brushTextDim);
+            }
+        }
+    }
+
+    // Bottom Action Hint
+    RecentItemLayout lastLayout = RecentFilesController::CalculateDashboardCardLayout(dipWidth, dipHeight, count - 1, count);
+    D2D1_RECT_F hintRect = D2D1::RectF(lastLayout.itemRect.left, lastLayout.itemRect.bottom + 14.0f, lastLayout.itemRect.right, lastLayout.itemRect.bottom + 34.0f);
+    if (res.textFormatItemSub && res.brushTextDim) {
+        const wchar_t* hintStr = L"Double-click blank canvas or press Ctrl+O to browse for another file \x2022 F1 for help";
+        ctx->DrawText(hintStr, static_cast<UINT32>(wcslen(hintStr)), res.textFormatItemSub, hintRect, res.brushTextDim);
+    }
+}
+
+void RecentSwitcherView::Render(
+    ID2D1DeviceContext* ctx,
+    float dipWidth,
+    float dipHeight,
+    const RecentRenderInfo& info,
+    const RecentFilesResources& res
+) {
+    if (!ctx || !info.showSwitcher) return;
+
+    // 1. Fullscreen Dimmed Backdrop
+    if (res.brushBackdrop) {
+        D2D1_RECT_F full = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
+        ctx->FillRectangle(full, res.brushBackdrop);
+    }
+
+    // 2. Centered Modal Card
+    D2D1_RECT_F card = RecentFilesController::CalculateSwitcherCardRect(dipWidth, dipHeight);
+    if (res.brushCardBg) {
+        ctx->FillRectangle(card, res.brushCardBg);
+    }
+    if (res.brushBorder) {
+        ctx->DrawRectangle(card, res.brushBorder, 1.0f);
+    }
+
+    // Title Bar
+    D2D1_RECT_F titleR = D2D1::RectF(card.left + 16.0f, card.top + 12.0f, card.right - 16.0f, card.top + 34.0f);
+    D2D1_RECT_F hintR = D2D1::RectF(card.left + 16.0f, card.top + 34.0f, card.right - 16.0f, card.top + 52.0f);
+
+    if (res.textFormatTitle && res.brushText) {
+        const wchar_t* t = L"Recent Documents";
+        ctx->DrawText(t, static_cast<UINT32>(wcslen(t)), res.textFormatTitle, titleR, res.brushText);
+    }
+    if (res.textFormatSub && res.brushTextDim) {
+        const wchar_t* h = L"\x2191\x2193 Navigate \x2022 Enter Open \x2022 Delete Remove \x2022 Esc Close";
+        ctx->DrawText(h, static_cast<UINT32>(wcslen(h)), res.textFormatSub, hintR, res.brushTextDim);
+    }
+
+    // Divider Line
+    if (res.brushBorder) {
+        ctx->DrawLine(
+            D2D1::Point2F(card.left + 14.0f, card.top + 56.0f),
+            D2D1::Point2F(card.right - 14.0f, card.top + 56.0f),
+            res.brushBorder,
+            1.0f
+        );
+    }
+
+    if (info.items.empty()) {
+        D2D1_RECT_F emptyR = D2D1::RectF(card.left + 16.0f, card.top + 90.0f, card.right - 16.0f, card.top + 140.0f);
+        if (res.textFormatSub && res.brushTextDim) {
+            const wchar_t* noDocs = L"No recent documents found.";
+            ctx->DrawText(noDocs, static_cast<UINT32>(wcslen(noDocs)), res.textFormatSub, emptyR, res.brushTextDim);
+        }
+        return;
+    }
+
+    size_t count = info.items.size();
+    for (size_t i = 0; i < count; ++i) {
+        D2D1_RECT_F itemR = RecentFilesController::CalculateSwitcherItemRect(card, i);
+        const auto& item = info.items[i];
+        bool isSelected = (info.switcherSelectedIndex == static_cast<int>(i));
+        bool isHovered = (info.switcherHoveredIndex == static_cast<int>(i));
+
+        // Row Highlight
+        if (isSelected && res.brushActiveBg) {
+            ctx->FillRectangle(itemR, res.brushActiveBg);
+            if (res.brushAccent) {
+                // Accent indicator line on left edge
+                ctx->FillRectangle(D2D1::RectF(itemR.left, itemR.top, itemR.left + 3.0f, itemR.bottom), res.brushAccent);
+            }
+        } else if (isHovered && res.brushHoverBg) {
+            ctx->FillRectangle(itemR, res.brushHoverBg);
+        }
+
+        // Number Badge
+        D2D1_RECT_F badgeR = D2D1::RectF(itemR.left + 8.0f, itemR.top + 4.0f, itemR.left + 26.0f, itemR.bottom - 4.0f);
+        wchar_t badgeChar[2] = { static_cast<wchar_t>(L'1' + i), L'\0' };
+        if (res.textFormatBadge && (isSelected ? res.brushAccent : res.brushTextDim)) {
+            ctx->DrawText(badgeChar, 1, res.textFormatBadge, badgeR, isSelected ? res.brushAccent : res.brushTextDim);
+        }
+
+        // Title
+        D2D1_RECT_F titleTextR = D2D1::RectF(itemR.left + 32.0f, itemR.top + 2.0f, itemR.right - 100.0f, itemR.bottom - 2.0f);
+        if (res.textFormatItemTitle && res.brushText) {
+            ctx->DrawText(item.fileName.c_str(), static_cast<UINT32>(item.fileName.length()), res.textFormatItemTitle, titleTextR, res.brushText);
+        }
+
+        // Page info on right side
+        if (item.totalPages > 0 && res.textFormatItemSub && res.brushTextDim) {
+            D2D1_RECT_F pageR = D2D1::RectF(itemR.right - 96.0f, itemR.top + 4.0f, itemR.right - 8.0f, itemR.bottom - 4.0f);
+            std::wstring pStr = L"Page " + std::to_wstring(item.lastPage + 1) + L"/" + std::to_wstring(item.totalPages);
+            ctx->DrawText(pStr.c_str(), static_cast<UINT32>(pStr.length()), res.textFormatItemSub, pageR, res.brushTextDim);
+        }
+    }
 }
 
 } // namespace UIViews

@@ -23,6 +23,8 @@
 
 using Microsoft::WRL::ComPtr;
 
+struct RecentRenderInfo;
+
 /// @brief Cache entry for a rendered page Direct2D bitmap.
 struct PageBitmapCache {
     uint32_t pageIndex = UINT32_MAX;    ///< 0-based page index
@@ -418,7 +420,8 @@ public:
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
-        const TtsBarRenderInfo& ttsBar = {}
+        const TtsBarRenderInfo& ttsBar = {},
+        const RecentRenderInfo* pRecent = nullptr
     );
 
     /**
@@ -447,7 +450,8 @@ public:
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
-        const TtsBarRenderInfo& ttsBar = {}
+        const TtsBarRenderInfo& ttsBar = {},
+        const RecentRenderInfo* pRecent = nullptr
     );
 
     /**
@@ -473,7 +477,8 @@ public:
         const DictionaryCardRenderInfo& dictCard = {},
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
-        const TtsBarRenderInfo& ttsBar = {}
+        const TtsBarRenderInfo& ttsBar = {},
+        const RecentRenderInfo* pRecent = nullptr
     );
 
     /// @brief Draws the floating dictionary translation card.
@@ -557,7 +562,8 @@ private:
         const DictionaryCardRenderInfo* pDictCard = nullptr,
         const LaserPointerRenderInfo* pLaser = nullptr,
         const PresenterBarRenderInfo* pPresenterBar = nullptr,
-        const TtsBarRenderInfo* pTtsBar = nullptr
+        const TtsBarRenderInfo* pTtsBar = nullptr,
+        const RecentRenderInfo* pRecent = nullptr
     );
 
     HWND m_hwnd = nullptr;
