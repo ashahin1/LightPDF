@@ -15,8 +15,8 @@ if %errorlevel% neq 0 (
 )
 
 echo Compiling LightPDF Unified Test Suite with /W4...
-if not exist "bin\obj" mkdir "bin\obj"
-cl.exe /nologo /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /W4 /Fo"bin\obj\\" /Fd"bin\obj\\" /I src /I tests ^
+if not exist "bin\obj_test" mkdir "bin\obj_test"
+cl.exe /nologo /MP /O2 /MT /std:c++20 /EHsc /utf-8 /DNOMINMAX /W4 /Fo"bin\obj_test\\" /Fd"bin\obj_test\\" /I src /I tests ^
     tests\unified_tests.cpp src\pdf_document.cpp src\dictionary_engine.cpp ^
     src\tab_controller.cpp src\search_controller.cpp src\selection_controller.cpp ^
     src\pdf_parser.cpp src\pdf_searchable_writer.cpp src\pdf_search.cpp src\ui_views.cpp ^

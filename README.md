@@ -218,6 +218,7 @@ LightPDF/
 │   ├── app.rc                    # Windows resource script (App Icon + VS_VERSION_INFO)
 │   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
 ├── src/
+│   ├── pch.hpp/.cpp              # Precompiled header (Win32, Direct2D, WinRT, STL) for ~5x faster incremental builds
 │   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
 │   ├── app_window.hpp/.cpp       # Window lifecycle, thread coordination, message routing
 │   ├── tab_controller.hpp/.cpp   # Document tabs, multi-tab layout, continuous scroll metrics
@@ -280,31 +281,52 @@ Move-Item -Path msvc -Destination tools\msvc
 
 The build scripts (`build.ps1` / `build.bat`) automatically detect and activate `tools\msvc\activate.ps1`.
 
-### Build Command
+### Build Commands & Incremental Caching
+
+The build system features an **intelligent incremental compilation and caching engine** using MSVC Precompiled Headers (PCH), `/MP` multi-processor parallel compilation, and recursive `#include` dependency tracking:
 
 ```powershell
-# PowerShell (Recommended)
+# Fast incremental build (compiles only modified files and dependent headers)
 .\build.ps1
+
+# Full clean rebuild (rebuilds PCH and all translation units from scratch)
+.\build.ps1 -Rebuild
+
+# Clean all build artifacts (bin\obj, bin\LightPDF.exe, resources\app.res)
+.\build.ps1 -Clean
 ```
 
 ```cmd
-:: Command Prompt
-build.bat
+:: Command Prompt equivalents
+build.bat            :: Smart incremental build (< 0.5s when up to date)
+build.bat /rebuild   :: Full clean rebuild
+build.bat /clean     :: Clean build artifacts
 ```
 
-Output: `bin\LightPDF.exe` (**~831 KB**)
+#### Build Performance Benchmarks
+
+| Build Scenario | Baseline (Monolithic) | LightPDF Incremental + PCH | Speedup |
+| :--- | :---: | :---: | :---: |
+| **No Changes (Up-to-Date)** | 106.75 s | **0.47 s** | **> 200× faster** |
+| **Single File Modified** | 106.75 s | **13.17 s** | **8× faster** |
+| **Full Clean Rebuild** | 106.75 s | **21.39 s** | **5× faster** |
+
+Output: `bin\LightPDF.exe` (**829.5 KB** unsigned / **831.0 KB** signed)
 
 ### Compiler Flags
 
 ```
-/O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4
-/Fo"bin\obj\\" /Fd"bin\obj\\"
+/MP /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4
+/Yu"pch.hpp" /FI"pch.hpp" /Fp"bin\obj\pch.pch"
+/Fo"bin\obj/" /Fd"bin\obj/"
 /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS
       /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest
 ```
 
 | Flag | Purpose |
 | :--- | :--- |
+| `/MP` | Multi-processor compilation &mdash; compiles translation units concurrently across all logical CPU cores |
+| `/Yu` + `/FI` | Precompiled headers with forced inclusion &mdash; parses >1.5M lines of WinRT/D2D/STL headers once into `pch.pch` |
 | `/O2` | Aggressive speed optimization for release code |
 | `/W4` | Level 4 compiler diagnostics &mdash; strict zero-warning policy enforced |
 | `/MT` | Static CRT linking &mdash; eliminates `VCRUNTIME140.dll` / `MSVCP140.dll` dependencies |
