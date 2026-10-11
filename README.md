@@ -215,7 +215,7 @@ LightPDF/
 │   └── user_terms.txt            # Custom additions source list
 ├── resources/
 │   ├── app.ico                   # Multi-resolution icon (16×16 → 256×256)
-│   ├── app.rc                    # Windows resource script
+│   ├── app.rc                    # Windows resource script (App Icon + VS_VERSION_INFO)
 │   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
 ├── src/
 │   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
@@ -243,6 +243,8 @@ LightPDF/
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
 ├── tools/
+│   ├── sign.bat                  # 1-click Authenticode code signing & bundle generator
+│   ├── sign.ps1                  # PowerShell script to sign binary & build dist package
 │   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
 ├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
 ├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)
@@ -309,6 +311,29 @@ Output: `bin\LightPDF.exe` (**~828 KB**)
 | `/GL` + `/LTCG` | Whole-program link-time code generation for maximum inter-procedural inlining |
 | `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding for minimal binary size |
 | `/Gy` + `/Gw` | Function-level and global data-level linking for granular dead-code removal |
+
+---
+
+## Code Signing & Colleague Distribution
+
+To distribute LightPDF to colleagues without triggering Windows SmartScreen (*"unrecognized app"*) warnings:
+
+### 1. Generate Signed Distribution Package
+After building the executable (`build.bat` or `build.ps1`), run:
+
+```cmd
+tools\sign.bat
+```
+
+This automatically:
+- Creates a dedicated 5-year Authenticode Code Signing certificate for `Ahmed Amer Shahin (EtherHome)` (if not already present).
+- Digitally signs `bin\LightPDF.exe` with SHA-256 Authenticode.
+- Prepares a self-contained distribution bundle in `dist\`.
+
+### 2. Share `dist\` with Colleagues
+Zip or share the generated `dist\` folder with your colleagues:
+1. They run `install_certificate.bat` **once** (registers the certificate into their Windows Trusted Publishers store and clears Internet download flags).
+2. They launch `LightPDF.exe` immediately with zero SmartScreen or Defender warnings!
 
 ---
 
