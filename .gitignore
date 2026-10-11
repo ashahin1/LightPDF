@@ -1,5 +1,6 @@
 # Build output & binaries
 bin/
+dist/
 *.exe
 *.obj
 *.res
