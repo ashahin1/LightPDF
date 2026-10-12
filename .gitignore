@@ -8,6 +8,7 @@ dist/
 *.ilk
 *.lib
 *.exp
+*.zip
 
 # MSVC portable toolchain
 tools/msvc/
