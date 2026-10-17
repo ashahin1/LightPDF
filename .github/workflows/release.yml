@@ -1,0 +1,78 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v2.0.0)'
+        required: true
+        default: 'v2.0.0'
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compile LightPDF
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\build.ps1 -Rebuild
+
+      - name: Run Test Suite Verification
+        shell: cmd
+        run: |
+          cmd.exe /c tests\run_tests.bat
+
+      - name: Package Release Assets & Compute Checksums
+        shell: powershell
+        run: |
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "${{ github.event.inputs.tag_name }}" }
+          if (-not $tag) { $tag = "v2.0.0" }
+
+          # Prepare zip payload in release_dist
+          New-Item -ItemType Directory -Path "release_dist" -Force | Out-Null
+          Copy-Item "bin\LightPDF.exe" "release_dist\"
+          if (Test-Path "dict") {
+            Copy-Item "dict" "release_dist\" -Recurse
+          }
+          Copy-Item "README.md" "release_dist\"
+          Copy-Item "LICENSE" "release_dist\"
+
+          $zipName = "LightPDF-$tag-windows-x64.zip"
+          Compress-Archive -Path "release_dist\*" -DestinationPath $zipName -Force
+
+          # Calculate SHA-256 hashes
+          $hashExe = (Get-FileHash "bin\LightPDF.exe" -Algorithm SHA256).Hash
+          $hashZip = (Get-FileHash $zipName -Algorithm SHA256).Hash
+
+          @(
+            "LightPDF $tag SHA-256 Checksums:",
+            "$hashExe  LightPDF.exe",
+            "$hashZip  $zipName"
+          ) | Set-Content -Path "checksums.txt"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LightPDF ${{ github.ref_name || github.event.inputs.tag_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            bin/LightPDF.exe
+            LightPDF-*.zip
+            checksums.txt

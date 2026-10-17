@@ -1,0 +1,57 @@
+name: Build LightPDF
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Native Windows Executable
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC Toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Compile LightPDF
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File .\build.ps1 -Rebuild
+
+      - name: Verify Binary Output & Size
+        shell: powershell
+        run: |
+          if (-not (Test-Path "bin\LightPDF.exe")) {
+            Write-Error "Binary bin\LightPDF.exe was not generated!"
+            exit 1
+          }
+          $item = Get-Item "bin\LightPDF.exe"
+          $sizeKB = [math]::Round($item.Length / 1KB, 1)
+          Write-Host ("Build successful. Binary size: {0} KB ({1} bytes)" -f $sizeKB, $item.Length)
+          if ($item.Length -gt 832 * 1024) {
+            Write-Error ("Binary size {0} KB exceeds strict 832 KB budget limit!" -f $sizeKB)
+            exit 1
+          }
+          Write-Host "Binary size check PASSED! (< 832 KB)" -ForegroundColor Green
+
+      - name: Run Automated Unified Test Suite
+        shell: cmd
+        run: |
+          cmd.exe /c tests\run_tests.bat
+
+      - name: Upload Standalone Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightPDF-Windows-x64
+          path: |
+            bin/LightPDF.exe
+            bin/dict/
+          if-no-files-found: error

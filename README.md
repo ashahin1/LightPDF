@@ -8,13 +8,19 @@
 </p>
 
 <p align="center">
+  <a href="https://isocpp.org/"><img src="https://img.shields.io/badge/C%2B%2B-20-blue.svg?style=flat-square" alt="C++20"></a>
+  <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
+  <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
+  <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
   <img src="https://img.shields.io/badge/binary-831_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/C%2B%2B20-MSVC_14.44-E65100?style=flat-square" alt="C++20">
-  <img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
-  <img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ashahin1/LightPDF/releases/latest"><b>⬇️ Download Latest Release (LightPDF.exe)</b></a>
 </p>
 
 ---

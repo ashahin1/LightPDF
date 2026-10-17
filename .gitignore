@@ -1,6 +1,8 @@
 # Build output & binaries
 bin/
 dist/
+release_dist/
+checksums.txt
 *.exe
 *.obj
 *.res

@@ -26,6 +26,7 @@ if ($Clean) {
 if ($Rebuild) {
     Write-Host "Full rebuild requested. Purging bin\obj..." -ForegroundColor Yellow
     if (Test-Path "bin\obj") { Remove-Item -Path "bin\obj" -Recurse -Force }
+    if (Test-Path "resources\app.res") { Remove-Item -Path "resources\app.res" -Force }
 }
 
 # 3. Ensure required directories
@@ -42,7 +43,7 @@ if (Test-Path "dict\en-ar.dat") {
     Copy-Item -Path "dict\*" -Destination "bin\dict\" -Recurse -Force
 }
 
-# 4. Activate portable MSVC if cl.exe is not in PATH
+# 4. Activate MSVC if cl.exe is not in PATH
 if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
     if (Test-Path "tools\msvc\activate.ps1") {
         Write-Host "Activating portable MSVC..." -ForegroundColor Yellow
@@ -63,7 +64,27 @@ set > "$tempEnv.txt"
         }
         Remove-Item -Path $tempEnv, "$tempEnv.txt" -Force -ErrorAction SilentlyContinue
     } else {
-        Write-Error "cl.exe not found and tools\msvc activation scripts missing!"
+        # Check standard Visual Studio installation via vswhere.exe
+        $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        $activated = $false
+        if (Test-Path $vswhere) {
+            $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            if ($vsPath) {
+                $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+                if (Test-Path $vcvars) {
+                    Write-Host "Activating Visual Studio environment via $vcvars..." -ForegroundColor Yellow
+                    & cmd.exe /c "call `"$vcvars`" && set" | ForEach-Object {
+                        if ($_ -match "^(.*?)=(.*)$") {
+                            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+                        }
+                    }
+                    $activated = $true
+                }
+            }
+        }
+        if (-not $activated -and -not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+            Write-Error "cl.exe not found and neither portable MSVC nor Visual Studio installation was detected!"
+        }
     }
 }
 
