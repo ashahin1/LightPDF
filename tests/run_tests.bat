@@ -3,15 +3,23 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0\.."
 
-rem Activate portable MSVC environment if cl.exe is not in PATH
+rem Activate MSVC environment if cl.exe is not in PATH
 where cl.exe >nul 2>nul
 if %errorlevel% neq 0 (
     if exist "tools\msvc\setup_x64.bat" (
         call "tools\msvc\setup_x64.bat"
-    ) else (
-        echo [ERROR] cl.exe not found and tools\msvc\setup_x64.bat missing!
-        exit /b 1
+    ) else if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" (
+        for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
+            if exist "%%i\VC\Auxiliary\Build\vcvars64.bat" (
+                call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+            )
+        )
     )
+)
+where cl.exe >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] cl.exe not found and neither portable MSVC nor Visual Studio was detected!
+    exit /b 1
 )
 
 echo Compiling LightPDF Unified Test Suite with /W4...
