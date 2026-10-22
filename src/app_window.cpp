@@ -388,7 +388,25 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_LBUTTONDBLCLK:
         return HandleMouseEvent(msg, wParam, lParam);
 
+    case WM_XBUTTONDOWN: {
+        if (HIWORD(wParam) == XBUTTON1) {
+            NavigateBack();
+            return TRUE;
+        } else if (HIWORD(wParam) == XBUTTON2) {
+            NavigateForward();
+            return TRUE;
+        }
+        break;
+    }
+
     case WM_SYSKEYDOWN: {
+        if (wParam == VK_LEFT) {
+            NavigateBack();
+            return 0;
+        } else if (wParam == VK_RIGHT) {
+            NavigateForward();
+            return 0;
+        }
         if (wParam >= '1' && wParam <= '9') {
             size_t targetIndex = (size_t)(wParam - '1');
             if (targetIndex < m_tabController.GetTabCount()) {
@@ -757,8 +775,17 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            // Left click: Check if Hand mode or holding spacebar
+            // Left click: Check if clicking an interactive hyperlink
+            uint32_t linkPage = 0;
+            PdfLink hitLink;
             bool isSpaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
+            if (!isSpaceDown && m_selectionController.HitTestPageLink(pTab, pt, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), GetTopOffset(), linkPage, hitLink)) {
+                m_isLinkMouseDown = true;
+                m_linkMouseDownPt = pt;
+                m_mouseDownLink = hitLink;
+            }
+
+            // Left click: Check if Hand mode or holding spacebar
             if (m_toolMode == ToolMode::Hand || isSpaceDown) {
                 m_isPanning = true;
                 m_lastMousePos = pt;
@@ -1072,16 +1099,45 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         // 6. Idle Hover Cursor Management
         if (pTab && pTab->document.IsLoaded() && dipY >= topOffset) {
             bool isSpaceDown = (GetKeyState(VK_SPACE) & 0x8000) != 0;
-            if (m_toolMode == ToolMode::Hand || isSpaceDown) {
+            if (isSpaceDown) {
+                if (m_hasHoveredLink) {
+                    ClearHoveredLink();
+                    Render();
+                }
                 SetCursor(m_cursorHand);
             } else {
-                uint32_t hitPage = 0;
-                size_t hitChar = 0;
-                bool afterChar = false;
-                if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
-                    SetCursor(m_cursorIBeam);
+                uint32_t linkPage = 0;
+                PdfLink hitLink;
+                if (m_selectionController.HitTestPageLink(pTab, pt, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), topOffset, linkPage, hitLink)) {
+                    bool changed = (!m_hasHoveredLink || m_hoveredLinkPage != linkPage ||
+                                    m_hoveredLink.uri != hitLink.uri ||
+                                    m_hoveredLink.targetPage != hitLink.targetPage ||
+                                    m_hoveredLink.rect.left != hitLink.rect.left ||
+                                    m_hoveredLink.rect.top != hitLink.rect.top);
+                    m_hasHoveredLink = true;
+                    m_hoveredLinkPage = linkPage;
+                    m_hoveredLink = hitLink;
+                    SetCursor(m_cursorHand);
+                    if (changed) {
+                        Render();
+                    }
                 } else {
-                    SetCursor(m_cursorArrow);
+                    if (m_hasHoveredLink) {
+                        ClearHoveredLink();
+                        Render();
+                    }
+                    if (m_toolMode == ToolMode::Hand) {
+                        SetCursor(m_cursorHand);
+                    } else {
+                        uint32_t hitPage = 0;
+                        size_t hitChar = 0;
+                        bool afterChar = false;
+                        if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
+                            SetCursor(m_cursorIBeam);
+                        } else {
+                            SetCursor(m_cursorArrow);
+                        }
+                    }
                 }
             }
         } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
@@ -1113,6 +1169,23 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_LBUTTONUP:
     case WM_MBUTTONUP: {
         auto* pTab = GetActiveTab();
+        if (msg == WM_LBUTTONUP && m_isLinkMouseDown) {
+            m_isLinkMouseDown = false;
+            float dipScale = 96.0f / m_renderer.GetDpi();
+            float dx = (float)(GET_X_LPARAM(lParam) - m_linkMouseDownPt.x) * dipScale;
+            float dy = (float)(GET_Y_LPARAM(lParam) - m_linkMouseDownPt.y) * dipScale;
+            if ((dx * dx + dy * dy) <= 16.0f) {
+                if (pTab && !pTab->selection.HasSelection()) {
+                    pTab->selection.Clear();
+                }
+                if (m_isPanning) {
+                    m_isPanning = false;
+                    ReleaseCapture();
+                }
+                ActivatePdfLink(m_mouseDownLink);
+                return 0;
+            }
+        }
         if (pTab && pTab->selection.isDragging) {
             pTab->selection.isDragging = false;
             ReleaseCapture();
@@ -1479,6 +1552,8 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
                         if (pTab && pTab->document.IsLoaded()) {
                             uint32_t total = pTab->document.GetPageCount();
                             if (p >= 1 && (uint32_t)p <= total) {
+                                PushNavHistory(pTab);
+                                pTab->navForwardStack.clear();
                                 GoToPage((uint32_t)(p - 1));
                             }
                         }
@@ -3205,6 +3280,18 @@ void AppWindow::CycleLaserColor() {
 }
 
 void AppWindow::Render() {
+    LinkHoverRenderInfo linkHover;
+    linkHover.active = m_hasHoveredLink;
+    if (m_hasHoveredLink) {
+        linkHover.pageIndex = m_hoveredLinkPage;
+        linkHover.pageRect = m_hoveredLink.rect;
+        if (m_hoveredLink.type == PdfLinkType::ExternalUri) {
+            linkHover.label = m_hoveredLink.uri;
+        } else if (m_hoveredLink.type == PdfLinkType::InternalPage) {
+            linkHover.label = L"\u21AA Go to Page " + std::to_wstring(m_hoveredLink.targetPage + 1);
+        }
+    }
+
     PasswordOverlayRenderInfo pwdInfo;
     pwdInfo.visible = m_showPasswordOverlay;
     if (m_showPasswordOverlay) {
@@ -3328,7 +3415,8 @@ void AppWindow::Render() {
                 presenterBarInfo,
                 ttsBarInfo,
                 &recentInfo,
-                &pwdInfo
+                &pwdInfo,
+                &linkHover
             );
             return;
         }
@@ -3363,7 +3451,8 @@ void AppWindow::Render() {
                 presenterBarInfo,
                 ttsBarInfo,
                 &recentInfo,
-                &pwdInfo
+                &pwdInfo,
+                &linkHover
             );
             return;
         }
@@ -3385,7 +3474,8 @@ void AppWindow::Render() {
         presenterBarInfo,
         ttsBarInfo,
         &recentInfo,
-        &pwdInfo
+        &pwdInfo,
+        &linkHover
     );
 }
 
@@ -4120,4 +4210,106 @@ void AppWindow::UnregisterShellAssociations() {
     }
 
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}
+
+void AppWindow::ClearHoveredLink() {
+    m_hasHoveredLink = false;
+    m_hoveredLinkPage = 0;
+    m_hoveredLink = PdfLink{};
+}
+
+void AppWindow::ActivatePdfLink(const PdfLink& link) {
+    if (link.type == PdfLinkType::ExternalUri) {
+        if (!PdfParser::IsSafeExternalUri(link.uri)) {
+            ShowToast(L"Blocked unsafe link protocol");
+            return;
+        }
+        HINSTANCE hRes = ShellExecuteW(nullptr, L"open", link.uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if ((INT_PTR)hRes <= 32) {
+            ShowToast(L"Failed to open link");
+        }
+    } else if (link.type == PdfLinkType::InternalPage) {
+        auto* pTab = GetActiveTab();
+        if (!pTab || !pTab->document.IsLoaded()) return;
+        uint32_t count = pTab->document.GetPageCount();
+        if (link.targetPage < count) {
+            PushNavHistory(pTab);
+            pTab->navForwardStack.clear();
+            GoToPage(link.targetPage);
+            if (pTab->continuousScroll && link.targetTopDip >= 0.0f) {
+                UpdateContinuousOffsets(pTab);
+                float targetY = pTab->pageOffsets[link.targetPage] + link.targetTopDip * pTab->zoom;
+                float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+                float maxScroll = (std::max)(0.0f, GetTotalDocumentHeight(pTab) - dipH);
+                pTab->scrollY = std::clamp(targetY, 0.0f, maxScroll);
+                Render();
+            }
+            ShowToast(L"Page " + std::to_wstring(link.targetPage + 1) + L"  (Alt+\x2190 to go back)");
+        }
+    }
+}
+
+void AppWindow::PushNavHistory(DocumentTab* pTab) {
+    if (!pTab || !pTab->document.IsLoaded()) return;
+    NavHistoryEntry entry;
+    entry.pageIndex = pTab->currentPage;
+    entry.scrollY = pTab->scrollY;
+    entry.offsetX = pTab->offsetX;
+    entry.offsetY = pTab->offsetY;
+    if (pTab->navBackStack.size() >= 64) {
+        pTab->navBackStack.erase(pTab->navBackStack.begin());
+    }
+    pTab->navBackStack.push_back(entry);
+}
+
+void AppWindow::NavigateBack() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->navBackStack.empty()) return;
+
+    NavHistoryEntry cur;
+    cur.pageIndex = pTab->currentPage;
+    cur.scrollY = pTab->scrollY;
+    cur.offsetX = pTab->offsetX;
+    cur.offsetY = pTab->offsetY;
+    pTab->navForwardStack.push_back(cur);
+
+    NavHistoryEntry target = pTab->navBackStack.back();
+    pTab->navBackStack.pop_back();
+
+    GoToPage(target.pageIndex);
+    if (pTab->continuousScroll) {
+        pTab->scrollY = target.scrollY;
+        pTab->offsetX = target.offsetX;
+    } else {
+        pTab->offsetX = target.offsetX;
+        pTab->offsetY = target.offsetY;
+    }
+    ShowToast(L"\u2190 Page " + std::to_wstring(target.pageIndex + 1));
+    Render();
+}
+
+void AppWindow::NavigateForward() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->navForwardStack.empty()) return;
+
+    NavHistoryEntry cur;
+    cur.pageIndex = pTab->currentPage;
+    cur.scrollY = pTab->scrollY;
+    cur.offsetX = pTab->offsetX;
+    cur.offsetY = pTab->offsetY;
+    pTab->navBackStack.push_back(cur);
+
+    NavHistoryEntry target = pTab->navForwardStack.back();
+    pTab->navForwardStack.pop_back();
+
+    GoToPage(target.pageIndex);
+    if (pTab->continuousScroll) {
+        pTab->scrollY = target.scrollY;
+        pTab->offsetX = target.offsetX;
+    } else {
+        pTab->offsetX = target.offsetX;
+        pTab->offsetY = target.offsetY;
+    }
+    ShowToast(L"Page " + std::to_wstring(target.pageIndex + 1) + L" \u2192");
+    Render();
 }

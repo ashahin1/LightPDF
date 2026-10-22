@@ -103,7 +103,9 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
     }
 
     PdfPageText pageText;
-    if (pTab->parser->ExtractPageText(pageIndex, pageText) && pageText.hasDigitalText && !pageText.chars.empty()) {
+    bool extracted = pTab->parser && pTab->parser->ExtractPageText(pageIndex, pageText);
+    std::vector<PdfLink> preservedLinks = pageText.links;
+    if (extracted && pageText.hasDigitalText && !pageText.chars.empty()) {
         auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
         std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
         if (pageIndex < pTab->textCache->pages.size()) {
@@ -124,6 +126,16 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
                     PopulatePageTextFromOcr(ocrItem, pageText);
                     pageText.pageWidth = pSize.width;
                     pageText.pageHeight = pSize.height;
+                    for (const auto& lk : preservedLinks) {
+                        bool dup = false;
+                        for (const auto& cur : pageText.links) {
+                            if (cur.uri == lk.uri && std::abs(cur.rect.left - lk.rect.left) < 5.0f && std::abs(cur.rect.top - lk.rect.top) < 5.0f) {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (!dup) pageText.links.insert(pageText.links.begin(), lk);
+                    }
                     auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
                     std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
                     if (pageIndex < pTab->textCache->pages.size()) {
@@ -137,6 +149,7 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
         pageText.pageWidth = pSize.width;
         pageText.pageHeight = pSize.height;
         pageText.hasDigitalText = false;
+        pageText.links = std::move(preservedLinks);
         auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
         std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
         if (pageIndex < pTab->textCache->pages.size()) {
@@ -224,6 +237,91 @@ bool SelectionController::HitTestPageText(
         outPage = pageIdx;
         return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
     }
+}
+
+bool SelectionController::HitTestPageLink(
+    DocumentTab* pTab,
+    POINT clientPt,
+    float winWidth,
+    float dpi,
+    float topOffset,
+    uint32_t& outPageIndex,
+    PdfLink& outLink
+) {
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return false;
+
+    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float dipX = (float)clientPt.x * dipScale;
+    float dipY = (float)clientPt.y * dipScale;
+    if (dipY < topOffset) return false;
+
+    if (pTab->continuousScroll) {
+        float mouseY = dipY - topOffset;
+        float docY = pTab->scrollY + mouseY;
+        uint32_t count = pTab->document.GetPageCount();
+        const auto& offsets = pTab->pageOffsets;
+
+        auto it = std::upper_bound(offsets.begin(), offsets.end(), docY);
+        uint32_t pageIdx = 0;
+        if (it != offsets.begin()) {
+            pageIdx = static_cast<uint32_t>(std::distance(offsets.begin(), it) - 1);
+        }
+        if (pageIdx >= count) return false;
+
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        float pageW = pSize.width * pTab->zoom;
+        float pageH = pSize.height * pTab->zoom;
+        float dipW = winWidth * dipScale;
+        float margin = 24.0f;
+        float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
+        float pageTopY = offsets[pageIdx] - pTab->scrollY;
+
+        if (dipX < pageX || dipX > pageX + pageW) return false;
+        if (mouseY < pageTopY || mouseY > pageTopY + pageH) return false;
+
+        float pdfX = (dipX - pageX) / pTab->zoom;
+        float pdfY = (mouseY - pageTopY) / pTab->zoom;
+
+        auto pageText = GetOrExtractPageText(pTab, pageIdx);
+        if (!pageText || pageText->links.empty()) return false;
+
+        for (const auto& link : pageText->links) {
+            if (pdfX >= link.rect.left - 1.5f && pdfX <= link.rect.right + 1.5f &&
+                pdfY >= link.rect.top - 1.5f && pdfY <= link.rect.bottom + 1.5f) {
+                outPageIndex = pageIdx;
+                outLink = link;
+                return true;
+            }
+        }
+    } else {
+        uint32_t pageIdx = pTab->currentPage;
+        if (pageIdx >= pTab->document.GetPageCount()) return false;
+
+        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        float pageW = pSize.width * pTab->zoom;
+        float pageH = pSize.height * pTab->zoom;
+        float pageX = pTab->offsetX;
+        float pageY = pTab->offsetY + topOffset;
+
+        if (dipX < pageX || dipX > pageX + pageW) return false;
+        if (dipY < pageY || dipY > pageY + pageH) return false;
+
+        float pdfX = (dipX - pageX) / pTab->zoom;
+        float pdfY = (dipY - pageY) / pTab->zoom;
+
+        auto pageText = GetOrExtractPageText(pTab, pageIdx);
+        if (!pageText || pageText->links.empty()) return false;
+
+        for (const auto& link : pageText->links) {
+            if (pdfX >= link.rect.left - 1.5f && pdfX <= link.rect.right + 1.5f &&
+                pdfY >= link.rect.top - 1.5f && pdfY <= link.rect.bottom + 1.5f) {
+                outPageIndex = pageIdx;
+                outLink = link;
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 std::vector<SelectionHighlightSpan> SelectionController::GetSelectionSpans(DocumentTab* pTab) {

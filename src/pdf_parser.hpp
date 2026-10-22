@@ -32,6 +32,22 @@ struct PdfTextChar {
     D2D1_RECT_F rect = { 0, 0, 0, 0 };  ///< Page coordinate space in DIPs (origin top-left)
 };
 
+/// @brief Classification of an interactive PDF link target.
+enum class PdfLinkType {
+    ExternalUri,  ///< External web or email URI (http://, https://, mailto:)
+    InternalPage  ///< Internal document destination jumping to a 0-based page index
+};
+
+/// @brief Represents a clickable hyperlink region on a PDF page in DIP coordinates.
+struct PdfLink {
+    PdfLinkType type = PdfLinkType::ExternalUri;
+    D2D1_RECT_F rect = { 0.0f, 0.0f, 0.0f, 0.0f }; ///< Clickable bounding box in page DIPs (top-left origin, rotated)
+    std::wstring uri;                              ///< Target URL/mailto for ExternalUri (empty for InternalPage)
+    uint32_t targetPage = 0;                       ///< 0-based destination page index for InternalPage
+    float targetTopDip = -1.0f;                    ///< Optional vertical offset on targetPage in DIPs (-1 = top of page)
+    bool isAutoDetected = false;                   ///< true if synthesized from plaintext, false if from /Annots
+};
+
 /// @brief Contains all extracted digital text and character bounding geometry for a single page.
 struct PdfPageText {
     uint32_t pageIndex = 0;             ///< 0-based page index
@@ -40,6 +56,7 @@ struct PdfPageText {
     int rotation = 0;                   ///< Clockwise rotation degrees (0, 90, 180, 270)
     std::wstring fullText;              ///< Linear text string representation of the page
     std::vector<PdfTextChar> chars;     ///< Glyph-by-glyph character list with bounding boxes
+    std::vector<PdfLink> links;         ///< Interactive links (/Annots + auto-detected URLs) in page DIPs
     bool hasDigitalText = false;        ///< Flag indicating if extractable digital text was found
 };
 
@@ -176,6 +193,17 @@ public:
     /// @brief Fast static scan of the file on disk for an /Encrypt trailer entry.
     static bool QuickCheckFileEncrypted(const std::wstring& filePath);
 
+    /**
+     * @brief Scans PdfPageText.fullText and chars to auto-detect plaintext URLs and email addresses,
+     *        appending non-overlapping PdfLink entries to pageText.links.
+     */
+    static void DetectPlaintextLinks(PdfPageText& pageText);
+
+    /**
+     * @brief Validates whether a URI uses a safe allowed scheme (http://, https://, mailto:).
+     */
+    static bool IsSafeExternalUri(std::wstring_view uri);
+
 private:
     // Stream decompressors & predictor decoding
     static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
@@ -186,6 +214,29 @@ private:
     bool ParseXRefStream(size_t offset, std::string& outTrailerDict);
     bool ParseClassicXRef(size_t offset, std::string& outTrailerDict);
     void DecodeObjStream(uint32_t stmObjNum) const;
+
+    // Link annotation and destination parsing
+    void ExtractPageLinks(
+        const std::string& pageDict,
+        float cropX0,
+        float cropY0,
+        float cropW,
+        float cropH,
+        int rotate,
+        std::vector<PdfLink>& outLinks
+    ) const;
+
+    bool ParseDestArray(
+        const std::string& destStr,
+        uint32_t& outPageIndex,
+        float& outTopDip
+    ) const;
+
+    static D2D1_RECT_F PdfRectToPageDip(
+        float rx0, float ry0, float rx1, float ry1,
+        float cropX0, float cropY0, float cropW, float cropH,
+        int rotate
+    );
 
     // Helpers to resolve indirect objects
     std::string_view GetObjectView(uint32_t objNum) const;

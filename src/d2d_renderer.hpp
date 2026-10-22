@@ -240,6 +240,17 @@ struct PasswordOverlayRenderInfo {
     int hoveredButton = 0; // 0: None, 1: Close(X), 2: Show/Hide, 3: Unlock, 4: Cancel
 };
 
+/**
+ * @struct LinkHoverRenderInfo
+ * @brief Descriptor for the currently hovered hyperlink highlight and bottom-left status preview pill.
+ */
+struct LinkHoverRenderInfo {
+    bool active = false;
+    uint32_t pageIndex = 0;
+    D2D1_RECT_F pageRect = { 0.0f, 0.0f, 0.0f, 0.0f }; ///< Link rect in page DIP space
+    std::wstring label;                                ///< Formatted target text (e.g. "https://..." or "Go to Page 12")
+};
+
 struct PasswordOverlayLayout {
     static constexpr float CARD_W = 380.0f;
     static constexpr float CARD_H = 220.0f;
@@ -468,7 +479,8 @@ public:
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
-        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
+        const LinkHoverRenderInfo* pLinkHover = nullptr
     );
 
     /**
@@ -499,7 +511,8 @@ public:
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
-        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
+        const LinkHoverRenderInfo* pLinkHover = nullptr
     );
 
     /**
@@ -527,7 +540,8 @@ public:
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
-        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
+        const LinkHoverRenderInfo* pLinkHover = nullptr
     );
 
     /// @brief Draws the floating dictionary translation card.
@@ -619,8 +633,12 @@ private:
         const PresenterBarRenderInfo* pPresenterBar = nullptr,
         const TtsBarRenderInfo* pTtsBar = nullptr,
         const RecentRenderInfo* pRecent = nullptr,
-        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
+        const LinkHoverRenderInfo* pLinkHover = nullptr
     );
+
+    /// @brief Draws the floating bottom-left URL preview pill when hovering over an interactive hyperlink.
+    void DrawLinkPreviewPill(const LinkHoverRenderInfo& linkHover);
 
     HWND m_hwnd = nullptr;
     UINT m_width = 0;

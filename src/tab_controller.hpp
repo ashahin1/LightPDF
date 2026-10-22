@@ -67,6 +67,14 @@ struct TextSelection {
     }
 };
 
+/// @brief Snapshot of document viewing position for back/forward navigation history.
+struct NavHistoryEntry {
+    uint32_t pageIndex = 0;
+    float scrollY = 0.0f;
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
+};
+
 /// @brief Encapsulates complete document state, layout metrics, and text cache for a single tab.
 struct DocumentTab {
     DocumentTab() = default;
@@ -105,6 +113,10 @@ struct DocumentTab {
 
     // Parser for lazy, zero-latency single-page text extraction
     std::unique_ptr<PdfParser> parser;      ///< Thread-confined parser owned by UI thread
+
+    // Navigation history stacks for internal link / GoTo jumps (Alt+Left / Alt+Right)
+    std::vector<NavHistoryEntry> navBackStack;    ///< Back history stack (capped at 64 entries)
+    std::vector<NavHistoryEntry> navForwardStack; ///< Forward history stack
 };
 
 /**

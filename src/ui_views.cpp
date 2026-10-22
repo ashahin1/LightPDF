@@ -588,6 +588,7 @@ void HelpOverlayView::Render(
         { L"PgDn / Space",          L"Advance to next page" },
         { L"PgUp / Shift+Space",    L"Go to previous page" },
         { L"Right / Left Arrow",    L"Next / Previous page" },
+        { L"Alt + \x2190 / \x2192", L"Back / Forward link history" },
         { L"Home / End",            L"Jump to first / last page" },
         { L"Mouse Wheel",           L"Scroll page vertically" },
         { L"Middle Drag / Space",   L"Smooth pan / drag document" },

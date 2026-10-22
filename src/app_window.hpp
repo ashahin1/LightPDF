@@ -273,6 +273,20 @@ private:
     void CancelPasswordPrompt();
     void ProcessNextPasswordRequest();
 
+    // Hyperlink interaction state
+    bool m_hasHoveredLink = false;
+    uint32_t m_hoveredLinkPage = 0;
+    PdfLink m_hoveredLink;
+    bool m_isLinkMouseDown = false;
+    POINT m_linkMouseDownPt = { 0, 0 };
+    PdfLink m_mouseDownLink;
+
+    void ClearHoveredLink();
+    void ActivatePdfLink(const PdfLink& link);
+    void PushNavHistory(DocumentTab* pTab);
+    void NavigateBack();
+    void NavigateForward();
+
     // File Open Dialog state
     std::atomic<bool> m_isDialogOpen{ false };
     std::thread m_dialogThread;

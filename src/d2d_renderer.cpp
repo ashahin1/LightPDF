@@ -850,7 +850,8 @@ void D2DRenderer::RenderBlank(
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
-    const PasswordOverlayRenderInfo* pPasswordOverlay
+    const PasswordOverlayRenderInfo* pPasswordOverlay,
+    const LinkHoverRenderInfo* pLinkHover
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -903,7 +904,7 @@ void D2DRenderer::RenderBlank(
         );
     }
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1027,7 +1028,8 @@ void D2DRenderer::RenderPage(
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
-    const PasswordOverlayRenderInfo* pPasswordOverlay
+    const PasswordOverlayRenderInfo* pPasswordOverlay,
+    const LinkHoverRenderInfo* pLinkHover
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1056,7 +1058,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1241,6 +1243,22 @@ void D2DRenderer::RenderPage(
         }
     }
 
+    // 3c. Draw Link Hover Highlight
+    if (pLinkHover && pLinkHover->active && pLinkHover->pageIndex == currentPageIndex) {
+        float hx = offsetX + pLinkHover->pageRect.left * zoom;
+        float hy = pageY + pLinkHover->pageRect.top * zoom;
+        float hw = (pLinkHover->pageRect.right - pLinkHover->pageRect.left) * zoom;
+        float hh = (pLinkHover->pageRect.bottom - pLinkHover->pageRect.top) * zoom;
+        D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+        D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 2.0f, 2.0f);
+        if (m_brushTextSelection) {
+            m_d2dContext->FillRoundedRectangle(rr, m_brushTextSelection.Get());
+        }
+        if (m_brushTabAccent) {
+            m_d2dContext->DrawLine(D2D1::Point2F(r.left, r.bottom), D2D1::Point2F(r.right, r.bottom), m_brushTabAccent.Get(), 1.2f);
+        }
+    }
+
     // 4. Draw 1px crisp outline around page
     m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
 
@@ -1278,7 +1296,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1317,7 +1335,8 @@ void D2DRenderer::RenderContinuous(
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
-    const PasswordOverlayRenderInfo* pPasswordOverlay
+    const PasswordOverlayRenderInfo* pPasswordOverlay,
+    const LinkHoverRenderInfo* pLinkHover
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1521,6 +1540,22 @@ void D2DRenderer::RenderContinuous(
             }
         }
 
+        // 3c. Draw Link Hover Highlight for this page
+        if (pLinkHover && pLinkHover->active && pLinkHover->pageIndex == vp.pageIndex) {
+            float hx = pageX + pLinkHover->pageRect.left * zoom;
+            float hy = pageY + pLinkHover->pageRect.top * zoom;
+            float hw = (pLinkHover->pageRect.right - pLinkHover->pageRect.left) * zoom;
+            float hh = (pLinkHover->pageRect.bottom - pLinkHover->pageRect.top) * zoom;
+            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+            D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 2.0f, 2.0f);
+            if (m_brushTextSelection) {
+                m_d2dContext->FillRoundedRectangle(rr, m_brushTextSelection.Get());
+            }
+            if (m_brushTabAccent) {
+                m_d2dContext->DrawLine(D2D1::Point2F(r.left, r.bottom), D2D1::Point2F(r.right, r.bottom), m_brushTabAccent.Get(), 1.2f);
+            }
+        }
+
         // 4. Draw 1px crisp outline around page
         m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
     }
@@ -1559,7 +1594,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1591,7 +1626,8 @@ void D2DRenderer::DrawOverlays(
     const PresenterBarRenderInfo* pPresenterBar,
     const TtsBarRenderInfo* pTtsBar,
     const RecentRenderInfo* pRecent,
-    const PasswordOverlayRenderInfo* pPasswordOverlay
+    const PasswordOverlayRenderInfo* pPasswordOverlay,
+    const LinkHoverRenderInfo* pLinkHover
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1677,6 +1713,14 @@ void D2DRenderer::DrawOverlays(
     // 12. Draw Password Overlay if active (modal prompt)
     if (pPasswordOverlay && pPasswordOverlay->visible) {
         DrawPasswordOverlay(*pPasswordOverlay);
+    }
+
+    // 13. Draw Link Preview Pill if hovered (bottom-left status preview, non-modal)
+    if (pLinkHover && pLinkHover->active && !pLinkHover->label.empty() &&
+        !help.visible && !showGoToPage && !docProps.visible &&
+        !(pPasswordOverlay && pPasswordOverlay->visible) &&
+        !(pRecent && pRecent->showSwitcher)) {
+        DrawLinkPreviewPill(*pLinkHover);
     }
 }
 
@@ -2159,4 +2203,70 @@ void D2DRenderer::DrawPasswordOverlay(const PasswordOverlayRenderInfo& pwdInfo) 
 
 int D2DRenderer::HitTestPasswordOverlay(POINT pt) const {
     return UIViews::PasswordOverlayView::HitTest(pt, m_width, m_height, m_dpi);
+}
+
+void D2DRenderer::DrawLinkPreviewPill(const LinkHoverRenderInfo& linkHover) {
+    if (!m_d2dContext || !m_dwriteFactory || !m_textFormatHud ||
+        !m_brushHudBg || !m_brushHudBorder || !m_brushHudText || linkHover.label.empty()) {
+        return;
+    }
+
+    float dipScale = 96.0f / (m_dpi > 0.0f ? m_dpi : 96.0f);
+    float dipWidth = (float)m_width * dipScale;
+    float dipHeight = (float)m_height * dipScale;
+
+    // HUD bottom-center pill is centered. Ensure link pill stops at least 16 DIPs before the center HUD pill.
+    float centerPillWidth = 330.0f;
+    float centerPillLeft = (dipWidth - centerPillWidth) * 0.5f;
+
+    float pillLeft = 16.0f;
+    float maxPillWidth = dipWidth * 0.40f;
+    if (pillLeft + maxPillWidth > centerPillLeft - 16.0f) {
+        maxPillWidth = (std::max)(60.0f, centerPillLeft - 16.0f - pillLeft);
+    }
+
+    if (maxPillWidth < 60.0f || dipWidth < 300.0f) {
+        return; // Not enough screen room to render pill comfortably
+    }
+
+    float pillHeight = 28.0f;
+    float pillTop = dipHeight - pillHeight - 16.0f;
+    float padX = 12.0f;
+    float maxTextWidth = (std::max)(10.0f, maxPillWidth - (padX * 2.0f));
+
+    ComPtr<IDWriteTextLayout> textLayout;
+    HRESULT hr = m_dwriteFactory->CreateTextLayout(
+        linkHover.label.c_str(),
+        (UINT32)linkHover.label.length(),
+        m_textFormatHud.Get(),
+        maxTextWidth,
+        pillHeight,
+        &textLayout
+    );
+    if (FAILED(hr) || !textLayout) return;
+
+    textLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    textLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    textLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+    DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+    ComPtr<IDWriteInlineObject> inlineEllipsis;
+    if (SUCCEEDED(m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatHud.Get(), &inlineEllipsis))) {
+        textLayout->SetTrimming(&trimming, inlineEllipsis.Get());
+    }
+
+    DWRITE_TEXT_METRICS tm = {};
+    textLayout->GetMetrics(&tm);
+
+    float actualPillWidth = (std::min)(tm.widthIncludingTrailingWhitespace + (padX * 2.0f), maxPillWidth);
+    actualPillWidth = (std::max)(actualPillWidth, 48.0f);
+
+    D2D1_RECT_F pillRect = D2D1::RectF(pillLeft, pillTop, pillLeft + actualPillWidth, pillTop + pillHeight);
+    D2D1_ROUNDED_RECT roundedPill = D2D1::RoundedRect(pillRect, 6.0f, 6.0f);
+
+    m_d2dContext->FillRoundedRectangle(roundedPill, m_brushHudBg.Get());
+    m_d2dContext->DrawRoundedRectangle(roundedPill, m_brushHudBorder.Get(), 1.0f);
+
+    D2D1_POINT_2F textOrigin = D2D1::Point2F(pillLeft + padX, pillTop);
+    m_d2dContext->DrawTextLayout(textOrigin, textLayout.Get(), m_brushHudText.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }

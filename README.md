@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>851 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>880 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
   <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-851_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-880_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
@@ -45,7 +45,7 @@ LightPDF.exe /register /silent
 | | |
 |---|---|
 | ⚡ **Instant Launch** | Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader |
-| 🪶 **Sub-Megabyte Footprint** | **851 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
+| 🪶 **Sub-Megabyte Footprint** | **880 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
 | 🕒 **Recent Documents & Tab Recovery** | `Ctrl+Shift+T` instant closed tab recovery with exact page, zoom, and continuous scroll restoration. Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). `Ctrl+H` centered quick switcher modal and Windows Taskbar Jump List integration |
 | 🗣️ **Native Read Aloud (TTS)** | `Ctrl+R` high-fidelity bilingual text-to-speech with real-time visual word tracking. Automatic Arabic (`Microsoft Naayf`) and English voice discovery via Windows OneCore & SAPI. Floating frosted HUD with rate tuning (`Ctrl+[` / `]`), sentence skip, and automatic continuous multi-page reading |
 | 📄 **Native Searchable PDF Export** | `Ctrl+S` / `Ctrl+Shift+S`: bakes an invisible text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Atomic in-place overwrite or Save As new file with zero image quality degradation |
@@ -73,7 +73,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **851 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **880 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |

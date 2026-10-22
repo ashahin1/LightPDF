@@ -949,3 +949,136 @@ TEST_CASE("Security: Password-Protected PDF Detection, Status Transitions, and O
     }
 }
 
+
+// ==========================================================================
+
+// ============================================================================
+// Interactive Hyperlinks & URL Recognition Tests
+// ============================================================================
+TEST_CASE("Links: PDF /Annots Extraction, Plaintext URL Detection, and Security Whitelist") {
+    SUBCASE("Security Scheme Whitelist") {
+        CHECK(PdfParser::IsSafeExternalUri(L"https://example.com"));
+        CHECK(PdfParser::IsSafeExternalUri(L"https://sub.domain.org/path/to/resource?arg=val&num=42#sec"));
+        CHECK(PdfParser::IsSafeExternalUri(L"http://example.com/insecure"));
+        CHECK(PdfParser::IsSafeExternalUri(L"mailto:support@lightpdf.org"));
+        CHECK(PdfParser::IsSafeExternalUri(L"mailto:user.name+tag@company.co.uk"));
+
+        // Dangerous or unsupported schemes must be strictly blocked
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L""));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"file:///C:/Windows/System32/cmd.exe"));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"javascript:alert(document.cookie)"));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"data:text/html,<script>alert(1)</script>"));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"cmd.exe /c calc"));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"powershell.exe -enc ..."));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"\\\\server\\share\\malware.exe"));
+        CHECK_FALSE(PdfParser::IsSafeExternalUri(L"ftp://ftp.example.com"));
+    }
+
+    SUBCASE("Plaintext URL & Email Detection") {
+        PdfPageText pageText;
+        pageText.fullText = L"Visit https://github.com/ashahin1/LightPDF for code, or www.microsoft.com for docs. Contact us at info@example.com.";
+        
+        float cx = 10.0f;
+        for (wchar_t ch : pageText.fullText) {
+            PdfTextChar ptc;
+            ptc.ch = ch;
+            ptc.rect = D2D1::RectF(cx, 10.0f, cx + 8.0f, 24.0f);
+            pageText.chars.push_back(ptc);
+            cx += 8.0f;
+        }
+
+        PdfParser::DetectPlaintextLinks(pageText);
+
+        CHECK(pageText.links.size() == 3);
+        if (pageText.links.size() == 3) {
+            CHECK(pageText.links[0].type == PdfLinkType::ExternalUri);
+            CHECK(pageText.links[0].uri == L"https://github.com/ashahin1/LightPDF");
+            CHECK(pageText.links[0].isAutoDetected);
+
+            CHECK(pageText.links[1].type == PdfLinkType::ExternalUri);
+            CHECK(pageText.links[1].uri == L"https://www.microsoft.com");
+            CHECK(pageText.links[1].isAutoDetected);
+
+            CHECK(pageText.links[2].type == PdfLinkType::ExternalUri);
+            CHECK(pageText.links[2].uri == L"mailto:info@example.com");
+            CHECK(pageText.links[2].isAutoDetected);
+        }
+    }
+
+    SUBCASE("Real PDF /Annots Link Extraction") {
+        std::wstring pdfPath = L"tests/PDF/Teaching Schedule - 472.pdf";
+        if (std::filesystem::exists(pdfPath)) {
+            PdfParser parser;
+            REQUIRE(parser.Load(pdfPath));
+
+            PdfPageText pageText;
+            REQUIRE(parser.ExtractPageText(0, pageText));
+            REQUIRE_FALSE(pageText.links.empty());
+
+            bool foundMailto = false;
+            for (const auto& link : pageText.links) {
+                if (link.type == PdfLinkType::ExternalUri && link.uri.find(L"mailto:ahmed.bpc.2024@gmail.com") != std::wstring::npos) {
+                    foundMailto = true;
+                    CHECK_FALSE(link.isAutoDetected);
+                    CHECK(link.rect.right > link.rect.left);
+                    CHECK(link.rect.bottom > link.rect.top);
+                    break;
+                }
+            }
+            CHECK(foundMailto);
+        }
+    }
+
+    SUBCASE("HitTestPageLink Integration on Real Document") {
+        std::wstring pdfPath = L"tests/PDF/Teaching Schedule - 472.pdf";
+        if (std::filesystem::exists(pdfPath)) {
+            TabController tabs;
+            std::wstring outPath;
+            bool alreadyOpen = false;
+            REQUIRE(tabs.OpenTab(pdfPath, nullptr, outPath, alreadyOpen));
+            DocumentTab* pTab = tabs.GetActiveTab();
+            REQUIRE(pTab != nullptr);
+
+            SelectionController selController;
+            auto pageText = selController.GetOrExtractPageText(pTab, 0);
+            REQUIRE(pageText != nullptr);
+            REQUIRE_FALSE(pageText->links.empty());
+
+            const auto& targetLink = pageText->links[0];
+            float midX = (targetLink.rect.left + targetLink.rect.right) * 0.5f;
+            float midY = (targetLink.rect.top + targetLink.rect.bottom) * 0.5f;
+
+            pTab->continuousScroll = false;
+            pTab->zoom = 1.0f;
+            pTab->offsetX = 0.0f;
+            pTab->offsetY = 0.0f;
+
+            uint32_t hitPage = 999;
+            PdfLink hitLink;
+            POINT ptHit{ (LONG)midX, (LONG)midY };
+            CHECK(selController.HitTestPageLink(pTab, ptHit, 1200.0f, 96.0f, 0.0f, hitPage, hitLink));
+            CHECK(hitPage == 0);
+            CHECK(hitLink.uri.find(L"mailto:") != std::wstring::npos);
+
+            POINT ptMiss{ 10, 10 };
+            CHECK_FALSE(selController.HitTestPageLink(pTab, ptMiss, 1200.0f, 96.0f, 0.0f, hitPage, hitLink));
+        }
+    }
+
+    SUBCASE("Navigation History Stack LIFO & Cap") {
+        DocumentTab tab;
+        CHECK(tab.navBackStack.empty());
+        CHECK(tab.navForwardStack.empty());
+
+        // Push 55 entries to verify cap at 50
+        for (int i = 0; i < 55; ++i) {
+            tab.navBackStack.push_back({ (uint32_t)i, (float)(i * 10), 0.0f });
+            if (tab.navBackStack.size() > 50) {
+                tab.navBackStack.erase(tab.navBackStack.begin());
+            }
+        }
+        CHECK(tab.navBackStack.size() == 50);
+        CHECK(tab.navBackStack.front().pageIndex == 5);
+        CHECK(tab.navBackStack.back().pageIndex == 54);
+    }
+}

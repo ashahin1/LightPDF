@@ -1324,7 +1324,7 @@ static std::wstring DecodePdfMetadataString(const std::string& raw) {
 static std::string ExtractDictRawValue(const std::string& dict, const std::string& key) {
     size_t pos = 0;
     while ((pos = dict.find(key, pos)) != std::string::npos) {
-        if (pos > 0 && isalnum((unsigned char)dict[pos - 1])) {
+        if (!key.empty() && key[0] != '/' && pos > 0 && isalnum((unsigned char)dict[pos - 1])) {
             pos += key.size();
             continue;
         }
@@ -1405,6 +1405,423 @@ static std::wstring FormatPdfDateWithSystemSettings(const std::wstring& pdfDate)
         return std::wstring(dateBuf);
     }
     return pdfDate;
+}
+
+D2D1_RECT_F PdfParser::PdfRectToPageDip(
+    float rx0, float ry0, float rx1, float ry1,
+    float cropX0, float cropY0, float cropW, float cropH,
+    int rotate
+) {
+    float minX = (std::min)(rx0, rx1);
+    float maxX = (std::max)(rx0, rx1);
+    float minY = (std::min)(ry0, ry1);
+    float maxY = (std::max)(ry0, ry1);
+
+    float left   = (minX - cropX0) * PDF_POINT_TO_DIP;
+    float right  = (maxX - cropX0) * PDF_POINT_TO_DIP;
+    float top    = (cropH - (maxY - cropY0)) * PDF_POINT_TO_DIP;
+    float bottom = (cropH - (minY - cropY0)) * PDF_POINT_TO_DIP;
+
+    float unrotW = cropW * PDF_POINT_TO_DIP;
+    float unrotH = cropH * PDF_POINT_TO_DIP;
+
+    if (rotate == 90) {
+        return D2D1::RectF(unrotH - bottom, left, unrotH - top, right);
+    } else if (rotate == 180) {
+        return D2D1::RectF(unrotW - right, unrotH - bottom, unrotW - left, unrotH - top);
+    } else if (rotate == 270) {
+        return D2D1::RectF(top, unrotW - right, bottom, unrotW - left);
+    }
+    return D2D1::RectF(left, top, right, bottom);
+}
+
+bool PdfParser::ParseDestArray(
+    const std::string& destStr,
+    uint32_t& outPageIndex,
+    float& outTopDip
+) const {
+    outPageIndex = 0;
+    outTopDip = -1.0f;
+    size_t start = destStr.find('[');
+    if (start == std::string::npos) return false;
+    size_t end = destStr.find(']', start);
+    if (end == std::string::npos) return false;
+
+    std::string inner = destStr.substr(start + 1, end - start - 1);
+    std::stringstream ss(inner);
+    uint32_t pageVal = 0;
+    std::string nextTok;
+    if (!(ss >> pageVal)) return false;
+
+    if (ss >> nextTok && (nextTok == "0" || nextTok == "R")) {
+        auto it = std::find(m_pageObjectNums.begin(), m_pageObjectNums.end(), pageVal);
+        if (it == m_pageObjectNums.end()) return false;
+        outPageIndex = static_cast<uint32_t>(std::distance(m_pageObjectNums.begin(), it));
+        if (nextTok == "0") ss >> nextTok;
+        ss >> nextTok;
+    } else {
+        if (pageVal >= m_pageObjectNums.size()) return false;
+        outPageIndex = pageVal;
+    }
+
+    if (nextTok == "/XYZ") {
+        std::string xStr, yStr;
+        if (ss >> xStr >> yStr && yStr != "null") {
+            char* endPtr = nullptr;
+            float topPt = (float)strtod(yStr.c_str(), &endPtr);
+            if (endPtr != yStr.c_str()) {
+                outTopDip = topPt * PDF_POINT_TO_DIP;
+            }
+        }
+    }
+    return true;
+}
+
+void PdfParser::ExtractPageLinks(
+    const std::string& pageDict,
+    float cropX0,
+    float cropY0,
+    float cropW,
+    float cropH,
+    int rotate,
+    std::vector<PdfLink>& outLinks
+) const {
+    size_t annotsPos = pageDict.find("/Annots");
+    if (annotsPos == std::string::npos) return;
+
+    size_t p = annotsPos + 7;
+    while (p < pageDict.size() && (pageDict[p] == ' ' || pageDict[p] == '\t' || pageDict[p] == '\r' || pageDict[p] == '\n')) p++;
+    if (p >= pageDict.size()) return;
+
+    std::vector<std::string> annotDicts;
+
+    if (pageDict[p] == '[') {
+        size_t bStart = p;
+        size_t bEnd = bStart + 1;
+        int depth = 1;
+        while (bEnd < pageDict.size() && depth > 0) {
+            if (pageDict[bEnd] == '[') depth++;
+            else if (pageDict[bEnd] == ']') depth--;
+            bEnd++;
+        }
+        std::string arrContent = pageDict.substr(bStart + 1, (bEnd > bStart + 1 ? bEnd - bStart - 2 : 0));
+
+        std::stringstream ss(arrContent);
+        uint32_t objNum = 0;
+        std::string rTok;
+        while (ss >> objNum >> rTok) {
+            if (rTok == "0" || rTok == "R") {
+                if (rTok == "0") ss >> rTok;
+                std::string aStr = GetObjectString(objNum);
+                if (!aStr.empty()) {
+                    annotDicts.push_back(std::move(aStr));
+                }
+            }
+        }
+
+        size_t i = 0;
+        while ((i = arrContent.find("<<", i)) != std::string::npos) {
+            size_t j = i + 2;
+            int dictDepth = 1;
+            while (j + 1 < arrContent.size() && dictDepth > 0) {
+                if (arrContent.compare(j, 2, "<<") == 0) { dictDepth++; j += 2; }
+                else if (arrContent.compare(j, 2, ">>") == 0) { dictDepth--; j += 2; }
+                else j++;
+            }
+            if (dictDepth == 0) {
+                annotDicts.push_back(arrContent.substr(i, j - i));
+                i = j;
+            } else {
+                break;
+            }
+        }
+    } else if (pageDict[p] >= '0' && pageDict[p] <= '9') {
+        uint32_t annotsObj = 0;
+        if (FindIndirectRef(pageDict.substr(annotsPos), "/Annots", annotsObj) && annotsObj > 0) {
+            std::string arrObj = GetObjectString(annotsObj);
+            size_t bStart = arrObj.find('[');
+            size_t bEnd = arrObj.rfind(']');
+            if (bStart != std::string::npos && bEnd != std::string::npos && bEnd > bStart) {
+                std::string arrContent = arrObj.substr(bStart + 1, bEnd - bStart - 1);
+                std::stringstream ss(arrContent);
+                uint32_t objNum = 0;
+                std::string rTok;
+                while (ss >> objNum >> rTok) {
+                    if (rTok == "0" || rTok == "R") {
+                        if (rTok == "0") ss >> rTok;
+                        std::string aStr = GetObjectString(objNum);
+                        if (!aStr.empty()) {
+                            annotDicts.push_back(std::move(aStr));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (const auto& aDict : annotDicts) {
+        if (aDict.find("/Link") == std::string::npos) continue;
+
+        size_t rPos = aDict.find("/Rect");
+        if (rPos == std::string::npos) continue;
+        size_t b1 = aDict.find('[', rPos);
+        size_t b2 = aDict.find(']', b1);
+        if (b1 == std::string::npos || b2 == std::string::npos) continue;
+
+        std::string rStr = aDict.substr(b1 + 1, b2 - b1 - 1);
+        std::stringstream rss(rStr);
+        float rx0 = 0, ry0 = 0, rx1 = 0, ry1 = 0;
+        if (!(rss >> rx0 >> ry0 >> rx1 >> ry1)) continue;
+        if (std::abs(rx1 - rx0) < 0.5f || std::abs(ry1 - ry0) < 0.5f) continue;
+
+        D2D1_RECT_F dipRect = PdfRectToPageDip(rx0, ry0, rx1, ry1, cropX0, cropY0, cropW, cropH, rotate);
+
+        std::string aAction = ResolveDict(aDict, "/A");
+        if (!aAction.empty()) {
+            if (aAction.find("/URI") != std::string::npos) {
+                std::string rawUri = ExtractDictRawValue(aAction, "/URI");
+                if (rawUri.empty()) {
+                    uint32_t uriObj = 0;
+                    if (FindIndirectRef(aAction, "/URI", uriObj)) {
+                        rawUri = GetObjectString(uriObj);
+                    }
+                }
+                std::wstring uri = DecodePdfMetadataString(rawUri);
+                if (uri != L"\u2014" && !uri.empty()) {
+                    if (IsSafeExternalUri(uri)) {
+                        outLinks.push_back({ PdfLinkType::ExternalUri, dipRect, uri, 0, -1.0f, false });
+                        continue;
+                    } else if (uri.rfind(L"www.", 0) == 0) {
+                        uri = L"https://" + uri;
+                        if (IsSafeExternalUri(uri)) {
+                            outLinks.push_back({ PdfLinkType::ExternalUri, dipRect, uri, 0, -1.0f, false });
+                            continue;
+                        }
+                    }
+                }
+            } else if (aAction.find("/GoTo") != std::string::npos) {
+                size_t dPos = aAction.find("/D");
+                if (dPos != std::string::npos) {
+                    size_t dArrPos = aAction.find('[', dPos);
+                    uint32_t destPage = 0;
+                    float destTop = -1.0f;
+                    if (dArrPos != std::string::npos) {
+                        if (ParseDestArray(aAction.substr(dArrPos), destPage, destTop)) {
+                            outLinks.push_back({ PdfLinkType::InternalPage, dipRect, L"", destPage, destTop, false });
+                            continue;
+                        }
+                    } else {
+                        uint32_t dObj = 0;
+                        if (FindIndirectRef(aAction.substr(dPos), "/D", dObj)) {
+                            if (ParseDestArray(GetObjectString(dObj), destPage, destTop)) {
+                                outLinks.push_back({ PdfLinkType::InternalPage, dipRect, L"", destPage, destTop, false });
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        size_t destPos = aDict.find("/Dest");
+        if (destPos != std::string::npos) {
+            size_t dArrPos = aDict.find('[', destPos);
+            uint32_t destPage = 0;
+            float destTop = -1.0f;
+            if (dArrPos != std::string::npos) {
+                if (ParseDestArray(aDict.substr(dArrPos), destPage, destTop)) {
+                    outLinks.push_back({ PdfLinkType::InternalPage, dipRect, L"", destPage, destTop, false });
+                    continue;
+                }
+            } else {
+                uint32_t dObj = 0;
+                if (FindIndirectRef(aDict.substr(destPos), "/Dest", dObj)) {
+                    if (ParseDestArray(GetObjectString(dObj), destPage, destTop)) {
+                        outLinks.push_back({ PdfLinkType::InternalPage, dipRect, L"", destPage, destTop, false });
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool PdfParser::IsSafeExternalUri(std::wstring_view uri) {
+    if (uri.size() < 5 || uri.size() > 2048) return false;
+    for (wchar_t ch : uri) {
+        if (ch < 32 || ch == 127) return false;
+    }
+    auto startsWithCI = [](std::wstring_view str, std::wstring_view prefix) {
+        if (str.size() < prefix.size()) return false;
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            if (towlower(str[i]) != towlower(prefix[i])) return false;
+        }
+        return true;
+    };
+    return startsWithCI(uri, L"https://") ||
+           startsWithCI(uri, L"http://")  ||
+           startsWithCI(uri, L"mailto:");
+}
+
+void PdfParser::DetectPlaintextLinks(PdfPageText& pageText) {
+    if (pageText.fullText.empty() || pageText.chars.empty() || pageText.fullText.size() != pageText.chars.size()) {
+        return;
+    }
+
+    const std::wstring& text = pageText.fullText;
+    size_t n = text.size();
+    size_t i = 0;
+
+    auto isUrlChar = [](wchar_t c) {
+        if (c <= 32 || c >= 127) return false;
+        return c != L'<' && c != L'>' && c != L'"' && c != L'\'' && c != L'`' &&
+               c != L'[' && c != L']' && c != L'{' && c != L'}';
+    };
+
+    auto isWordBoundary = [](wchar_t c) {
+        return c <= 32 || c == L'(' || c == L'[' || c == L'"' || c == L'\'' || c == L'<';
+    };
+
+    auto startsWithCIAt = [&](size_t pos, std::wstring_view prefix) {
+        if (pos + prefix.size() > n) return false;
+        for (size_t k = 0; k < prefix.size(); ++k) {
+            if (towlower(text[pos + k]) != towlower(prefix[k])) return false;
+        }
+        return true;
+    };
+
+    while (i < n) {
+        if (i > 0 && !isWordBoundary(text[i - 1])) {
+            i++;
+            continue;
+        }
+
+        size_t matchStart = i;
+        bool isHttp = startsWithCIAt(i, L"https://") || startsWithCIAt(i, L"http://");
+        bool isWww = startsWithCIAt(i, L"www.");
+        bool isMailto = startsWithCIAt(i, L"mailto:");
+        bool isCandidate = isHttp || isWww || isMailto;
+
+        if (!isCandidate) {
+            size_t atPos = text.find(L'@', i);
+            if (atPos != std::string::npos && atPos > i && atPos - i < 64) {
+                bool validLocal = true;
+                for (size_t k = i; k < atPos; ++k) {
+                    wchar_t c = text[k];
+                    if (!(iswalnum(c) || c == L'.' || c == L'_' || c == L'-' || c == L'+')) {
+                        validLocal = false;
+                        break;
+                    }
+                }
+                if (validLocal && atPos + 4 < n) {
+                    size_t dotPos = text.find(L'.', atPos);
+                    if (dotPos != std::string::npos && dotPos > atPos + 1 && dotPos + 2 < n) {
+                        isCandidate = true;
+                    }
+                }
+            }
+        }
+
+        if (!isCandidate) {
+            i++;
+            continue;
+        }
+
+        size_t matchEnd = matchStart;
+        while (matchEnd < n && isUrlChar(text[matchEnd])) {
+            matchEnd++;
+        }
+
+        while (matchEnd > matchStart) {
+            wchar_t last = text[matchEnd - 1];
+            if (last == L'.' || last == L',' || last == L';' || last == L':' || last == L'!' || last == L'?' || last == L'\'' || last == L'"') {
+                matchEnd--;
+            } else if (last == L')') {
+                size_t openCount = 0, closeCount = 0;
+                for (size_t k = matchStart; k < matchEnd; ++k) {
+                    if (text[k] == L'(') openCount++;
+                    else if (text[k] == L')') closeCount++;
+                }
+                if (closeCount > openCount) {
+                    matchEnd--;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if (matchEnd > matchStart + 3) {
+            std::wstring rawToken = text.substr(matchStart, matchEnd - matchStart);
+            std::wstring normUri;
+            if (isHttp || isMailto) {
+                normUri = rawToken;
+            } else if (isWww) {
+                normUri = L"https://" + rawToken;
+            } else if (rawToken.find(L'@') != std::wstring::npos) {
+                normUri = L"mailto:" + rawToken;
+            }
+
+            if (IsSafeExternalUri(normUri)) {
+                size_t segStart = matchStart;
+                while (segStart < matchEnd) {
+                    while (segStart < matchEnd && (pageText.chars[segStart].rect.right <= pageText.chars[segStart].rect.left || text[segStart] <= 32)) {
+                        segStart++;
+                    }
+                    if (segStart >= matchEnd) break;
+
+                    float lineTop = pageText.chars[segStart].rect.top;
+                    float lineBot = pageText.chars[segStart].rect.bottom;
+                    float lineLeft = pageText.chars[segStart].rect.left;
+                    float lineRight = pageText.chars[segStart].rect.right;
+                    size_t segEnd = segStart + 1;
+
+                    while (segEnd < matchEnd) {
+                        const auto& cr = pageText.chars[segEnd].rect;
+                        if (cr.right > cr.left && text[segEnd] > 32) {
+                            float charMidY = (cr.top + cr.bottom) * 0.5f;
+                            float lineMidY = (lineTop + lineBot) * 0.5f;
+                            if (std::abs(charMidY - lineMidY) > 8.0f) {
+                                break;
+                            }
+                            lineLeft = (std::min)(lineLeft, cr.left);
+                            lineRight = (std::max)(lineRight, cr.right);
+                            lineTop = (std::min)(lineTop, cr.top);
+                            lineBot = (std::max)(lineBot, cr.bottom);
+                        }
+                        segEnd++;
+                    }
+
+                    D2D1_RECT_F segRect = D2D1::RectF(lineLeft, lineTop, lineRight, lineBot);
+
+                    bool alreadyCovered = false;
+                    for (const auto& existing : pageText.links) {
+                        float ix0 = (std::max)(segRect.left, existing.rect.left);
+                        float iy0 = (std::max)(segRect.top, existing.rect.top);
+                        float ix1 = (std::min)(segRect.right, existing.rect.right);
+                        float iy1 = (std::min)(segRect.bottom, existing.rect.bottom);
+                        if (ix1 > ix0 && iy1 > iy0) {
+                            float interArea = (ix1 - ix0) * (iy1 - iy0);
+                            float segArea = (segRect.right - segRect.left) * (segRect.bottom - segRect.top);
+                            if (segArea > 0.0f && (interArea / segArea) > 0.4f) {
+                                alreadyCovered = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!alreadyCovered && (segRect.right - segRect.left > 4.0f) && (segRect.bottom - segRect.top > 4.0f)) {
+                        pageText.links.push_back({ PdfLinkType::ExternalUri, segRect, normUri, 0, -1.0f, true });
+                    }
+                    segStart = segEnd;
+                }
+            }
+            i = matchEnd;
+            continue;
+        }
+        i++;
+    }
 }
 
 bool PdfParser::QuickCheckFileEncrypted(const std::wstring& filePath) {
@@ -2233,6 +2650,9 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     outPage.pageWidth = dispW;
     outPage.pageHeight = dispH;
 
+    // 1b. Extract interactive /Annots links (External URIs and Internal GoTo destinations)
+    ExtractPageLinks(pageDict, x0, y0, cropW, cropH, rotate, outPage.links);
+
     // 2. Discover Font Resources & Metrics
     auto fonts = ExtractPageFonts(pageDict);
     auto xobjects = ExtractPageXObjects(pageDict);
@@ -2273,6 +2693,9 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     }
 
     NormalizeVisualArabic(outPage);
+
+    // 5. Auto-detect plaintext URLs and emails
+    DetectPlaintextLinks(outPage);
 
     outPage.hasDigitalText = !outPage.chars.empty();
     return true;

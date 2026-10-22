@@ -433,6 +433,7 @@ void PopulatePageTextFromOcr(const OcrPageItem& ocrPage, PdfPageText& outPageTex
         outPageText.chars.push_back({ L' ', D2D1::RectF(wd.dipRect.right, wd.dipRect.top, wd.dipRect.right + 4.0f, wd.dipRect.bottom) });
     }
     outPageText.hasDigitalText = !outPageText.chars.empty();
+    PdfParser::DetectPlaintextLinks(outPageText);
 }
 
 void PdfSearchEngine::SearchWorker(

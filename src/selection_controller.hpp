@@ -68,6 +68,27 @@ public:
         bool& outAfterChar
     );
 
+    /**
+     * @brief Hit-tests client mouse coordinates against interactive links on the visible page(s).
+     * @param pTab Target document tab.
+     * @param clientPt Mouse point in window client coordinates.
+     * @param winWidth Client width in pixels.
+     * @param dpi Monitor DPI scale.
+     * @param topOffset Tab strip height offset in DIPs.
+     * @param outPageIndex Page hit.
+     * @param outLink Copied PdfLink structure of the hit link.
+     * @return true if an interactive link was hit.
+     */
+    bool HitTestPageLink(
+        DocumentTab* pTab,
+        POINT clientPt,
+        float winWidth,
+        float dpi,
+        float topOffset,
+        uint32_t& outPageIndex,
+        PdfLink& outLink
+    );
+
     /// @brief Generates selection highlight bounding boxes for active selection range.
     std::vector<SelectionHighlightSpan> GetSelectionSpans(DocumentTab* pTab);
 
