@@ -28,6 +28,7 @@
 #include "selection_controller.hpp"
 #include "read_aloud_controller.hpp"
 #include "recent_files_controller.hpp"
+#include "supported_formats.hpp"
 
 /// @brief Windows message posted when an external process opens a file via IPC (single-instance).
 #define WM_APP_OPEN_FILE (WM_APP + 1)
@@ -72,6 +73,21 @@ public:
      */
     int Run();
 
+    /**
+     * @brief Registers LightPDF file associations, ProgID, Applications key, and Capabilities in HKCU.
+     */
+    static void RegisterShellAssociations();
+
+    /**
+     * @brief Unregisters LightPDF file associations and removes shell registry entries from HKCU.
+     */
+    static void UnregisterShellAssociations();
+
+    /**
+     * @brief Displays the multi-select Open File dialog and enqueues selected documents.
+     */
+    void OpenFileDialog();
+
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
@@ -87,7 +103,7 @@ private:
     void PrevTab();
 
     void OpenFile(const std::wstring& path) { OpenTab(path); }
-    void PromptOpenFile();
+    void PromptOpenFile() { OpenFileDialog(); }
     void PromptPrint();
     void PromptSaveSearchablePdf(bool forceSaveAs = false);
     void StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal);

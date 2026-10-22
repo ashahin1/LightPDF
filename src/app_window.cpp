@@ -367,7 +367,9 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         for (UINT i = 0; i < fileCount; ++i) {
             wchar_t droppedPath[MAX_PATH * 2] = { 0 };
             if (DragQueryFileW(hDrop, i, droppedPath, _countof(droppedPath))) {
-                OpenTab(droppedPath);
+                if (SupportedFormats::IsSupported(droppedPath)) {
+                    OpenTab(droppedPath);
+                }
             }
         }
         DragFinish(hDrop);
@@ -2065,70 +2067,58 @@ std::vector<TabRenderInfo> AppWindow::GetTabRenderInfos() const {
     return m_tabController.GetTabRenderInfos();
 }
 
-void AppWindow::PromptOpenFile() {
-    if (m_isDialogOpen.exchange(true)) {
-        return;
-    }
+void AppWindow::OpenFileDialog() {
+    // Build the filter string at runtime from the shared extension lists so it never drifts
+    // from what the app can actually open. Entries are "description\0pattern\0".
+    const std::wstring pdfPattern = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
+    const std::wstring pdfLabel = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
 
-    if (m_dialogThread.joinable()) {
-        m_dialogThread.join();
-    }
+    std::wstring filter;
+    filter.reserve(128);
+    auto addFilter = [&filter](const wchar_t* desc, const wchar_t* pattern) {
+        filter.append(desc);
+        filter.push_back(L'\0');
+        filter.append(pattern);
+        filter.push_back(L'\0');
+    };
+    addFilter(L"All Supported Documents", pdfPattern.c_str());
+    addFilter(pdfLabel.c_str(), pdfPattern.c_str());
+    addFilter(L"All Files (*.*)", L"*.*");
+    filter.push_back(L'\0'); // double-null terminator
 
-    HWND hwnd = m_hwnd;
-    m_dialogThread = std::thread([this, hwnd]() {
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    // Large buffer so multiple selections and long paths fit.
+    std::vector<wchar_t> buffer(32768, L'\0');
 
-        ComPtr<IFileOpenDialog> pFileOpen;
-        HRESULT hr = CoCreateInstance(
-            CLSID_FileOpenDialog,
-            nullptr,
-            CLSCTX_ALL,
-            IID_PPV_ARGS(&pFileOpen)
-        );
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(OPENFILENAMEW);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = filter.c_str();
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFile = buffer.data();
+    ofn.nMaxFile = static_cast<DWORD>(buffer.size());
+    ofn.lpstrTitle = L"Open PDF Document";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_ENABLESIZING |
+                OFN_EXPLORER | OFN_ALLOWMULTISELECT | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
 
-        if (SUCCEEDED(hr)) {
-            COMDLG_FILTERSPEC filterSpecs[] = {
-                { L"PDF Documents (*.pdf)", L"*.pdf" },
-                { L"All Files (*.*)", L"*.*" }
-            };
-            pFileOpen->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
-            pFileOpen->SetTitle(L"Open PDF Document");
-
-            hr = pFileOpen->Show(hwnd);
-            if (SUCCEEDED(hr)) {
-                ComPtr<IShellItem> pItem;
-                hr = pFileOpen->GetResult(&pItem);
-                if (SUCCEEDED(hr)) {
-                    PWSTR pszFilePath = nullptr;
-                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
-                    if (SUCCEEDED(hr) && pszFilePath) {
-                        std::wstring pathStr(pszFilePath);
-                        CoTaskMemFree(pszFilePath);
-                        EnqueueOpenFile(pathStr);
-                    }
-                }
+    if (GetOpenFileNameW(&ofn)) {
+        // Single selection: buffer holds the full path. Multi-selection: "dir\0file1\0file2\0\0".
+        const wchar_t* first = buffer.data();
+        const wchar_t* next = first + wcslen(first) + 1;
+        if (*next == L'\0') {
+            if (SupportedFormats::IsSupported(first)) {
+                OpenTab(first);
             }
         } else {
-            // Fallback to classic GetOpenFileNameW
-            wchar_t szFile[MAX_PATH * 2] = { 0 };
-            OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
-            ofn.hwndOwner = hwnd;
-            ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = szFile;
-            ofn.nMaxFile = _countof(szFile);
-            ofn.lpstrTitle = L"Open PDF Document";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-            if (GetOpenFileNameW(&ofn)) {
-                EnqueueOpenFile(szFile);
+            std::wstring dir = first;
+            if (!dir.empty() && dir.back() != L'\\') dir += L'\\';
+            for (const wchar_t* p = next; *p; p += wcslen(p) + 1) {
+                std::wstring fullPath = dir + p;
+                if (SupportedFormats::IsSupported(fullPath)) {
+                    OpenTab(fullPath);
+                }
             }
         }
-
-        if (SUCCEEDED(hrCo)) {
-            CoUninitialize();
-        }
-
-        m_isDialogOpen = false;
-    });
+    }
 }
 
 void AppWindow::PromptPrint() {
@@ -2374,8 +2364,10 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
             ComPtr<IFileSaveDialog> pFileSave;
             HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
             if (SUCCEEDED(hr)) {
+                std::wstring pdfDesc = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
+                std::wstring pdfPat = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
                 COMDLG_FILTERSPEC filterSpecs[] = {
-                    { L"PDF Documents (*.pdf)", L"*.pdf" },
+                    { pdfDesc.c_str(), pdfPat.c_str() },
                     { L"All Files (*.*)", L"*.*" }
                 };
                 pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
@@ -2399,16 +2391,27 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                     }
                 }
             } else {
+                std::wstring saveFilter;
+                saveFilter += SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
+                saveFilter.push_back(L'\0');
+                saveFilter += SupportedFormats::BuildPattern(SupportedFormats::kPdf);
+                saveFilter.push_back(L'\0');
+                saveFilter += L"All Files (*.*)";
+                saveFilter.push_back(L'\0');
+                saveFilter += L"*.*";
+                saveFilter.push_back(L'\0');
+                saveFilter.push_back(L'\0');
+
                 wchar_t szFile[MAX_PATH * 2] = { 0 };
                 wcsncpy_s(szFile, defaultName.c_str(), _TRUNCATE);
                 OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
                 ofn.hwndOwner = hwnd;
-                ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
+                ofn.lpstrFilter = saveFilter.c_str();
                 ofn.lpstrFile = szFile;
                 ofn.nMaxFile = _countof(szFile);
                 ofn.lpstrDefExt = L"pdf";
                 ofn.lpstrTitle = L"Save Searchable PDF As";
-                ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+                ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
                 if (GetSaveFileNameW(&ofn)) {
                     std::wstring targetPath(szFile);
                     bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
@@ -3753,3 +3756,129 @@ void AppWindow::StopReadAloud() {
     Render();
 }
 
+
+void AppWindow::RegisterShellAssociations() {
+    wchar_t exePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+    auto setString = [](HKEY key, const wchar_t* name, const wchar_t* value) {
+        RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value),
+                       static_cast<DWORD>((wcslen(value) + 1) * sizeof(wchar_t)));
+    };
+
+    const wchar_t* progId = L"LightPDF.Document";
+
+    HKEY hKeyProgId;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\LightPDF.Document", 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyProgId, nullptr) == ERROR_SUCCESS) {
+
+        setString(hKeyProgId, nullptr, L"PDF Document (LightPDF)");
+
+        // Default Icon
+        HKEY hKeyIcon;
+        if (RegCreateKeyExW(hKeyProgId, L"DefaultIcon", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyIcon, nullptr) == ERROR_SUCCESS) {
+            wchar_t iconVal[MAX_PATH + 4];
+            swprintf_s(iconVal, L"%s,0", exePath);
+            setString(hKeyIcon, nullptr, iconVal);
+            RegCloseKey(hKeyIcon);
+        }
+
+        // Open command
+        HKEY hKeyCmd;
+        if (RegCreateKeyExW(hKeyProgId, L"shell\\open\\command", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyCmd, nullptr) == ERROR_SUCCESS) {
+            wchar_t cmdVal[MAX_PATH + 16];
+            swprintf_s(cmdVal, L"\"%s\" \"%%1\"", exePath);
+            setString(hKeyCmd, nullptr, cmdVal);
+            RegCloseKey(hKeyCmd);
+        }
+
+        RegCloseKey(hKeyProgId);
+    }
+
+    for (const wchar_t* ext : SupportedFormats::kPdf) {
+        wchar_t keyPath[128];
+        swprintf_s(keyPath, L"Software\\Classes\\%s\\OpenWithProgids", ext);
+        HKEY hKeyExt;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, keyPath, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyExt, nullptr) == ERROR_SUCCESS) {
+            RegSetValueExW(hKeyExt, progId, 0, REG_NONE, nullptr, 0);
+            RegCloseKey(hKeyExt);
+        }
+    }
+
+    // Applications\\LightPDF.exe: makes the app show up reliably in "Open with" lists
+    // and lets Explorer know which file types it handles.
+    const wchar_t* pSlash = wcsrchr(exePath, L'\\');
+    const wchar_t* exeName = pSlash ? (pSlash + 1) : exePath;
+    wchar_t appKeyPath[128];
+    swprintf_s(appKeyPath, L"Software\\Classes\\Applications\\%s", exeName);
+    HKEY hKeyApp;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, appKeyPath, 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyApp, nullptr) == ERROR_SUCCESS) {
+        setString(hKeyApp, L"FriendlyAppName", L"LightPDF");
+
+        HKEY hKeyCmd;
+        if (RegCreateKeyExW(hKeyApp, L"shell\\open\\command", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyCmd, nullptr) == ERROR_SUCCESS) {
+            wchar_t cmdVal[MAX_PATH + 16];
+            swprintf_s(cmdVal, L"\"%s\" \"%%1\"", exePath);
+            setString(hKeyCmd, nullptr, cmdVal);
+            RegCloseKey(hKeyCmd);
+        }
+
+        HKEY hKeyTypes;
+        if (RegCreateKeyExW(hKeyApp, L"SupportedTypes", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyTypes, nullptr) == ERROR_SUCCESS) {
+            for (const wchar_t* ext : SupportedFormats::kPdf) {
+                setString(hKeyTypes, ext, L"");
+            }
+            RegCloseKey(hKeyTypes);
+        }
+        RegCloseKey(hKeyApp);
+    }
+
+    // Capabilities + RegisteredApplications: lists LightPDF in
+    // Windows Settings > Apps > Default apps so users can choose it as the default viewer.
+    HKEY hKeyCaps;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\LightPDF\\Capabilities", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyCaps, nullptr) == ERROR_SUCCESS) {
+        setString(hKeyCaps, L"ApplicationName", L"LightPDF");
+        setString(hKeyCaps, L"ApplicationDescription", L"Ultra-fast, minimalist PDF viewer");
+
+        HKEY hKeyAssoc;
+        if (RegCreateKeyExW(hKeyCaps, L"FileAssociations", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyAssoc, nullptr) == ERROR_SUCCESS) {
+            for (const wchar_t* ext : SupportedFormats::kPdf) {
+                setString(hKeyAssoc, ext, progId);
+            }
+            RegCloseKey(hKeyAssoc);
+        }
+        RegCloseKey(hKeyCaps);
+    }
+
+    HKEY hKeyRegApps;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, nullptr, REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKeyRegApps, nullptr) == ERROR_SUCCESS) {
+        setString(hKeyRegApps, L"LightPDF", L"Software\\LightPDF\\Capabilities");
+        RegCloseKey(hKeyRegApps);
+    }
+
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}
+
+void AppWindow::UnregisterShellAssociations() {
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\LightPDF.Document");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\Applications\\LightPDF.exe");
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\LightPDF\\Capabilities");
+
+    HKEY hKeyRegApps;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, KEY_WRITE, &hKeyRegApps) == ERROR_SUCCESS) {
+        RegDeleteValueW(hKeyRegApps, L"LightPDF");
+        RegCloseKey(hKeyRegApps);
+    }
+
+    for (const wchar_t* ext : SupportedFormats::kPdf) {
+        wchar_t keyPath[128];
+        swprintf_s(keyPath, L"Software\\Classes\\%s\\OpenWithProgids", ext);
+        HKEY hKeyExt;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, keyPath, 0, KEY_WRITE, &hKeyExt) == ERROR_SUCCESS) {
+            RegDeleteValueW(hKeyExt, L"LightPDF.Document");
+            RegCloseKey(hKeyExt);
+        }
+    }
+
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}

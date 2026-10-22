@@ -191,19 +191,43 @@ Original preserved       Hot-reloads open tab seamlessly
 
 ---
 
-## File Association & Shell Integration
+## 📄 Supported Formats
 
-Register LightPDF as your default PDF viewer without administrator privileges:
+LightPDF maintains a single unified source of truth for supported document formats (`src/supported_formats.hpp`), powering the Open/Save dialog filters, multi-file selection, drag-and-drop validation, shell context menus, and Windows Default Apps registration:
+
+| Format | Extensions | Wildcard Pattern | Engine / Notes |
+| :--- | :--- | :--- | :--- |
+| **PDF Documents** | `.pdf` | `*.pdf` | Native hardware-accelerated rendering via Direct2D & `Windows.Data.Pdf` |
+| **All Files** | Any extension (`*.*`) | `*.*` | Fallback filter in Open/Save dialogs and Drag & Drop |
+
+---
+
+## ⚙️ File Association & Shell Integration
+
+LightPDF supports full per-user shell integration without requiring administrator privileges:
 
 ```cmd
-LightPDF.exe /register            :: Interactive confirmation dialog
-LightPDF.exe /register /silent    :: Silent — for scripts & automated setup
-LightPDF.exe /unregister          :: Cleanly removes all registry entries
+:: Register shell associations in user profile (no admin rights required)
+:: Sets up ProgID (LightPDF.Document), OpenWithProgids, Applications\LightPDF.exe,
+:: and Windows Default Apps Capabilities (Software\LightPDF\Capabilities & RegisteredApplications).
+LightPDF.exe /register
+
+:: Register silently (no graphical message box, ideal for scripts & automated setup)
+LightPDF.exe /register /silent
+
+:: Cleanly remove all registered shell associations, ProgID, and Capabilities
+LightPDF.exe /unregister
+
+:: Remove associations silently
+LightPDF.exe /unregister /silent
 ```
 
-This writes directly to `HKCU\Software\Classes` (per-user scope only) and calls `SHChangeNotify` so Windows Explorer updates immediately. After registering:
+> **Note on Windows Default Apps**: Per Windows 10/11 security architecture, running `/register` publishes the application's capabilities to Windows. To set LightPDF as your default viewer for `.pdf` documents, select it in **Windows Settings > Apps > Default apps**, or right-click any PDF file and choose **"Open with" > "Choose another app" > "Always"**.
+
+After registering:
 - Double-clicking any `.pdf` opens LightPDF instantly.
-- If LightPDF is already running, the document opens as a **new tab** in the active window (tab forwarding via named mutex + `WM_COPYDATA`).
+- LightPDF appears in Windows **Default apps** and Explorer **Open with** menus.
+- If LightPDF is already running, documents open as a **new tab** in the active window (single-instance IPC).
 
 ---
 
