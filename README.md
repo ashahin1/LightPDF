@@ -15,6 +15,7 @@
   <img src="https://img.shields.io/badge/binary-880_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
+  <img src="https://img.shields.io/badge/tests-23%20passed%20%7C%20306%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -25,49 +26,91 @@
 
 ---
 
-## Quick Start
+## Table of Contents
+
+- [Quick Start & Command Line](#quick-start--command-line)
+  - [Basic Usage](#basic-usage)
+  - [Shell Integration & File Associations](#shell-integration--file-associations)
+  - [Supported Formats](#supported-formats)
+- [Performance Benchmarks](#performance-benchmarks)
+- [Core Features](#core-features)
+  - [⚡ Ultra-Fast Hardware-Accelerated Engine](#-ultra-fast-hardware-accelerated-engine)
+  - [🗂️ Smart Tab Strip & Jump History](#️-smart-tab-strip--jump-history)
+  - [🌐 Interactive Hyperlinks & Smart URLs](#-interactive-hyperlinks--smart-urls)
+  - [🔒 Password-Protected PDFs](#-password-protected-pdfs)
+  - [🗣️ Native Read Aloud (TTS) & Technical Dictionary](#️-native-read-aloud-tts--technical-dictionary)
+  - [📄 Native Searchable PDF Baking & Multilingual Search](#-native-searchable-pdf-baking--multilingual-search)
+- [Keyboard & Mouse Shortcuts](#keyboard--mouse-shortcuts)
+- [Architecture & Technical Design](#architecture--technical-design)
+  - [Searchable PDF Baking Pipeline](#searchable-pdf-baking-pipeline)
+  - [Zero-Copy Direct2D / D3D11 Pipeline](#zero-copy-direct2d--d3d11-pipeline)
+- [Building from Source](#building-from-source)
+  - [Prerequisites](#prerequisites)
+  - [Build Commands & Incremental Caching](#build-commands--incremental-caching)
+  - [Compiler & Linker Flags](#compiler--linker-flags)
+- [Automated Testing & Verification](#automated-testing--verification)
+- [Code Signing & Colleague Distribution](#code-signing--colleague-distribution)
+- [Developer API Documentation (Doxygen)](#developer-api-documentation-doxygen)
+- [Project Structure](#project-structure)
+- [License](#license)
+
+---
+
+## Quick Start & Command Line
+
+### Basic Usage
+
+LightPDF is completely portable and requires zero installation, admin privileges, or external dependencies:
 
 ```cmd
-:: Run — no installation needed
+:: Launch empty viewer (shows interactive Recent Documents dashboard)
 LightPDF.exe
 
-:: Open a PDF directly
-LightPDF.exe "C:\path\to\document.pdf"
+:: Open a PDF file directly
+LightPDF.exe "C:\Documents\Paper.pdf"
 
-:: Register as default PDF viewer (per-user, no admin required)
-LightPDF.exe /register /silent
+:: Open multiple PDF files simultaneously into tabs
+LightPDF.exe "doc1.pdf" "doc2.pdf" "doc3.pdf"
 ```
 
+### Shell Integration & File Associations
+
+LightPDF includes complete per-user shell association capabilities (`HKCU`), allowing clean integration into Windows without requiring administrator rights:
+
+```cmd
+:: Register file associations, ProgID, and Default Apps capabilities
+LightPDF.exe /register
+
+:: Register silently (no graphical message box, ideal for automation scripts)
+LightPDF.exe /register /silent
+
+:: Cleanly remove all registered shell associations and capabilities
+LightPDF.exe /unregister
+
+:: Unregister silently
+LightPDF.exe /unregister /silent
+```
+
+> [!NOTE]
+> **Windows Default Apps Integration**: Running `/register` registers `ProgID` (`LightPDF.Document`), `OpenWithProgids`, `Applications\LightPDF.exe`, and registers capabilities under `HKCU\Software\LightPDF\Capabilities` and `RegisteredApplications`. To make LightPDF your default viewer, select it in **Windows Settings > Apps > Default apps**, or right-click any PDF and pick **Open with > Choose another app > Always**.
+
+After registering:
+- Double-clicking any `.pdf` opens LightPDF instantly.
+- LightPDF appears in Windows **Default apps** and Explorer **Open with** menus.
+- If LightPDF is already running, documents open as a **new tab** in the active window (single-instance IPC in **54 ms**).
+
+### Supported Formats
+
+LightPDF maintains a single unified source of truth for supported document formats (`src/supported_formats.hpp`), powering the Open/Save dialog filters, multi-file selection, drag-and-drop validation, shell context menus, and Windows Default Apps registration:
+
+| Format | Extensions | Wildcard Pattern | Engine / Notes |
+| :--- | :--- | :--- | :--- |
+| **PDF Documents** | `.pdf` | `*.pdf` | Native hardware-accelerated rendering via Direct2D & `Windows.Data.Pdf` |
+| **All Files** | Any extension (`*.*`) | `*.*` | Fallback filter in Open/Save dialogs and Drag & Drop |
+
 ---
 
-## Features
-
-| | |
-|---|---|
-| ⚡ **Instant Launch** | Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader |
-| 🪶 **Sub-Megabyte Footprint** | **880 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
-| 🕒 **Recent Documents & Tab Recovery** | `Ctrl+Shift+T` instant closed tab recovery with exact page, zoom, and continuous scroll restoration. Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). `Ctrl+H` centered quick switcher modal and Windows Taskbar Jump List integration |
-| 🗣️ **Native Read Aloud (TTS)** | `Ctrl+R` high-fidelity bilingual text-to-speech with real-time visual word tracking. Automatic Arabic (`Microsoft Naayf`) and English voice discovery via Windows OneCore & SAPI. Floating frosted HUD with rate tuning (`Ctrl+[` / `]`), sentence skip, and automatic continuous multi-page reading |
-| 📄 **Native Searchable PDF Export** | `Ctrl+S` / `Ctrl+Shift+S`: bakes an invisible text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Atomic in-place overwrite or Save As new file with zero image quality degradation |
-| 🎯 **Presentation & Laser Pointer** | Press `L` to activate an optical glowing laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold. Automatically dismisses upon switching to navigation tools |
-| 📖 **Offline Technical Dictionary** | Double-click or press `D`: instant English-Arabic translation and definitions for Computer Engineering, Architecture, Networks, Cybersecurity, and ABET terms &mdash; 100% offline |
-| 🔍 **Bilingual Search Engine** | `Ctrl+F` real-time search with diacritics stripping, Alef/Taa Marbuta normalization, Eastern & Western Arabic numeral unification, and bidirectional matching |
-| 📜 **Continuous & Horizontal Scroll** | `Ctrl+3` continuous layout; native touchpad 2-finger horizontal swipe (`WM_MOUSEHWHEEL`), mouse tilt-wheel scrolling, `Shift + Wheel`, and an auto-fading scrub scrollbar |
-| 🎨 **Chromeless Design** | No toolbars, ribbons, side panels, or telemetry &mdash; just your document |
-| 🗂️ **Smart Multi-Tabs** | Auto-hiding tab bar: invisible with 1 doc, appears with 2+, vanishes again when closed down to 1 |
-| 🚀 **Single Instance** | Opening PDFs from Explorer forwards into new tabs of the existing window in **54 ms** via `WM_COPYDATA` |
-| ✋ **Hand & Selection Tools** | Seamlessly toggle between Hand Pan (`H`) and Text Selection (`V` / `S`) with automatic laser dismissal and clipboard copy (`Ctrl+C`) |
-| 🖨️ **300 DPI Streaming Printing** | Native `PrintDlgExW` &mdash; All Pages, Current Page, or Custom Ranges &mdash; streamed page-by-page |
-| ℹ️ **Document Properties** | `Ctrl+D` instant inspection dialog for title, author, producer, page count, and PDF version |
-| 🎮 **GPU Hardware Rendering** | Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard |
-| 🔎 **Smooth Zooming** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page, `Ctrl+1` 100%, and `Ctrl+2` Fit Width |
-| 🖥️ **HiDPI Native** | PerMonitorV2 DPI &mdash; crisp on 4K, 8K, and mixed multi-monitor setups |
-| 🔒 **Password-Protected PDFs** | Fast native unlocking for encrypted documents with custom Direct2D modal prompt, masked input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), instant error retry, zero RAM plaintext residue (`SecureZeroMemory`), and on-demand OCR fallback for text selection and search |
-| 🔗 **Zero-Admin Association** | `LightPDF.exe /register` &mdash; adds to Windows "Open with" & Default Apps without admin |
-
----
-
-## Benchmarks
+## Performance Benchmarks
 
 Measured on Windows 11 x64 with cold execution and hardware performance counters.
 
@@ -83,6 +126,49 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 ---
 
+## Core Features
+
+### ⚡ Ultra-Fast Hardware-Accelerated Engine
+- **Instant Launch**: Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader.
+- **Sub-Megabyte Footprint**: Single **880 KB** standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
+- **GPU Hardware Rendering**: Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard model.
+- **Chromeless Design**: No toolbars, ribbons, side panels, or telemetry &mdash; pure focus on your document.
+- **HiDPI Native**: Full PerMonitorV2 DPI awareness &mdash; razor-sharp on 4K, 8K, and mixed-scaling multi-monitor environments.
+
+### 🗂️ Smart Tab Strip & Jump History
+- **Smart Multi-Tabs**: Auto-hiding tab bar that remains invisible with 1 open document, appears smoothly with 2+, and vanishes when closed down to 1.
+- **Tab Forwarding**: Single-instance mutex; opening documents from Explorer forwards them into new tabs of the running window in **54 ms** via `WM_COPYDATA`.
+- **Closed Tab Recovery**: Press `Ctrl+Shift+T` to instantly restore recently closed tabs with exact page index, zoom factor, and continuous scroll position.
+- **Recent Documents & Switcher**: Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). Press `Ctrl+H` for a centered quick switcher modal.
+- **Document Jump History**: Internal 50-entry LIFO navigation stack &mdash; navigate back and forward with `Alt + ← / →` or mouse side buttons (`XBUTTON1`/`XBUTTON2`).
+- **Hand & Selection Tools**: Seamlessly toggle between Hand Pan (`H` or `Middle Drag`) and Text Selection (`V` / `S`) with automatic laser dismissal and clipboard copy (`Ctrl+C`).
+
+### 🌐 Interactive Hyperlinks & Smart URLs
+- **ISO 32000-1 `/Annots` Parsing**: Extracts both external web/email links (`/Action /S /URI`) and internal page jumps (`/Action /S /GoTo` with `/D` arrays or direct `/Dest`).
+- **Full Rotation & Geometry Mapping**: Maps coordinates from bottom-left PDF point space to top-left Direct2D DIP space across CropBox/MediaBox offsets and all rotations ($0^\circ, 90^\circ, 180^\circ, 270^\circ$).
+- **Smart URL & Email Auto-Detection**: Scans digital text and OCR layers for `https://`, `http://`, `www.`, and `mailto:` links, unifying glyph bounding boxes across multi-line wraps with automatic `/Annots` de-duplication.
+- **Sleek Bottom-Left Preview Pill**: Hovering reveals an `IDC_HAND` cursor, subtle on-page highlight + accent underline, and a floating URL preview status pill dynamically constrained so it never collides with the centered HUD pill.
+- **Strict Scheme Whitelisting**: Strictly restricts external launching to `https://`, `http://`, and `mailto:` &mdash; blocking dangerous schemes (`file:`, `javascript:`, `cmd:`, `powershell:`, and UNC paths).
+
+### 🔒 Password-Protected PDFs
+- **Fast Encrypted Document Handling**: Native detection and unlocking of password-protected PDF files using `Windows.Data.Pdf`.
+- **Sleek Direct2D Modal Prompt**: Dark glass card with masked password input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), and error shake feedback.
+- **Zero RAM Plaintext Residue**: Clears password buffers immediately using `SecureZeroMemory` after authentication.
+- **On-Demand OCR Fallback**: Enables full text selection, offline dictionary lookup, and search even on encrypted PDFs whose security flags disable standard digital text extraction.
+
+### 🗣️ Native Read Aloud (TTS) & Technical Dictionary
+- **Bilingual Text-to-Speech**: Press `Ctrl+R` for high-fidelity speech playback with real-time visual word highlighting. Automatically routes Arabic to `Microsoft Naayf` and English to system voices via Windows OneCore & SAPI.
+- **Frosted Playback HUD**: Floating control bar with reading speed tuning (`Ctrl+[` / `]`), pause/resume (`Space`), sentence skipping (`←` / `→`), and automatic continuous multi-page reading.
+- **Offline Technical Dictionary**: Double-click or press `D` on any selected word for instant English-Arabic translation and definitions covering Computer Engineering, Architecture, Networks, Cybersecurity, and ABET terms &mdash; 100% offline.
+
+### 📄 Native Searchable PDF Baking & Multilingual Search
+- **Searchable PDF Sandwich Export**: Press `Ctrl+S` / `Ctrl+Shift+S` to bake an invisible OCR text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Supports atomic in-place overwrite or Save As with zero image recompression.
+- **Bilingual Search Engine**: Real-time search (`Ctrl+F`) with diacritics stripping, Alef/Taa Marbuta normalization, Eastern & Western Arabic numeral unification, and bidirectional matching.
+- **Presentation Laser Pointer**: Press `L` to activate an optical glowing laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold.
+- **300 DPI Streaming Printing**: Native `PrintDlgExW` &mdash; All Pages, Current Page, or Custom Ranges &mdash; streamed page-by-page directly to the printer spooler.
+
+---
+
 ## Keyboard & Mouse Shortcuts
 
 Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts overlay.
@@ -95,13 +181,15 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Page Up` / `Shift+Space` | Go to previous page |
 | `→` / `←` | Next / previous page (or skip sentence in Read Aloud) |
 | `Home` / `End` | Jump to first / last page |
+| `Alt + ←` / `Alt + →` | Navigate backward / forward in document jump history |
+| `Mouse Back / Forward` | Navigate backward / forward across internal document links |
+| `Click on Link / URL` | Open external web link safely or jump to internal target page |
 | `Mouse Wheel` | Scroll page vertically |
 | `Touchpad 2-Finger Swipe` / `Tilt Wheel` | Scroll page horizontally (when zoomed in) |
 | `Shift + Mouse Wheel` | Scroll page horizontally (when zoomed in) |
 | `Middle Drag` / `Space + Drag` | Smooth canvas panning |
 | `H` | Hand Tool (toggle drag pan mode; dismisses laser) |
 | `V` / `S` | Text Selection Tool (dismisses laser) |
-| `1` … `9` | Open recent document directly (from empty-state dashboard) |
 
 ### Zoom & View
 
@@ -116,6 +204,20 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `F11` | Toggle borderless fullscreen |
 | `Scrollbar Drag` | Scrub through document pages with live preview tooltip |
 
+### Tabs & Document Management
+
+| Shortcut | Description |
+| :--- | :--- |
+| `Ctrl + O` / `Ctrl + T` | Open PDF document in new tab |
+| `Ctrl + Shift + T` | Reopen last closed tab (restoring exact page, zoom, scroll position) |
+| `Ctrl + H` | Toggle Recent Documents Quick Switcher modal |
+| `1` … `9` | Jump directly to recent document (in Quick Switcher or Dashboard) |
+| `Ctrl + W` | Close active tab |
+| `Ctrl + Tab` / `Ctrl + Shift + Tab` | Switch to next / previous tab |
+| `Alt + 1` … `Alt + 9` | Jump directly to tabs 1 through 9 |
+| `Middle Click Tab` | Close clicked tab |
+| `Drag & Drop` | Drop one or multiple PDF files to open as tabs |
+
 ### Read Aloud (Text-to-Speech)
 
 | Shortcut | Description |
@@ -126,29 +228,15 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `←` / `→` | Skip backward / forward by sentence |
 | `Esc` | Stop speech playback and dismiss Read Aloud HUD |
 
-### Tabs & Files
-
-| Shortcut | Description |
-| :--- | :--- |
-| `Ctrl + O` / `Ctrl + T` | Open PDF document in new tab |
-| `Ctrl + Shift + T` | Reopen last closed tab (restoring exact page, zoom, scroll position) |
-| `Ctrl + H` | Toggle Recent Documents Quick Switcher modal |
-| `1` … `9` | Jump directly to recent document (in Quick Switcher or Dashboard) |
-| `Ctrl + S` | Save Searchable PDF prompt (Overwrite original or Save As new copy) |
-| `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
-| `Ctrl + W` | Close active tab |
-| `Ctrl + Tab` / `Ctrl + Shift + Tab` | Switch to next / previous tab |
-| `Alt + 1` … `Alt + 9` | Jump directly to tabs 1 through 9 |
-| `Middle Click Tab` | Close clicked tab |
-| `Drag & Drop` | Drop one or multiple PDF files to open as tabs |
-
-### Search & Tools
+### Search & Document Tools
 
 | Shortcut | Description |
 | :--- | :--- |
 | `Ctrl + F` | Find text in document (floating search bar) |
 | `F3` / `Shift + F3` | Next / previous search match |
 | `Enter` / `Shift + Enter` | Next / previous match in search bar |
+| `Ctrl + S` | Save Searchable PDF prompt (Overwrite original or Save As new copy) |
+| `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
 | `L` | Toggle Presentation Laser Pointer |
 | `C` | Cycle Laser Pointer Color (Red, Green, Cyan, Gold) |
 | `Ctrl + C` | Copy selected text to clipboard |
@@ -160,7 +248,9 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 
 ---
 
-## Searchable PDF Baking Architecture
+## Architecture & Technical Design
+
+### Searchable PDF Baking Pipeline
 
 ```
 Scanned / Non-Digital PDF
@@ -190,104 +280,23 @@ Native Save Picker       Atomic ReplaceFileW via .tmp
 Original preserved       Hot-reloads open tab seamlessly
 ```
 
----
-
-## 📄 Supported Formats
-
-LightPDF maintains a single unified source of truth for supported document formats (`src/supported_formats.hpp`), powering the Open/Save dialog filters, multi-file selection, drag-and-drop validation, shell context menus, and Windows Default Apps registration:
-
-| Format | Extensions | Wildcard Pattern | Engine / Notes |
-| :--- | :--- | :--- | :--- |
-| **PDF Documents** | `.pdf` | `*.pdf` | Native hardware-accelerated rendering via Direct2D & `Windows.Data.Pdf` |
-| **All Files** | Any extension (`*.*`) | `*.*` | Fallback filter in Open/Save dialogs and Drag & Drop |
-
----
-
-## ⚙️ File Association & Shell Integration
-
-LightPDF supports full per-user shell integration without requiring administrator privileges:
-
-```cmd
-:: Register shell associations in user profile (no admin rights required)
-:: Sets up ProgID (LightPDF.Document), OpenWithProgids, Applications\LightPDF.exe,
-:: and Windows Default Apps Capabilities (Software\LightPDF\Capabilities & RegisteredApplications).
-LightPDF.exe /register
-
-:: Register silently (no graphical message box, ideal for scripts & automated setup)
-LightPDF.exe /register /silent
-
-:: Cleanly remove all registered shell associations, ProgID, and Capabilities
-LightPDF.exe /unregister
-
-:: Remove associations silently
-LightPDF.exe /unregister /silent
-```
-
-> **Note on Windows Default Apps**: Per Windows 10/11 security architecture, running `/register` publishes the application's capabilities to Windows. To set LightPDF as your default viewer for `.pdf` documents, select it in **Windows Settings > Apps > Default apps**, or right-click any PDF file and choose **"Open with" > "Choose another app" > "Always"**.
-
-After registering:
-- Double-clicking any `.pdf` opens LightPDF instantly.
-- LightPDF appears in Windows **Default apps** and Explorer **Open with** menus.
-- If LightPDF is already running, documents open as a **new tab** in the active window (single-instance IPC).
-
----
-
-## Project Structure
+### Zero-Copy Direct2D / D3D11 Pipeline
 
 ```
-LightPDF/
-├── bin/
-│   ├── LightPDF.exe              # ~831 KB standalone signed binary (zero DLLs)
-│   ├── obj/                      # Intermediate build artifacts (ignored by git)
-│   └── dict/                     # Offline technical dictionary database
-│       └── en-ar.dat
-├── dict/
-│   ├── en-ar.dat                 # Binary English-Arabic technical terminology
-│   └── user_terms.txt            # Custom additions source list
-├── resources/
-│   ├── app.ico                   # Multi-resolution icon (16×16 → 256×256)
-│   ├── app.rc                    # Windows resource script (App Icon + VS_VERSION_INFO)
-│   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
-├── src/
-│   ├── pch.hpp/.cpp              # Precompiled header (Win32, Direct2D, WinRT, STL) for ~5x faster incremental builds
-│   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
-│   ├── app_window.hpp/.cpp       # Window lifecycle, thread coordination, message routing
-│   ├── tab_controller.hpp/.cpp   # Document tabs, multi-tab layout, continuous scroll metrics
-│   ├── search_controller.hpp/.cpp# Interactive find in page, match navigation & debounce
-│   ├── selection_controller.hpp/.cpp# Text selection, dictionary lookup card lifecycle
-│   ├── ui_views.hpp/.cpp         # Modular D2D views: TabStrip, ScrollBar, Search, Overlays
-│   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 zero-copy hardware render pipeline
-│   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper & prefetch
-│   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal
-│   ├── pdf_search.hpp/.cpp       # Multilingual search engine, normalization, numerals
-│   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich
-│   ├── tts_engine.hpp/.cpp       # Pure COM SAPI voice engine, Desktop & OneCore voice discovery
-│   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
-│   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
-│   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
-├── tests/
-│   ├── fixtures/                 # Minimal synthetic PDF fixtures committed to git
-│   │   ├── sample_1page.pdf
-│   │   ├── sample_2page.pdf
-│   │   └── sample_encrypted.pdf
-│   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (22 test cases, 263 assertions, <45ms runtime)
-│   ├── run_tests.bat             # Test compilation & execution script (/W4)
-│   ├── test_samples.ps1          # Automated multi-document benchmark test script
-│   └── legacy/                   # Archived one-off interactive test harnesses
-├── tools/
-│   ├── sign.bat                  # 1-click Authenticode code signing & bundle generator
-│   ├── sign.ps1                  # PowerShell script to sign binary & build dist package
-│   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
-├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
-├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)
-├── Doxyfile                      # Doxygen API documentation configuration
-├── generate_docs.bat             # Automated Doxygen HTML documentation generator
-├── .editorconfig                 # Standard cross-editor styling configuration
-├── .clang-format                 # Chromium/Google C++ 4-space formatting specification
-├── .git-blame-ignore-revs        # Blame exclusion for formatting revisions
-├── LICENSE                       # MIT License
-└── README.md
+     PDF Document (WinRT / Native)
+                  │
+                  ▼
+   DXGI 1.2 SwapChain (Flip Discard)
+                  │
+    ┌─────────────┴─────────────┐
+    ▼                           ▼
+Direct2D Context         DirectWrite Factory
+  ├── PDF Hardware Raster  ├── Tab Strip & HUD
+  ├── Selection Highlight  ├── URL Preview Pill
+  └── Laser Glow Halo      └── Modal Dialogs
+                  │
+                  ▼
+   Desktop Window Manager (DWM)
 ```
 
 ---
@@ -304,7 +313,7 @@ LightPDF/
 Open **Developer PowerShell for VS 2022** and run `.\build.ps1` or `build.bat`.
 
 #### Option B: Portable MSVC (Zero Install, No Admin)
-If you don't have Visual Studio installed, bootstrap a portable compiler into `tools/msvc/` using [portable-msvc](https://github.com/mmozeiko/portable-msvc):
+If you do not have Visual Studio installed, bootstrap a portable compiler into `tools/msvc/` using [portable-msvc](https://github.com/mmozeiko/portable-msvc):
 
 ```powershell
 python portable-msvc.py
@@ -343,9 +352,9 @@ build.bat /clean     :: Clean build artifacts
 | **Single File Modified** | 106.75 s | **13.17 s** | **8× faster** |
 | **Full Clean Rebuild** | 106.75 s | **21.39 s** | **5× faster** |
 
-Output: `bin\LightPDF.exe` (**829.5 KB** unsigned / **831.0 KB** signed)
+Output: `bin\LightPDF.exe` (**880 KB** unsigned / **~881 KB** signed)
 
-### Compiler Flags
+### Compiler & Linker Flags
 
 ```
 /MP /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4
@@ -365,6 +374,37 @@ Output: `bin\LightPDF.exe` (**829.5 KB** unsigned / **831.0 KB** signed)
 | `/GL` + `/LTCG` | Whole-program link-time code generation for maximum inter-procedural inlining |
 | `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding for minimal binary size |
 | `/Gy` + `/Gw` | Function-level and global data-level linking for granular dead-code removal |
+
+---
+
+## Automated Testing & Verification
+
+LightPDF includes a unified automated test suite built on the zero-overhead `doctest` framework:
+
+```cmd
+:: Run the complete automated test suite
+tests\run_tests.bat
+```
+
+```
+===============================================================================
+[LightPDF Test Runner] Executing 23 test cases...
+===============================================================================
+  Test Cases: 23 passed | 0 failed | 23 total
+  Assertions: 306 passed | 0 failed | 306 total
+  Elapsed:    ~3.2 s
+===============================================================================
+>>> ALL TESTS PASSED SUCCESSFULLY! <<<
+```
+
+The test suite exercises all critical components:
+- **PDF Core Parser & Streams**: Incremental xref `/Prev` traversal, stream decompression (Flate / ASCII85), and font dictionary extraction.
+- **CMap & Font Metrics**: Composite Type 0 fonts, CIDFontType2, and Adobe UCS `/ToUnicode` mapping.
+- **Multilingual Search**: Arabic diacritic stripping, Alef/Taa Marbuta normalization, Eastern-to-Western Arabic numeral normalization, and bidirectional text matching.
+- **Interactive Hyperlinks**: ISO 32000-1 `/Annots` parsing (`/URI`, `/GoTo`), plaintext URL regex extraction, single/continuous hit-testing, and navigation history stacks.
+- **Security & Password Protection**: Encrypted PDF status transitions, modal hit-testing, and memory clearing.
+- **Read Aloud (TTS)**: Bilingual text chunking, script-based voice routing, and glyph bounding box mapping.
+- **Tab & Recent State**: Closed tab LIFO recovery, MRU registry persistence, and Quick Switcher hit-testing.
 
 ---
 
@@ -391,7 +431,7 @@ Zip or share the generated `dist\` folder with your colleagues:
 
 ---
 
-## Generating Documentation (Doxygen)
+## Developer API Documentation (Doxygen)
 
 LightPDF source headers are annotated with Doxygen docstrings (`///` and `/** ... */`). You can generate complete, searchable HTML documentation:
 
@@ -409,6 +449,67 @@ generate_docs.bat
 
 ### 3. View Output
 Open `docs\html\index.html` in any web browser to view the interactive API reference, class hierarchy, data structures, and architectural documentation.
+
+---
+
+## Project Structure
+
+```
+LightPDF/
+├── bin/
+│   ├── LightPDF.exe              # ~880 KB standalone binary (zero external DLLs)
+│   ├── obj/                      # Intermediate build artifacts (ignored by git)
+│   └── dict/                     # Offline technical dictionary database
+│       └── en-ar.dat
+├── dict/
+│   ├── en-ar.dat                 # Binary English-Arabic technical terminology
+│   └── user_terms.txt            # Custom additions source list
+├── resources/
+│   ├── app.ico                   # Multi-resolution icon (16×16 → 256×256)
+│   ├── app.rc                    # Windows resource script (App Icon + VS_VERSION_INFO)
+│   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
+├── src/
+│   ├── pch.hpp/.cpp              # Precompiled header (Win32, Direct2D, WinRT, STL) for ~5x faster incremental builds
+│   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
+│   ├── app_window.hpp/.cpp       # Window lifecycle, thread coordination, message routing
+│   ├── tab_controller.hpp/.cpp   # Document tabs, multi-tab layout, continuous scroll metrics, jump history
+│   ├── search_controller.hpp/.cpp# Interactive find in page, match navigation & debounce
+│   ├── selection_controller.hpp/.cpp# Text selection, link hit-testing, dictionary card lifecycle
+│   ├── ui_views.hpp/.cpp         # Modular D2D views: TabStrip, ScrollBar, Search, Overlays, Password, Recent
+│   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 zero-copy hardware render pipeline, URL preview pill
+│   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper, password decryption & prefetch
+│   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal, /Annots link extraction
+│   ├── pdf_search.hpp/.cpp       # Multilingual search engine, normalization, numerals, OCR fallback
+│   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich layer
+│   ├── tts_engine.hpp/.cpp       # Pure COM SAPI voice engine, Desktop & OneCore voice discovery
+│   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
+│   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
+│   ├── supported_formats.hpp     # Single source of truth for supported document extensions & dialog filters
+│   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
+├── tests/
+│   ├── fixtures/                 # Minimal synthetic PDF fixtures committed to git
+│   │   ├── sample_1page.pdf
+│   │   ├── sample_2page.pdf
+│   │   └── sample_encrypted.pdf
+│   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
+│   ├── unified_tests.cpp         # Complete test suite (23 test cases, 306 assertions, <45ms runtime)
+│   ├── run_tests.bat             # Test compilation & execution script (/W4)
+│   ├── test_samples.ps1          # Automated multi-document benchmark test script
+│   └── legacy/                   # Archived one-off interactive test harnesses
+├── tools/
+│   ├── sign.bat                  # 1-click Authenticode code signing & bundle generator
+│   ├── sign.ps1                  # PowerShell script to sign binary & build dist package
+│   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
+├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
+├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)
+├── Doxyfile                      # Doxygen API documentation configuration
+├── generate_docs.bat             # Automated Doxygen HTML documentation generator
+├── .editorconfig                 # Standard cross-editor styling configuration
+├── .clang-format                 # Chromium/Google C++ 4-space formatting specification
+├── .git-blame-ignore-revs        # Blame exclusion for formatting revisions
+├── LICENSE                       # MIT License
+└── README.md
+```
 
 ---
 
