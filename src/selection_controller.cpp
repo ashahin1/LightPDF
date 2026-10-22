@@ -1,4 +1,5 @@
 #include "selection_controller.hpp"
+#include "pdf_search.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -102,7 +103,7 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
     }
 
     PdfPageText pageText;
-    if (pTab->parser->ExtractPageText(pageIndex, pageText)) {
+    if (pTab->parser->ExtractPageText(pageIndex, pageText) && pageText.hasDigitalText && !pageText.chars.empty()) {
         auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
         std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
         if (pageIndex < pTab->textCache->pages.size()) {
@@ -110,6 +111,40 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
         }
         return sharedPage;
     }
+
+    // Encrypted document or page without digital text: fallback to OCR if document is loaded
+    if (pTab->document.IsLoaded()) {
+        auto engines = CreateBilingualOcrEngines();
+        if (engines.IsValid()) {
+            auto page = pTab->document.GetPage(pageIndex);
+            if (page) {
+                auto pSize = pTab->document.GetPageSize(pageIndex);
+                OcrPageItem ocrItem;
+                if (ExtractBilingualPageOcr(page, pageIndex, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
+                    PopulatePageTextFromOcr(ocrItem, pageText);
+                    pageText.pageWidth = pSize.width;
+                    pageText.pageHeight = pSize.height;
+                    auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
+                    std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+                    if (pageIndex < pTab->textCache->pages.size()) {
+                        pTab->textCache->pages[pageIndex] = sharedPage;
+                    }
+                    return sharedPage;
+                }
+            }
+        }
+        auto pSize = pTab->document.GetPageSize(pageIndex);
+        pageText.pageWidth = pSize.width;
+        pageText.pageHeight = pSize.height;
+        pageText.hasDigitalText = false;
+        auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
+        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+        if (pageIndex < pTab->textCache->pages.size()) {
+            pTab->textCache->pages[pageIndex] = sharedPage;
+        }
+        return sharedPage;
+    }
+
     return nullptr;
 }
 

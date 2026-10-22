@@ -447,10 +447,10 @@ void PdfSearchEngine::SearchWorker(
 ) {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 
-    // Initial check to verify parser can open the file
+    // Initial check to verify parser or doc can open the file
     {
         PdfParser testParser;
-        if (!testParser.Load(filePath)) {
+        if (!testParser.Load(filePath) && !doc) {
             m_isSearching = false;
             PostMessageW(hwndNotify, WM_APP_SEARCH_UPDATE, 0, 0);
             return;
@@ -489,7 +489,8 @@ void PdfSearchEngine::SearchWorker(
             } catch (...) {}
 
             PdfParser parser;
-            if (!parser.Load(filePath)) return;
+            bool parserLoaded = parser.Load(filePath);
+            if (!parserLoaded && !doc) return;
 
             // Reusable buffers to eliminate per-page heap allocations
             std::wstring workerUpperBuf;
@@ -520,7 +521,9 @@ void PdfSearchEngine::SearchWorker(
                     pageText.fullText.clear();
                     pageText.chars.clear();
                     pageText.hasDigitalText = false;
-                    parser.ExtractPageText(p, pageText);
+                    if (parserLoaded) {
+                        parser.ExtractPageText(p, pageText);
+                    }
 
                     // Check if page has digital text
                     if (!pageText.hasDigitalText) {
@@ -531,6 +534,11 @@ void PdfSearchEngine::SearchWorker(
                             try {
                                 auto page = doc.GetPage(p);
                                 if (page) {
+                                    if (pageText.pageWidth <= 0.0f || pageText.pageHeight <= 0.0f) {
+                                        auto sz = page.Size();
+                                        pageText.pageWidth = sz.Width;
+                                        pageText.pageHeight = sz.Height;
+                                    }
                                     OcrPageItem ocrPage;
                                     if (ExtractBilingualPageOcr(page, p, pageText.pageWidth, pageText.pageHeight, ocrEngines.arEngine, ocrEngines.enEngine, ocrPage, 2.0f)) {
                                         PopulatePageTextFromOcr(ocrPage, pageText);
