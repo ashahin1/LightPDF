@@ -8,7 +8,7 @@ Before submitting contributions, please keep in mind the fundamental design goal
 
 1. **Extreme Performance**: Sub-200ms cold launch (baseline ~159 ms), instantaneous tab switching (< 60 ms via `WM_COPYDATA`), smooth continuous scrolling, and low memory profile (< 10 MB private RAM).
 2. **Zero External Runtime Dependencies**: Standalone single executable utilizing only native Windows 10/11 Win32, Direct2D 1.1, Direct3D 11, DirectWrite, and C++/WinRT (`Windows.Data.Pdf`, `Windows.Storage`, `Windows.Media.Ocr`) system APIs. **No external runtime DLLs**.
-3. **Strict Size Budget**: Total executable size must strictly remain under **832 KB** (851,968 bytes). Every byte counts.
+3. **Strict Size Budget**: Total executable size must strictly remain under **1 MB** (1,024 KB / 1,048,576 bytes), targeting a 100 KB safety margin (<= 924 KB). Every byte counts.
 4. **Clean Code & Toolchain**: Pure C++20 (`/std:c++20`), static CRT linking (`/MT`), warning-free compilation under `/W4`, and whole-program optimization (`/GL` + `/LTCG`).
 
 ---

@@ -147,14 +147,25 @@ public:
     float GetTopOffset() const { return (m_tabs.size() > 1) ? 34.0f : 0.0f; }
 
     /**
-     * @brief Opens a PDF file in a new tab, or activates existing tab if already open.
+     * @brief Opens a PDF file with optional password in a new tab, or activates existing tab if already open.
      * @param path Filesystem path to the PDF.
      * @param hwnd Parent window HWND for notification messages.
      * @param outCanonicalPath Canonicalized full path resolved for the file.
      * @param outAlreadyOpen Set to true if file was already open in a tab.
-     * @return true if opened or focused successfully, false on error.
+     * @param password Optional user password for encrypted PDFs.
+     * @return PdfLoadStatus indicating Success, PasswordRequired, WrongPassword, or Failed.
      */
-    bool OpenTab(const std::wstring& path, HWND hwnd, std::wstring& outCanonicalPath, bool& outAlreadyOpen);
+    PdfLoadStatus OpenTabWithPassword(
+        const std::wstring& path,
+        HWND hwnd,
+        std::wstring& outCanonicalPath,
+        bool& outAlreadyOpen,
+        const std::wstring& password = L""
+    );
+
+    bool OpenTab(const std::wstring& path, HWND hwnd, std::wstring& outCanonicalPath, bool& outAlreadyOpen) {
+        return OpenTabWithPassword(path, hwnd, outCanonicalPath, outAlreadyOpen, L"") == PdfLoadStatus::Success;
+    }
 
     /**
      * @brief Closes tab at specified index.

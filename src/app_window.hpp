@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <deque>
 #include <memory>
 #include <atomic>
 #include <thread>
@@ -247,6 +248,30 @@ private:
     ToolMode m_toolMode = ToolMode::TextSelect;
     uint64_t m_hudToastTime = 0;
     std::wstring m_hudToastText;
+
+    // Password Prompt Modal state
+    struct PendingPasswordRequest {
+        std::wstring filePath;
+        bool hasRestoreState = false;
+        uint32_t restorePage = 0;
+        float restoreZoom = 1.0f;
+        ZoomMode restoreZoomMode = ZoomMode::FitPage;
+        float restoreScrollY = 0.0f;
+        bool restoreContinuous = true;
+    };
+
+    bool m_showPasswordOverlay = false;
+    std::wstring m_passwordInput;
+    std::wstring m_passwordError;
+    bool m_passwordShowPlain = false;
+    int m_passwordHoveredBtn = 0;
+    PendingPasswordRequest m_activePasswordReq;
+    std::deque<PendingPasswordRequest> m_pendingPasswordQueue;
+
+    void PromptForPassword(const PendingPasswordRequest& req);
+    void SubmitPasswordPrompt();
+    void CancelPasswordPrompt();
+    void ProcessNextPasswordRequest();
 
     // File Open Dialog state
     std::atomic<bool> m_isDialogOpen{ false };

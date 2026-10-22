@@ -409,6 +409,16 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_CHAR:
+        if (m_showPasswordOverlay) {
+            if (wParam >= 32 && wParam != 127) {
+                if (m_passwordInput.size() < 256) {
+                    m_passwordInput.push_back((wchar_t)wParam);
+                    m_passwordError.clear();
+                    Render();
+                }
+            }
+            return 0;
+        }
         if (m_showProperties) {
             return 0;
         }
@@ -483,7 +493,9 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             ScrollHorizontal((float)delta * 0.6f);
         } else {
             ShowScrollbar();
-            if (pTab->continuousScroll) {
+    
+
+        if (pTab->continuousScroll) {
                 ScrollContinuous((float)delta * 0.6f);
             } else {
                 ScrollSinglePage((float)delta * 0.6f);
@@ -510,6 +522,23 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipX = (float)pt.x * dipScale;
         float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
+
+        // 000. If Password Overlay is open, handle button clicks
+        if (msg == WM_LBUTTONDOWN && m_showPasswordOverlay) {
+            int pwdHit = m_renderer.HitTestPasswordOverlay(pt);
+            if (pwdHit == 1 || pwdHit == 4 || pwdHit == -1) {
+                CancelPasswordPrompt();
+                return 0;
+            } else if (pwdHit == 2) {
+                m_passwordShowPlain = !m_passwordShowPlain;
+                Render();
+                return 0;
+            } else if (pwdHit == 3) {
+                SubmitPasswordPrompt();
+                return 0;
+            }
+            return 0;
+        }
 
         // 00. If Read Aloud bar is active, handle button clicks
         if (msg == WM_LBUTTONDOWN && m_readAloudController.IsActive()) {
@@ -806,6 +835,24 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipY = (float)pt.y * dipScale;
         float dipW = (float)m_renderer.GetWidth() * dipScale;
         float topOffset = GetTopOffset();
+
+        // 000. Password prompt hover detection
+        if (m_showPasswordOverlay) {
+            int hit = m_renderer.HitTestPasswordOverlay(pt);
+            int newBtn = (hit >= 1 && hit <= 4) ? hit : 0;
+            if (newBtn != m_passwordHoveredBtn) {
+                m_passwordHoveredBtn = newBtn;
+                Render();
+            }
+            if (newBtn >= 1 && newBtn <= 4) {
+                SetCursor(m_cursorHand);
+            } else if (hit == 5) {
+                SetCursor(m_cursorIBeam);
+            } else {
+                SetCursor(m_cursorArrow);
+            }
+            return 0;
+        }
 
         // 00a. Presenter Bar hover detection in fullscreen
         if (m_isFullscreen) {
@@ -1251,6 +1298,53 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
 
 LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) {
         if (m_isDraggingScrollbar) return 0;
+
+        if (m_showPasswordOverlay) {
+            bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (wParam == VK_ESCAPE) {
+                CancelPasswordPrompt();
+                return 0;
+            } else if (wParam == VK_RETURN) {
+                SubmitPasswordPrompt();
+                return 0;
+            } else if (wParam == VK_BACK) {
+                if (isCtrlDown) {
+                    if (!m_passwordInput.empty()) {
+                        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+                        m_passwordInput.clear();
+                    }
+                    m_passwordError.clear();
+                    Render();
+                } else if (!m_passwordInput.empty()) {
+                    m_passwordInput.back() = 0;
+                    m_passwordInput.pop_back();
+                    m_passwordError.clear();
+                    Render();
+                }
+                return 0;
+            } else if (wParam == 'V' && isCtrlDown) {
+                if (OpenClipboard(m_hwnd)) {
+                    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+                    if (hData) {
+                        const wchar_t* pText = (const wchar_t*)GlobalLock(hData);
+                        if (pText) {
+                            while (*pText && m_passwordInput.size() < 256) {
+                                if (*pText != L'\r' && *pText != L'\n') {
+                                    m_passwordInput.push_back(*pText);
+                                }
+                                pText++;
+                            }
+                            GlobalUnlock(hData);
+                            m_passwordError.clear();
+                            Render();
+                        }
+                    }
+                    CloseClipboard();
+                }
+                return 0;
+            }
+            return 0;
+        }
         bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
@@ -1876,7 +1970,8 @@ void AppWindow::OpenTab(const std::wstring& path) {
 
     std::wstring resolvedPath;
     bool alreadyOpen = false;
-    if (m_tabController.OpenTab(path, m_hwnd, resolvedPath, alreadyOpen)) {
+    PdfLoadStatus status = m_tabController.OpenTabWithPassword(path, m_hwnd, resolvedPath, alreadyOpen, L"");
+    if (status == PdfLoadStatus::Success) {
         auto* pTab = GetActiveTab();
         uint32_t totalPages = pTab ? pTab->document.GetPageCount() : 0;
         uint32_t lastPage = pTab ? pTab->currentPage : 0;
@@ -1890,6 +1985,10 @@ void AppWindow::OpenTab(const std::wstring& path) {
         RecalculateLayout();
         UpdateTitle();
         Render();
+    } else if (status == PdfLoadStatus::PasswordRequired) {
+        PendingPasswordRequest req;
+        req.filePath = resolvedPath.empty() ? path : resolvedPath;
+        PromptForPassword(req);
     } else {
         std::wstring fileName = resolvedPath;
         size_t lastSlash = resolvedPath.find_last_of(L"\\/");
@@ -1897,7 +1996,7 @@ void AppWindow::OpenTab(const std::wstring& path) {
             fileName = resolvedPath.substr(lastSlash + 1);
         }
         std::wstring msg = L"Unable to open \"" + fileName + L"\".\n\n"
-                           L"The file may be password-protected, corrupted, or inaccessible.";
+                           L"The file may be corrupted, inaccessible, or an unsupported format.";
         MessageBoxW(m_hwnd, msg.c_str(), L"LightPDF - Error", MB_OK | MB_ICONWARNING);
 
         if (m_tabController.IsEmpty()) {
@@ -1915,7 +2014,8 @@ void AppWindow::OpenRecentFile(size_t index) {
     std::wstring resolvedPath;
     bool alreadyOpen = false;
 
-    if (m_tabController.OpenTab(item.filePath, m_hwnd, resolvedPath, alreadyOpen)) {
+    PdfLoadStatus status = m_tabController.OpenTabWithPassword(item.filePath, m_hwnd, resolvedPath, alreadyOpen, L"");
+    if (status == PdfLoadStatus::Success) {
         m_renderer.InvalidatePageCache();
         auto* pTab = GetActiveTab();
         if (pTab && !alreadyOpen && item.lastPage > 0) {
@@ -1933,6 +2033,12 @@ void AppWindow::OpenRecentFile(size_t index) {
         RecalculateLayout();
         UpdateTitle();
         Render();
+    } else if (status == PdfLoadStatus::PasswordRequired) {
+        PendingPasswordRequest req;
+        req.filePath = resolvedPath.empty() ? item.filePath : resolvedPath;
+        req.hasRestoreState = true;
+        req.restorePage = item.lastPage;
+        PromptForPassword(req);
     } else {
         m_recentController.RemoveRecentFileByPath(item.filePath);
         ShowToast(L"File not found: " + item.fileName);
@@ -1949,7 +2055,8 @@ void AppWindow::ReopenClosedTab() {
 
     std::wstring resolvedPath;
     bool alreadyOpen = false;
-    if (m_tabController.OpenTab(info.filePath, m_hwnd, resolvedPath, alreadyOpen)) {
+    PdfLoadStatus status = m_tabController.OpenTabWithPassword(info.filePath, m_hwnd, resolvedPath, alreadyOpen, L"");
+    if (status == PdfLoadStatus::Success) {
         m_renderer.InvalidatePageCache();
         auto* pTab = GetActiveTab();
         if (pTab && !alreadyOpen) {
@@ -1970,9 +2077,114 @@ void AppWindow::ReopenClosedTab() {
         RecalculateLayout();
         UpdateTitle();
         Render();
+    } else if (status == PdfLoadStatus::PasswordRequired) {
+        PendingPasswordRequest req;
+        req.filePath = resolvedPath.empty() ? info.filePath : resolvedPath;
+        req.hasRestoreState = true;
+        req.restorePage = info.currentPage;
+        req.restoreZoom = info.zoom;
+        req.restoreZoomMode = info.zoomMode;
+        req.restoreScrollY = info.scrollY;
+        req.restoreContinuous = info.continuousScroll;
+        PromptForPassword(req);
     } else {
         ShowToast(L"Unable to reopen: " + RecentFilesController::ExtractFileName(info.filePath));
     }
+}
+
+
+void AppWindow::PromptForPassword(const PendingPasswordRequest& req) {
+    if (m_showPasswordOverlay) {
+        m_pendingPasswordQueue.push_back(req);
+        return;
+    }
+    m_activePasswordReq = req;
+    m_showPasswordOverlay = true;
+    m_passwordInput.clear();
+    m_passwordError.clear();
+    m_passwordShowPlain = false;
+    m_passwordHoveredBtn = 0;
+    Render();
+}
+
+void AppWindow::SubmitPasswordPrompt() {
+    if (m_passwordInput.empty()) {
+        m_passwordError = L"Please enter a password.";
+        Render();
+        return;
+    }
+
+    std::wstring resolvedPath;
+    bool alreadyOpen = false;
+    PdfLoadStatus status = m_tabController.OpenTabWithPassword(
+        m_activePasswordReq.filePath,
+        m_hwnd,
+        resolvedPath,
+        alreadyOpen,
+        m_passwordInput
+    );
+
+    SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+    m_passwordInput.clear();
+
+    if (status == PdfLoadStatus::Success) {
+        m_showPasswordOverlay = false;
+        m_passwordError.clear();
+
+        auto* pTab = GetActiveTab();
+        if (pTab && m_activePasswordReq.hasRestoreState && !alreadyOpen) {
+            pTab->zoom = m_activePasswordReq.restoreZoom;
+            pTab->zoomMode = m_activePasswordReq.restoreZoomMode;
+            pTab->continuousScroll = m_activePasswordReq.restoreContinuous;
+            pTab->scrollY = m_activePasswordReq.restoreScrollY;
+            if (m_activePasswordReq.restorePage < pTab->document.GetPageCount()) {
+                pTab->currentPage = m_activePasswordReq.restorePage;
+            }
+        }
+
+        uint32_t totalPages = pTab ? pTab->document.GetPageCount() : 0;
+        uint32_t lastPage = pTab ? pTab->currentPage : 0;
+        m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
+
+        m_renderer.InvalidatePageCache();
+        if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+            TriggerSearch();
+        }
+        RecalculateLayout();
+        UpdateTitle();
+
+        ProcessNextPasswordRequest();
+        Render();
+    } else if (status == PdfLoadStatus::WrongPassword || status == PdfLoadStatus::PasswordRequired) {
+        m_passwordError = L"Incorrect password. Please try again.";
+        Render();
+    } else {
+        m_showPasswordOverlay = false;
+        m_passwordError.clear();
+        std::wstring fileName = RecentFilesController::ExtractFileName(m_activePasswordReq.filePath);
+        MessageBoxW(m_hwnd, (L"Unable to open \"" + fileName + L"\".\n\nThe file may be corrupted or inaccessible.").c_str(), L"LightPDF - Error", MB_OK | MB_ICONWARNING);
+        ProcessNextPasswordRequest();
+        Render();
+    }
+}
+
+void AppWindow::CancelPasswordPrompt() {
+    if (!m_passwordInput.empty()) {
+        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+        m_passwordInput.clear();
+    }
+    m_showPasswordOverlay = false;
+    m_passwordError.clear();
+    ProcessNextPasswordRequest();
+    Render();
+}
+
+void AppWindow::ProcessNextPasswordRequest() {
+    if (m_pendingPasswordQueue.empty()) return;
+    auto nextReq = m_pendingPasswordQueue.front();
+    m_pendingPasswordQueue.pop_front();
+    PromptForPassword(nextReq);
 }
 
 void AppWindow::CloseTab(size_t index) {
@@ -2266,6 +2478,11 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
         ShowToast(L"No document is currently loaded.");
+        return;
+    }
+
+    if (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted())) {
+        ShowToast(L"Cannot bake OCR layer into an encrypted PDF");
         return;
     }
 
@@ -2988,6 +3205,16 @@ void AppWindow::CycleLaserColor() {
 }
 
 void AppWindow::Render() {
+    PasswordOverlayRenderInfo pwdInfo;
+    pwdInfo.visible = m_showPasswordOverlay;
+    if (m_showPasswordOverlay) {
+        pwdInfo.fileName = RecentFilesController::ExtractFileName(m_activePasswordReq.filePath);
+        pwdInfo.passwordInput = m_passwordInput;
+        pwdInfo.errorMessage = m_passwordError;
+        pwdInfo.showPassword = m_passwordShowPlain;
+        pwdInfo.hoveredButton = m_passwordHoveredBtn;
+    }
+
     auto* pTab = GetActiveTab();
     auto tabInfos = m_tabController.GetTabRenderInfos();
     bool hoveredAdd = m_tabController.IsHoveredAdd();
@@ -3100,7 +3327,8 @@ void AppWindow::Render() {
                 laserInfo,
                 presenterBarInfo,
                 ttsBarInfo,
-                &recentInfo
+                &recentInfo,
+                &pwdInfo
             );
             return;
         }
@@ -3134,11 +3362,14 @@ void AppWindow::Render() {
                 laserInfo,
                 presenterBarInfo,
                 ttsBarInfo,
-                &recentInfo
+                &recentInfo,
+                &pwdInfo
             );
             return;
         }
     }
+
+
 
     m_renderer.RenderBlank(
         L"",
@@ -3153,7 +3384,8 @@ void AppWindow::Render() {
         laserInfo,
         presenterBarInfo,
         ttsBarInfo,
-        &recentInfo
+        &recentInfo,
+        &pwdInfo
     );
 }
 
@@ -3340,7 +3572,11 @@ int AppWindow::HitTestSearchBar(POINT pt) const {
 
 void AppWindow::TriggerSearch() {
     KillTimer(m_hwnd, 2);
-    m_searchController.StartSearch(m_hwnd, GetActiveTab());
+    auto* pTab = GetActiveTab();
+    if (pTab && pTab->document.IsPasswordProtected() && !m_searchController.IsOcrEnabled()) {
+        m_searchController.ToggleOcr();
+    }
+    m_searchController.StartSearch(m_hwnd, pTab);
 }
 
 void AppWindow::JumpToActiveMatch() {
@@ -3442,6 +3678,9 @@ void AppWindow::ShowDocumentProperties() {
     m_docPropsInfo.creator = meta.creator.empty() ? L"—" : meta.creator;
     m_docPropsInfo.producer = meta.producer.empty() ? L"—" : meta.producer;
     m_docPropsInfo.pdfFormat = meta.pdfFormat.empty() ? L"—" : meta.pdfFormat;
+    if (pTab->document.IsPasswordProtected() || meta.isEncrypted) {
+        m_docPropsInfo.pdfFormat += L" (Password Protected)";
+    }
     m_docPropsInfo.created = meta.creationDate.empty() ? L"—" : meta.creationDate;
     m_docPropsInfo.modified = meta.modDate.empty() ? L"—" : meta.modDate;
 

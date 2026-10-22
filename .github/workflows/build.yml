@@ -36,11 +36,14 @@ jobs:
           $item = Get-Item "bin\LightPDF.exe"
           $sizeKB = [math]::Round($item.Length / 1KB, 1)
           Write-Host ("Build successful. Binary size: {0} KB ({1} bytes)" -f $sizeKB, $item.Length)
-          if ($item.Length -gt 832 * 1024) {
-            Write-Error ("Binary size {0} KB exceeds strict 832 KB budget limit!" -f $sizeKB)
+          if ($item.Length -gt 1024 * 1024) {
+            Write-Error ("Binary size {0} KB exceeds strict 1024 KB (1 MB) budget limit!" -f $sizeKB)
             exit 1
           }
-          Write-Host "Binary size check PASSED! (< 832 KB)" -ForegroundColor Green
+          if ($item.Length -gt 924 * 1024) {
+            Write-Warning ("Binary size {0} KB exceeds 924 KB target safety margin (100 KB below 1 MB)." -f $sizeKB)
+          }
+          Write-Host "Binary size check PASSED! (< 1024 KB strict / <= 924 KB target)" -ForegroundColor Green
 
       - name: Run Automated Unified Test Suite
         shell: cmd

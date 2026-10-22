@@ -231,6 +231,50 @@ struct DictionaryCardLayout {
     }
 };
 
+struct PasswordOverlayRenderInfo {
+    bool visible = false;
+    std::wstring fileName;
+    std::wstring passwordInput;
+    std::wstring errorMessage;
+    bool showPassword = false;
+    int hoveredButton = 0; // 0: None, 1: Close(X), 2: Show/Hide, 3: Unlock, 4: Cancel
+};
+
+struct PasswordOverlayLayout {
+    static constexpr float CARD_W = 380.0f;
+    static constexpr float CARD_H = 220.0f;
+
+    static inline D2D1_RECT_F GetCardRect(float dipW, float dipH) {
+        float left = (dipW - CARD_W) * 0.5f;
+        float top  = (dipH - CARD_H) * 0.5f;
+        return D2D1::RectF(left, top, left + CARD_W, top + CARD_H);
+    }
+
+    static inline D2D1_RECT_F GetCloseBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 36.0f, card.top + 10.0f, card.right - 10.0f, card.top + 34.0f);
+    }
+
+    static inline D2D1_RECT_F GetInputBoxRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.left + 20.0f, card.top + 86.0f, card.right - 72.0f, card.top + 124.0f);
+    }
+
+    static inline D2D1_RECT_F GetToggleShowBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 66.0f, card.top + 86.0f, card.right - 20.0f, card.top + 124.0f);
+    }
+
+    static inline D2D1_RECT_F GetErrorRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.left + 20.0f, card.top + 128.0f, card.right - 20.0f, card.top + 152.0f);
+    }
+
+    static inline D2D1_RECT_F GetUnlockBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 106.0f, card.bottom - 46.0f, card.right - 20.0f, card.bottom - 14.0f);
+    }
+
+    static inline D2D1_RECT_F GetCancelBtnRect(const D2D1_RECT_F& card) {
+        return D2D1::RectF(card.right - 196.0f, card.bottom - 46.0f, card.right - 114.0f, card.bottom - 14.0f);
+    }
+};
+
 struct DocumentPropertiesRenderInfo {
     bool visible = false;
     // Document Information
@@ -423,7 +467,8 @@ public:
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
-        const RecentRenderInfo* pRecent = nullptr
+        const RecentRenderInfo* pRecent = nullptr,
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
     );
 
     /**
@@ -453,7 +498,8 @@ public:
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
-        const RecentRenderInfo* pRecent = nullptr
+        const RecentRenderInfo* pRecent = nullptr,
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
     );
 
     /**
@@ -480,7 +526,8 @@ public:
         const LaserPointerRenderInfo& laser = {},
         const PresenterBarRenderInfo& presenterBar = {},
         const TtsBarRenderInfo& ttsBar = {},
-        const RecentRenderInfo* pRecent = nullptr
+        const RecentRenderInfo* pRecent = nullptr,
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
     );
 
     /// @brief Draws the floating dictionary translation card.
@@ -494,6 +541,12 @@ public:
 
     /// @brief Draws the Read Aloud floating playback control bar.
     void DrawTtsBar(const TtsBarRenderInfo& ttsBar, float topOffset = 0.0f);
+
+    /// @brief Draws the modal Password Prompt overlay.
+    void DrawPasswordOverlay(const PasswordOverlayRenderInfo& pwdInfo);
+
+    /// @brief Hit-tests password prompt modal buttons.
+    int HitTestPasswordOverlay(POINT pt) const;
 
     /// @brief Hit-tests document properties modal buttons.
     int HitTestDocumentProperties(POINT pt) const;
@@ -565,7 +618,8 @@ private:
         const LaserPointerRenderInfo* pLaser = nullptr,
         const PresenterBarRenderInfo* pPresenterBar = nullptr,
         const TtsBarRenderInfo* pTtsBar = nullptr,
-        const RecentRenderInfo* pRecent = nullptr
+        const RecentRenderInfo* pRecent = nullptr,
+        const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr
     );
 
     HWND m_hwnd = nullptr;

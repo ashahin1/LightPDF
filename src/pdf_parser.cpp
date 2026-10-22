@@ -1106,6 +1106,27 @@ bool PdfParser::Load(const std::wstring& filePath) {
                 m_idString = trailerDict.substr(b1, b2 - b1 + 1);
             }
         }
+
+        size_t encPos = trailerDict.find("/Encrypt");
+        if (encPos != std::string::npos) {
+            size_t afterEnc = encPos + 8;
+            if (afterEnc >= trailerDict.size() || !std::isalpha((unsigned char)trailerDict[afterEnc])) {
+                m_isEncrypted = true;
+            }
+        }
+    }
+
+    if (!m_isEncrypted && !m_bufferView.empty()) {
+        size_t scanStart = m_bufferView.size() > 16384 ? m_bufferView.size() - 16384 : 0;
+        size_t pos = m_bufferView.find("/Encrypt", scanStart);
+        while (pos != std::string_view::npos) {
+            size_t afterEnc = pos + 8;
+            if (afterEnc >= m_bufferView.size() || !std::isalpha((unsigned char)m_bufferView[afterEnc])) {
+                m_isEncrypted = true;
+                break;
+            }
+            pos = m_bufferView.find("/Encrypt", pos + 8);
+        }
     }
     if (rootObj == 0) {
         size_t rootPos = m_bufferView.find("/Root");
@@ -1195,6 +1216,7 @@ void PdfParser::Close() {
     m_fileSize = 0;
     m_bufferView = {};
     m_pdfVersion = "1.4";
+    m_isEncrypted = false;
     m_rootObjNum = 0;
     m_infoObjNum = 0;
     m_startXrefOffset = 0;
@@ -1385,8 +1407,72 @@ static std::wstring FormatPdfDateWithSystemSettings(const std::wstring& pdfDate)
     return pdfDate;
 }
 
+bool PdfParser::QuickCheckFileEncrypted(const std::wstring& filePath) {
+    HANDLE hFile = CreateFileW(
+        filePath.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER liSize;
+    if (!GetFileSizeEx(hFile, &liSize) || liSize.QuadPart < 32) {
+        CloseHandle(hFile);
+        return false;
+    }
+
+    constexpr DWORD BUF_SIZE = 16384;
+    char buffer[BUF_SIZE];
+    DWORD bytesRead = 0;
+
+    DWORD toRead = (liSize.QuadPart < (LONGLONG)BUF_SIZE) ? (DWORD)liSize.QuadPart : BUF_SIZE;
+    LARGE_INTEGER offset;
+    offset.QuadPart = liSize.QuadPart - (LONGLONG)toRead;
+    SetFilePointerEx(hFile, offset, nullptr, FILE_BEGIN);
+
+    if (ReadFile(hFile, buffer, toRead, &bytesRead, nullptr) && bytesRead > 0) {
+        std::string_view tail(buffer, bytesRead);
+        size_t pos = tail.find("/Encrypt");
+        while (pos != std::string_view::npos) {
+            size_t afterEnc = pos + 8;
+            if (afterEnc >= tail.size() || !std::isalpha((unsigned char)tail[afterEnc])) {
+                CloseHandle(hFile);
+                return true;
+            }
+            pos = tail.find("/Encrypt", pos + 8);
+        }
+    }
+
+    offset.QuadPart = 0;
+    SetFilePointerEx(hFile, offset, nullptr, FILE_BEGIN);
+    DWORD headRead = (liSize.QuadPart < 4096) ? (DWORD)liSize.QuadPart : 4096;
+    if (ReadFile(hFile, buffer, headRead, &bytesRead, nullptr) && bytesRead > 0) {
+        std::string_view head(buffer, bytesRead);
+        size_t pos = head.find("/Encrypt");
+        while (pos != std::string_view::npos) {
+            size_t afterEnc = pos + 8;
+            if (afterEnc >= head.size() || !std::isalpha((unsigned char)head[afterEnc])) {
+                CloseHandle(hFile);
+                return true;
+            }
+            pos = head.find("/Encrypt", pos + 8);
+        }
+    }
+
+    CloseHandle(hFile);
+    return false;
+}
+
 bool PdfParser::ExtractMetadata(PdfMetadata& outMetadata) const {
+    outMetadata.isEncrypted = m_isEncrypted;
     outMetadata.pdfFormat = L"PDF " + std::wstring(m_pdfVersion.begin(), m_pdfVersion.end());
+    if (m_isEncrypted) {
+        return true;
+    }
 
     std::string infoDict;
     if (m_infoObjNum > 0) {
@@ -2057,6 +2143,10 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     outPage.fullText.clear();
     outPage.chars.clear();
     outPage.hasDigitalText = false;
+
+    if (m_isEncrypted) {
+        return false;
+    }
 
     uint32_t pageObj = m_pageObjectNums[pageIndex];
     std::string pageDict = GetObjectString(pageObj);

@@ -499,4 +499,44 @@ public:
     );
 };
 
+// =========================================================================
+// 11. PasswordOverlay View (Modal Prompt for Encrypted PDFs)
+// =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the password modal overlay.
+struct PasswordOverlayResources {
+    ID2D1SolidColorBrush* brushBackdrop = nullptr;
+    ID2D1SolidColorBrush* brushPageShadow = nullptr;
+    ID2D1SolidColorBrush* brushCardBg = nullptr;
+    ID2D1SolidColorBrush* brushBorder = nullptr;
+    ID2D1SolidColorBrush* brushAccent = nullptr;
+    ID2D1SolidColorBrush* brushText = nullptr;
+    ID2D1SolidColorBrush* brushInputBox = nullptr;
+    ID2D1SolidColorBrush* brushSubText = nullptr;
+    ID2D1SolidColorBrush* brushCloseHover = nullptr;
+    ID2D1SolidColorBrush* brushPrimaryBtn = nullptr;
+    ID2D1SolidColorBrush* brushPrimaryBtnHover = nullptr;
+    ID2D1SolidColorBrush* brushSecBtn = nullptr;
+    ID2D1SolidColorBrush* brushSecBtnHover = nullptr;
+    IDWriteTextFormat* textFormatTitle = nullptr;
+    IDWriteTextFormat* textFormatClose = nullptr;
+    IDWriteTextFormat* textFormatSub = nullptr;
+    IDWriteTextFormat* textFormatInput = nullptr;
+    IDWriteTextFormat* textFormatBtn = nullptr;
+};
+
+/// @brief Renders the password prompt modal dialog for encrypted PDFs.
+class PasswordOverlayView {
+public:
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        const PasswordOverlayRenderInfo& info,
+        float dipWidth,
+        float dipHeight,
+        const PasswordOverlayResources& res
+    );
+
+    static int HitTest(POINT pt, UINT width, UINT height, float dpi);
+};
+
 } // namespace UIViews

@@ -21,10 +21,16 @@ const DocumentTab* TabController::GetTab(size_t index) const {
     return &m_tabs[index];
 }
 
-bool TabController::OpenTab(const std::wstring& path, HWND hwnd, std::wstring& outCanonicalPath, bool& outAlreadyOpen) {
+PdfLoadStatus TabController::OpenTabWithPassword(
+    const std::wstring& path,
+    HWND hwnd,
+    std::wstring& outCanonicalPath,
+    bool& outAlreadyOpen,
+    const std::wstring& password
+) {
     outAlreadyOpen = false;
     outCanonicalPath.clear();
-    if (path.empty()) return false;
+    if (path.empty()) return PdfLoadStatus::Failed;
 
     wchar_t fullPath[MAX_PATH * 2] = { 0 };
     DWORD len = GetFullPathNameW(path.c_str(), _countof(fullPath), fullPath, nullptr);
@@ -36,12 +42,13 @@ bool TabController::OpenTab(const std::wstring& path, HWND hwnd, std::wstring& o
             _wcsicmp(m_tabs[i].document.GetFilePath().c_str(), resolvedPath.c_str()) == 0) {
             SelectTab(i);
             outAlreadyOpen = true;
-            return true;
+            return PdfLoadStatus::Success;
         }
     }
 
     DocumentTab newTab;
-    if (newTab.document.Open(resolvedPath, hwnd)) {
+    PdfLoadStatus status = newTab.document.OpenWithPassword(resolvedPath, hwnd, password);
+    if (status == PdfLoadStatus::Success) {
         newTab.currentPage = 0;
         newTab.zoomMode = ZoomMode::FitPage;
         newTab.continuousScroll = false;
@@ -54,9 +61,9 @@ bool TabController::OpenTab(const std::wstring& path, HWND hwnd, std::wstring& o
 
         m_tabs.push_back(std::move(newTab));
         m_activeTab = m_tabs.size() - 1;
-        return true;
+        return PdfLoadStatus::Success;
     }
-    return false;
+    return status;
 }
 
 bool TabController::CloseTab(size_t index) {

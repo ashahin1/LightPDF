@@ -1,4 +1,5 @@
 #include "pdf_document.hpp"
+#include "pdf_parser.hpp"
 #include <filesystem>
 
 PdfDocumentWrapper::PdfDocumentWrapper() = default;
@@ -13,11 +14,14 @@ PdfDocumentWrapper::PdfDocumentWrapper(PdfDocumentWrapper&& other) noexcept
     , m_fileName(std::move(other.m_fileName))
     , m_pageCount(other.m_pageCount)
     , m_loaded(other.m_loaded)
+    , m_isPasswordProtected(other.m_isPasswordProtected)
+    , m_password(std::move(other.m_password))
     , m_sizesData(std::move(other.m_sizesData))
     , m_prefetchThread(std::move(other.m_prefetchThread))
 {
     other.m_pageCount = 0;
     other.m_loaded = false;
+    other.m_isPasswordProtected = false;
 }
 
 PdfDocumentWrapper& PdfDocumentWrapper::operator=(PdfDocumentWrapper&& other) noexcept {
@@ -28,19 +32,26 @@ PdfDocumentWrapper& PdfDocumentWrapper::operator=(PdfDocumentWrapper&& other) no
         m_fileName = std::move(other.m_fileName);
         m_pageCount = other.m_pageCount;
         m_loaded = other.m_loaded;
+        m_isPasswordProtected = other.m_isPasswordProtected;
+        m_password = std::move(other.m_password);
         m_sizesData = std::move(other.m_sizesData);
         m_prefetchThread = std::move(other.m_prefetchThread);
         other.m_pageCount = 0;
         other.m_loaded = false;
+        other.m_isPasswordProtected = false;
     }
     return *this;
 }
 
-bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
+PdfLoadStatus PdfDocumentWrapper::OpenWithPassword(
+    const std::wstring& filePath,
+    HWND hwndNotify,
+    const std::wstring& password
+) {
     Close();
 
     if (filePath.empty()) {
-        return false;
+        return PdfLoadStatus::Failed;
     }
 
     try {
@@ -52,6 +63,9 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         // Primary: Load via Win32 stream (CreateRandomAccessStreamOnFile)
         // This bypasses WinRT StorageFile restrictions on network UNC paths, Administrator elevation, and 8.3 paths.
         winrt::Windows::Data::Pdf::PdfDocument doc{ nullptr };
+        constexpr HRESULT HR_WRONG_PASSWORD = static_cast<HRESULT>(0x8007052B); // HRESULT_FROM_WIN32(ERROR_WRONG_PASSWORD)
+        HRESULT lastHr = S_OK;
+
         try {
             winrt::Windows::Storage::Streams::IRandomAccessStream stream{ nullptr };
             HRESULT hrStream = CreateRandomAccessStreamOnFile(
@@ -61,9 +75,14 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
                 winrt::put_abi(stream)
             );
             if (SUCCEEDED(hrStream) && stream) {
-                doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromStreamAsync(stream).get();
+                if (password.empty()) {
+                    doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromStreamAsync(stream).get();
+                } else {
+                    doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromStreamAsync(stream, winrt::hstring(password)).get();
+                }
             }
         } catch (const winrt::hresult_error& ex) {
+            lastHr = ex.code();
             OutputDebugStringW((L"[LightPDF] Stream load failed: " + std::wstring(ex.message()) + L"\n").c_str());
             doc = nullptr;
         } catch (...) {
@@ -72,13 +91,19 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         }
 
         // Secondary fallback: Try StorageFile::GetFileFromPathAsync
-        if (!doc) {
+        // Only run if not already confirmed as wrong/missing password
+        if (!doc && lastHr != HR_WRONG_PASSWORD) {
             try {
                 auto file = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(resolvedPath).get();
                 if (file) {
-                    doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file).get();
+                    if (password.empty()) {
+                        doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file).get();
+                    } else {
+                        doc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(file, winrt::hstring(password)).get();
+                    }
                 }
             } catch (const winrt::hresult_error& ex) {
+                lastHr = ex.code();
                 OutputDebugStringW((L"[LightPDF] StorageFile fallback failed: " + std::wstring(ex.message()) + L"\n").c_str());
                 doc = nullptr;
             } catch (...) {
@@ -88,12 +113,16 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         }
 
         if (!doc) {
-            return false;
+            bool isEncrypted = (lastHr == HR_WRONG_PASSWORD) || PdfParser::QuickCheckFileEncrypted(resolvedPath);
+            if (isEncrypted) {
+                return password.empty() ? PdfLoadStatus::PasswordRequired : PdfLoadStatus::WrongPassword;
+            }
+            return PdfLoadStatus::Failed;
         }
 
         uint32_t pageCount = doc.PageCount();
         if (pageCount == 0) {
-            return false;
+            return PdfLoadStatus::Failed;
         }
 
         // Verify that page 0 can be queried and loaded successfully
@@ -101,23 +130,34 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
         try {
             auto testPage = doc.GetPage(0);
             if (!testPage) {
-                return false;
+                bool isEncrypted = (lastHr == HR_WRONG_PASSWORD) || PdfParser::QuickCheckFileEncrypted(resolvedPath);
+                if (isEncrypted) {
+                    return password.empty() ? PdfLoadStatus::PasswordRequired : PdfLoadStatus::WrongPassword;
+                }
+                return PdfLoadStatus::Failed;
             }
             auto sz = testPage.Size();
             if (sz.Width <= 0.0f || sz.Height <= 0.0f) {
-                return false;
+                return PdfLoadStatus::Failed;
             }
         } catch (const winrt::hresult_error& ex) {
+            lastHr = ex.code();
             OutputDebugStringW((L"[LightPDF] Page 0 verification failed: " + std::wstring(ex.message()) + L"\n").c_str());
-            return false;
+            bool isEncrypted = (lastHr == HR_WRONG_PASSWORD) || PdfParser::QuickCheckFileEncrypted(resolvedPath);
+            if (isEncrypted) {
+                return password.empty() ? PdfLoadStatus::PasswordRequired : PdfLoadStatus::WrongPassword;
+            }
+            return PdfLoadStatus::Failed;
         } catch (...) {
             OutputDebugStringW(L"[LightPDF] Page 0 verification failed: unknown exception\n");
-            return false;
+            return PdfLoadStatus::Failed;
         }
 
         m_doc = doc;
         m_pageCount = pageCount;
         m_filePath = resolvedPath;
+        m_isPasswordProtected = !password.empty() || m_doc.IsPasswordProtected() || PdfParser::QuickCheckFileEncrypted(resolvedPath);
+        m_password = password;
 
         // Extract filename
         size_t lastSlash = resolvedPath.find_last_of(L"\\/");
@@ -190,15 +230,15 @@ bool PdfDocumentWrapper::Open(const std::wstring& filePath, HWND hwndNotify) {
             });
         }
 
-        return true;
+        return PdfLoadStatus::Success;
     } catch (const winrt::hresult_error& ex) {
-        OutputDebugStringW((L"[LightPDF] PdfDocumentWrapper::Open failed: " + std::wstring(ex.message()) + L"\n").c_str());
+        OutputDebugStringW((L"[LightPDF] PdfDocumentWrapper::OpenWithPassword failed: " + std::wstring(ex.message()) + L"\n").c_str());
         Close();
-        return false;
+        return PdfLoadStatus::Failed;
     } catch (...) {
-        OutputDebugStringW(L"[LightPDF] PdfDocumentWrapper::Open failed with unknown exception\n");
+        OutputDebugStringW(L"[LightPDF] PdfDocumentWrapper::OpenWithPassword failed with unknown exception\n");
         Close();
-        return false;
+        return PdfLoadStatus::Failed;
     }
 }
 
@@ -215,6 +255,11 @@ void PdfDocumentWrapper::Close() {
     m_loaded = false;
     m_filePath.clear();
     m_fileName.clear();
+    if (!m_password.empty()) {
+        SecureZeroMemory(m_password.data(), m_password.size() * sizeof(wchar_t));
+        m_password.clear();
+    }
+    m_isPasswordProtected = false;
 }
 
 winrt::Windows::Data::Pdf::PdfPage PdfDocumentWrapper::GetPage(uint32_t pageIndex) {

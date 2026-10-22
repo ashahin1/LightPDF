@@ -1519,4 +1519,171 @@ void RecentSwitcherView::Render(
     }
 }
 
+// =========================================================================
+// 11. PasswordOverlay View Implementation
+// =========================================================================
+
+void PasswordOverlayView::Render(
+    ID2D1DeviceContext* ctx,
+    const PasswordOverlayRenderInfo& info,
+    float dipWidth,
+    float dipHeight,
+    const PasswordOverlayResources& res
+) {
+    if (!ctx || !info.visible) return;
+
+    // 1. Fullscreen Dimmed Backdrop
+    if (res.brushBackdrop) {
+        ctx->FillRectangle(D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight), res.brushBackdrop);
+    }
+
+    // 2. Centered Modal Card with Drop Shadow
+    D2D1_RECT_F card = PasswordOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    if (res.brushPageShadow) {
+        D2D1_RECT_F shadow = D2D1::RectF(card.left + 3.0f, card.top + 4.0f, card.right + 4.0f, card.bottom + 6.0f);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(shadow, 10.0f, 10.0f), res.brushPageShadow);
+    }
+
+    if (res.brushCardBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(card, 10.0f, 10.0f), res.brushCardBg);
+    }
+    if (res.brushBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, 10.0f, 10.0f), res.brushBorder, 1.0f);
+    }
+
+    // 3. Header Title: "Password Protected"
+    D2D1_RECT_F titleRect = D2D1::RectF(card.left + 20.0f, card.top + 14.0f, card.right - 44.0f, card.top + 40.0f);
+    if (res.textFormatTitle && res.brushText) {
+        const wchar_t* titleStr = L"Password Protected";
+        ctx->DrawText(titleStr, (UINT32)wcslen(titleStr), res.textFormatTitle, titleRect, res.brushText);
+    }
+
+    // 4. Close [X] Button (Hit ID = 1)
+    D2D1_RECT_F closeBtnRect = PasswordOverlayLayout::GetCloseBtnRect(card);
+    if (info.hoveredButton == 1 && res.brushCloseHover) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(closeBtnRect, 4.0f, 4.0f), res.brushCloseHover);
+    }
+    if (res.textFormatClose) {
+        ctx->DrawText(L"'15", 1, res.textFormatClose, closeBtnRect, res.brushText);
+    }
+
+    // 5. Subtitle prompt with filename
+    D2D1_RECT_F subRect = D2D1::RectF(card.left + 20.0f, card.top + 44.0f, card.right - 20.0f, card.top + 78.0f);
+    std::wstring subPrompt = L"This document is encrypted. Enter password to view:";
+    if (!info.fileName.empty()) {
+        subPrompt = L"Enter password to unlock "" + info.fileName + L"":";
+    }
+    if (res.textFormatSub && res.brushSubText) {
+        ctx->DrawText(subPrompt.c_str(), (UINT32)subPrompt.length(), res.textFormatSub, subRect, res.brushSubText);
+    }
+
+    // 6. Password Input Box
+    D2D1_RECT_F inputBox = PasswordOverlayLayout::GetInputBoxRect(card);
+    if (res.brushInputBox) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(inputBox, 6.0f, 6.0f), res.brushInputBox);
+    }
+    ID2D1SolidColorBrush* inputBorderBrush = (!info.errorMessage.empty() && res.brushCloseHover)
+        ? res.brushCloseHover
+        : res.brushAccent;
+    if (inputBorderBrush) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(inputBox, 6.0f, 6.0f), inputBorderBrush, 1.5f);
+    }
+
+    // Input text / mask
+    D2D1_RECT_F textRect = D2D1::RectF(inputBox.left + 10.0f, inputBox.top, inputBox.right - 8.0f, inputBox.bottom);
+    if (info.passwordInput.empty()) {
+        const wchar_t* placeholder = L"Enter password...";
+        if (res.textFormatInput && res.brushSubText) {
+            ctx->DrawText(placeholder, (UINT32)wcslen(placeholder), res.textFormatInput, textRect, res.brushSubText);
+        }
+    } else {
+        std::wstring displayStr;
+        if (!info.showPassword) {
+            displayStr.assign(info.passwordInput.length(), (wchar_t)0x25CF); // Bullet / dot
+        } else {
+            displayStr = info.passwordInput;
+        }
+        displayStr += L"|";
+        if (res.textFormatInput && res.brushText) {
+            ctx->DrawText(displayStr.c_str(), (UINT32)displayStr.length(), res.textFormatInput, textRect, res.brushText);
+        }
+    }
+
+    // 7. Show/Hide Toggle Button (Hit ID = 2)
+    D2D1_RECT_F toggleBtn = PasswordOverlayLayout::GetToggleShowBtnRect(card);
+    ID2D1SolidColorBrush* toggleBg = (info.hoveredButton == 2 && res.brushSecBtnHover)
+        ? res.brushSecBtnHover
+        : (info.showPassword ? res.brushSecBtnHover : res.brushSecBtn);
+    if (toggleBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(toggleBtn, 6.0f, 6.0f), toggleBg);
+    }
+    if (res.brushBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(toggleBtn, 6.0f, 6.0f), res.brushBorder, 1.0f);
+    }
+    const wchar_t* toggleText = info.showPassword ? L"Hide" : L"Show";
+    if (res.textFormatBtn && res.brushText) {
+        ctx->DrawText(toggleText, (UINT32)wcslen(toggleText), res.textFormatBtn, toggleBtn, res.brushText);
+    }
+
+    // 8. Error Message (if any)
+    if (!info.errorMessage.empty() && res.textFormatSub && res.brushCloseHover) {
+        D2D1_RECT_F errRect = PasswordOverlayLayout::GetErrorRect(card);
+        ctx->DrawText(info.errorMessage.c_str(), (UINT32)info.errorMessage.length(), res.textFormatSub, errRect, res.brushCloseHover);
+    }
+
+    // 9. Cancel Button (Hit ID = 4)
+    D2D1_RECT_F cancelBtn = PasswordOverlayLayout::GetCancelBtnRect(card);
+    ID2D1SolidColorBrush* cancelBg = (info.hoveredButton == 4 && res.brushSecBtnHover)
+        ? res.brushSecBtnHover
+        : res.brushSecBtn;
+    if (cancelBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(cancelBtn, 6.0f, 6.0f), cancelBg);
+    }
+    if (res.brushBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(cancelBtn, 6.0f, 6.0f), res.brushBorder, 1.0f);
+    }
+    if (res.textFormatBtn && res.brushText) {
+        const wchar_t* cancelStr = L"Cancel";
+        ctx->DrawText(cancelStr, (UINT32)wcslen(cancelStr), res.textFormatBtn, cancelBtn, res.brushText);
+    }
+
+    // 10. Unlock Button (Hit ID = 3)
+    D2D1_RECT_F unlockBtn = PasswordOverlayLayout::GetUnlockBtnRect(card);
+    ID2D1SolidColorBrush* unlockBg = (info.hoveredButton == 3 && res.brushPrimaryBtnHover)
+        ? res.brushPrimaryBtnHover
+        : res.brushPrimaryBtn;
+    if (unlockBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(unlockBtn, 6.0f, 6.0f), unlockBg);
+    }
+    if (res.textFormatBtn && res.brushText) {
+        const wchar_t* unlockStr = L"Unlock";
+        ctx->DrawText(unlockStr, (UINT32)wcslen(unlockStr), res.textFormatBtn, unlockBtn, res.brushText);
+    }
+}
+
+int PasswordOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
+    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float dipX = (float)pt.x * dipScale;
+    float dipY = (float)pt.y * dipScale;
+    float dipW = (float)width * dipScale;
+    float dipH = (float)height * dipScale;
+
+    D2D1_RECT_F card = PasswordOverlayLayout::GetCardRect(dipW, dipH);
+    if (dipX < card.left || dipX > card.right || dipY < card.top || dipY > card.bottom) {
+        return -1; // Outside card
+    }
+
+    auto inRect = [&](const D2D1_RECT_F& r) {
+        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
+    };
+
+    if (inRect(PasswordOverlayLayout::GetCloseBtnRect(card))) return 1;
+    if (inRect(PasswordOverlayLayout::GetToggleShowBtnRect(card))) return 2;
+    if (inRect(PasswordOverlayLayout::GetUnlockBtnRect(card))) return 3;
+    if (inRect(PasswordOverlayLayout::GetCancelBtnRect(card))) return 4;
+    if (inRect(PasswordOverlayLayout::GetInputBoxRect(card))) return 5;
+
+    return 100; // Inside card body
+}
+
 } // namespace UIViews

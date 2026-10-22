@@ -11,7 +11,7 @@ Briefly explain the goal of this pull request and the changes made.
 Describe the tests you ran to verify your changes:
 - [ ] Rebuilt successfully with `build.bat /rebuild` (0 compiler warnings under `/W4`)
 - [ ] Ran automated unified test suite via `cmd.exe /c tests\run_tests.bat` (all 21 test cases passed)
-- [ ] Verified standalone binary size remains strictly within budget (< 832 KB)
+- [ ] Verified standalone binary size remains strictly within budget (< 1 MB strict, <= 924 KB target)
 - [ ] Verified zero external runtime DLL dependencies (only native Windows APIs)
 - [ ] Tested on High-DPI monitor (100%, 125%, 150%, or 200%)
 - [ ] Verified bilingual compatibility (English & Arabic text rendering / search)

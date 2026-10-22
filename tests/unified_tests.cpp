@@ -839,5 +839,113 @@ TEST_CASE("Empty-State Dashboard: Layout Geometry & Hit Testing") {
     CHECK(hitOutside == -1);
 }
 
+TEST_CASE("Security: Password-Protected PDF Detection, Status Transitions, and Overlay Layout") {
+    std::wstring encPath = L"tests/fixtures/sample_encrypted.pdf";
+    std::wstring normalPath = L"tests/fixtures/sample_1page.pdf";
 
+    SUBCASE("QuickCheckFileEncrypted and Parser Detection") {
+        CHECK_FALSE(PdfParser::QuickCheckFileEncrypted(normalPath));
+        CHECK(PdfParser::QuickCheckFileEncrypted(encPath));
+
+        PdfParser parser;
+        bool ok = parser.Load(encPath);
+        CHECK(parser.IsEncrypted());
+        if (ok) {
+            PdfPageText pt;
+            CHECK_FALSE(parser.ExtractPageText(0, pt));
+            CHECK_FALSE(pt.hasDigitalText);
+        }
+    }
+
+    SUBCASE("PdfDocumentWrapper::OpenWithPassword Status State Machine") {
+        PdfDocumentWrapper doc;
+
+        // 1. Opening without password -> PasswordRequired
+        PdfLoadStatus s1 = doc.OpenWithPassword(encPath, nullptr, L"");
+        CHECK(s1 == PdfLoadStatus::PasswordRequired);
+        CHECK_FALSE(doc.IsLoaded());
+
+        // 2. Opening with wrong password -> WrongPassword
+        PdfLoadStatus s2 = doc.OpenWithPassword(encPath, nullptr, L"wrongpass123");
+        CHECK(s2 == PdfLoadStatus::WrongPassword);
+        CHECK_FALSE(doc.IsLoaded());
+
+        // 3. Opening with correct password -> Success
+        PdfLoadStatus s3 = doc.OpenWithPassword(encPath, nullptr, L"secret123");
+        CHECK(s3 == PdfLoadStatus::Success);
+        CHECK(doc.IsLoaded());
+        CHECK(doc.IsPasswordProtected());
+        CHECK(doc.GetPageCount() >= 1);
+        CHECK(doc.GetPageSize(0).width > 0.0f);
+        CHECK(doc.GetPassword() == L"secret123");
+
+        // Close wipes password
+        doc.Close();
+        CHECK_FALSE(doc.IsLoaded());
+        CHECK(doc.GetPassword().empty());
+    }
+
+    SUBCASE("TabController::OpenTabWithPassword Integration") {
+        TabController tabs;
+        std::wstring outPath;
+        bool alreadyOpen = false;
+
+        // Without password -> PasswordRequired
+        PdfLoadStatus s1 = tabs.OpenTabWithPassword(encPath, nullptr, outPath, alreadyOpen, L"");
+        CHECK(s1 == PdfLoadStatus::PasswordRequired);
+        CHECK(tabs.GetTabCount() == 0);
+
+        // With wrong password -> WrongPassword
+        PdfLoadStatus s2 = tabs.OpenTabWithPassword(encPath, nullptr, outPath, alreadyOpen, L"wrong");
+        CHECK(s2 == PdfLoadStatus::WrongPassword);
+        CHECK(tabs.GetTabCount() == 0);
+
+        // With correct password -> Success
+        PdfLoadStatus s3 = tabs.OpenTabWithPassword(encPath, nullptr, outPath, alreadyOpen, L"secret123");
+        CHECK(s3 == PdfLoadStatus::Success);
+        CHECK(tabs.GetTabCount() == 1);
+        CHECK(tabs.GetActiveTab() != nullptr);
+        CHECK(tabs.GetActiveTab()->document.IsPasswordProtected());
+    }
+
+    SUBCASE("PasswordOverlayLayout and Hit-Testing") {
+        const float dipW = 1000.0f;
+        const float dipH = 700.0f;
+        D2D1_RECT_F card = PasswordOverlayLayout::GetCardRect(dipW, dipH);
+        CHECK(card.right > card.left);
+        CHECK(card.bottom > card.top);
+        CHECK(card.right - card.left == doctest::Approx(PasswordOverlayLayout::CARD_W));
+        CHECK(card.bottom - card.top == doctest::Approx(PasswordOverlayLayout::CARD_H));
+
+        D2D1_RECT_F closeBtn = PasswordOverlayLayout::GetCloseBtnRect(card);
+        D2D1_RECT_F toggleBtn = PasswordOverlayLayout::GetToggleShowBtnRect(card);
+        D2D1_RECT_F unlockBtn = PasswordOverlayLayout::GetUnlockBtnRect(card);
+        D2D1_RECT_F cancelBtn = PasswordOverlayLayout::GetCancelBtnRect(card);
+        D2D1_RECT_F inputBox = PasswordOverlayLayout::GetInputBoxRect(card);
+
+        // Hit close button (ID 1)
+        POINT ptClose{ (LONG)((closeBtn.left + closeBtn.right) * 0.5f), (LONG)((closeBtn.top + closeBtn.bottom) * 0.5f) };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptClose, 1000, 700, 96.0f) == 1);
+
+        // Hit toggle button (ID 2)
+        POINT ptToggle{ (LONG)((toggleBtn.left + toggleBtn.right) * 0.5f), (LONG)((toggleBtn.top + toggleBtn.bottom) * 0.5f) };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptToggle, 1000, 700, 96.0f) == 2);
+
+        // Hit unlock button (ID 3)
+        POINT ptUnlock{ (LONG)((unlockBtn.left + unlockBtn.right) * 0.5f), (LONG)((unlockBtn.top + unlockBtn.bottom) * 0.5f) };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptUnlock, 1000, 700, 96.0f) == 3);
+
+        // Hit cancel button (ID 4)
+        POINT ptCancel{ (LONG)((cancelBtn.left + cancelBtn.right) * 0.5f), (LONG)((cancelBtn.top + cancelBtn.bottom) * 0.5f) };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptCancel, 1000, 700, 96.0f) == 4);
+
+        // Hit input box (ID 5)
+        POINT ptInput{ (LONG)((inputBox.left + inputBox.right) * 0.5f), (LONG)((inputBox.top + inputBox.bottom) * 0.5f) };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptInput, 1000, 700, 96.0f) == 5);
+
+        // Outside card (-1)
+        POINT ptOutside{ 10, 10 };
+        CHECK(UIViews::PasswordOverlayView::HitTest(ptOutside, 1000, 700, 96.0f) == -1);
+    }
+}
 

@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>831 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>848 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
   <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-831_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-848_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
@@ -45,7 +45,7 @@ LightPDF.exe /register /silent
 | | |
 |---|---|
 | ⚡ **Instant Launch** | Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader |
-| 🪶 **Sub-Megabyte Footprint** | **831 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
+| 🪶 **Sub-Megabyte Footprint** | **848 KB** single `.exe`, **8.7 MB** private memory, **zero external DLLs** |
 | 🕒 **Recent Documents & Tab Recovery** | `Ctrl+Shift+T` instant closed tab recovery with exact page, zoom, and continuous scroll restoration. Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). `Ctrl+H` centered quick switcher modal and Windows Taskbar Jump List integration |
 | 🗣️ **Native Read Aloud (TTS)** | `Ctrl+R` high-fidelity bilingual text-to-speech with real-time visual word tracking. Automatic Arabic (`Microsoft Naayf`) and English voice discovery via Windows OneCore & SAPI. Floating frosted HUD with rate tuning (`Ctrl+[` / `]`), sentence skip, and automatic continuous multi-page reading |
 | 📄 **Native Searchable PDF Export** | `Ctrl+S` / `Ctrl+Shift+S`: bakes an invisible text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Atomic in-place overwrite or Save As new file with zero image quality degradation |
@@ -62,6 +62,7 @@ LightPDF.exe /register /silent
 | 🎮 **GPU Hardware Rendering** | Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard |
 | 🔎 **Smooth Zooming** | Cursor-centered `Ctrl+Wheel`, plus `Ctrl+0` Fit Page, `Ctrl+1` 100%, and `Ctrl+2` Fit Width |
 | 🖥️ **HiDPI Native** | PerMonitorV2 DPI &mdash; crisp on 4K, 8K, and mixed multi-monitor setups |
+| 🔒 **Password-Protected PDFs** | Fast native unlocking for encrypted documents with custom Direct2D modal prompt, masked input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), instant error retry, zero RAM plaintext residue (`SecureZeroMemory`), and on-demand OCR fallback for text selection and search |
 | 🔗 **Zero-Admin Association** | `LightPDF.exe /register` &mdash; adds to Windows "Open with" & Default Apps without admin |
 
 ---
@@ -72,7 +73,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **831 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **848 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
@@ -267,9 +268,10 @@ LightPDF/
 ├── tests/
 │   ├── fixtures/                 # Minimal synthetic PDF fixtures committed to git
 │   │   ├── sample_1page.pdf
-│   │   └── sample_2page.pdf
+│   │   ├── sample_2page.pdf
+│   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (21 test cases, 228 assertions, <45ms runtime)
+│   ├── unified_tests.cpp         # Complete test suite (22 test cases, 263 assertions, <45ms runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses

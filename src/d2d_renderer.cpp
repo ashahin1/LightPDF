@@ -849,7 +849,8 @@ void D2DRenderer::RenderBlank(
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
-    const RecentRenderInfo* pRecent
+    const RecentRenderInfo* pRecent,
+    const PasswordOverlayRenderInfo* pPasswordOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -902,7 +903,7 @@ void D2DRenderer::RenderBlank(
         );
     }
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1025,7 +1026,8 @@ void D2DRenderer::RenderPage(
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
-    const RecentRenderInfo* pRecent
+    const RecentRenderInfo* pRecent,
+    const PasswordOverlayRenderInfo* pPasswordOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1054,7 +1056,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1276,7 +1278,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1314,7 +1316,8 @@ void D2DRenderer::RenderContinuous(
     const LaserPointerRenderInfo& laser,
     const PresenterBarRenderInfo& presenterBar,
     const TtsBarRenderInfo& ttsBar,
-    const RecentRenderInfo* pRecent
+    const RecentRenderInfo* pRecent,
+    const PasswordOverlayRenderInfo* pPasswordOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1556,7 +1559,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1587,7 +1590,8 @@ void D2DRenderer::DrawOverlays(
     const LaserPointerRenderInfo* pLaser,
     const PresenterBarRenderInfo* pPresenterBar,
     const TtsBarRenderInfo* pTtsBar,
-    const RecentRenderInfo* pRecent
+    const RecentRenderInfo* pRecent,
+    const PasswordOverlayRenderInfo* pPasswordOverlay
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1668,6 +1672,11 @@ void D2DRenderer::DrawOverlays(
             *pRecent,
             res
         );
+    }
+
+    // 12. Draw Password Overlay if active (modal prompt)
+    if (pPasswordOverlay && pPasswordOverlay->visible) {
+        DrawPasswordOverlay(*pPasswordOverlay);
     }
 }
 
@@ -2118,4 +2127,36 @@ void D2DRenderer::DrawTtsBar(const TtsBarRenderInfo& ttsBar, float topOffset) {
 int D2DRenderer::HitTestTtsBar(POINT pt, bool hasTabs) const {
     float topOffset = hasTabs ? 34.0f : 0.0f;
     return UIViews::TtsBarView::HitTest(pt, m_width, m_height, m_dpi, topOffset);
+}
+
+void D2DRenderer::DrawPasswordOverlay(const PasswordOverlayRenderInfo& pwdInfo) {
+    if (!m_d2dContext || !pwdInfo.visible) return;
+    float dipScale = 96.0f / (m_dpi > 0.0f ? m_dpi : 96.0f);
+    float dipWidth = (float)m_width * dipScale;
+    float dipHeight = (float)m_height * dipScale;
+    UIViews::PasswordOverlayResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
+        m_brushTabBorder.Get(),
+        m_brushTabAccent.Get(),
+        m_brushHudText.Get(),
+        m_brushGoToPageBox.Get(),
+        m_brushHelpSubText.Get(),
+        m_brushTabCloseHover.Get(),
+        m_brushPropsBtn.Get(),
+        m_brushPropsBtnHover.Get(),
+        m_brushPropsSecBtn.Get(),
+        m_brushPropsSecBtnHover.Get(),
+        m_textFormatHelpTitle.Get(),
+        m_textFormatTabClose.Get(),
+        m_textFormatHelpSub.Get(),
+        m_textFormatSearchInput.Get(),
+        m_textFormatSearchBtn.Get()
+    };
+    UIViews::PasswordOverlayView::Render(m_d2dContext.Get(), pwdInfo, dipWidth, dipHeight, res);
+}
+
+int D2DRenderer::HitTestPasswordOverlay(POINT pt) const {
+    return UIViews::PasswordOverlayView::HitTest(pt, m_width, m_height, m_dpi);
 }

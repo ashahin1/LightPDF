@@ -114,6 +114,7 @@ struct PdfMetadata {
     std::wstring creationDate = L"—";
     std::wstring modDate = L"—";
     std::wstring pdfFormat = L"—";
+    bool isEncrypted = false;
 };
 
 /**
@@ -169,6 +170,12 @@ public:
      */
     bool PageHasType3Fonts(uint32_t pageIndex) const;
 
+    /// @brief Returns true if the PDF trailer specifies an /Encrypt security handler.
+    bool IsEncrypted() const { return m_isEncrypted; }
+
+    /// @brief Fast static scan of the file on disk for an /Encrypt trailer entry.
+    static bool QuickCheckFileEncrypted(const std::wstring& filePath);
+
 private:
     // Stream decompressors & predictor decoding
     static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
@@ -216,6 +223,7 @@ private:
     size_t m_fileSize = 0;
     std::string_view m_bufferView;
     std::string m_pdfVersion = "1.4";
+    bool m_isEncrypted = false;
     uint32_t m_rootObjNum = 0;
     uint32_t m_infoObjNum = 0;
     size_t m_startXrefOffset = 0;
