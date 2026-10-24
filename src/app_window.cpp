@@ -1,5 +1,6 @@
 #include "app_window.hpp"
 #include "pdf_parser.hpp"
+#include "pdf_decryptor.hpp"
 #include <windowsx.h>
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -1618,7 +1619,12 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             break;
         case 'S':
             if (isCtrlDown) {
-                PromptSaveSearchablePdf(isShiftDown);
+                auto* pTab = GetActiveTab();
+                if (pTab && (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted()))) {
+                    PromptSaveDecryptedPdf();
+                } else {
+                    PromptSaveSearchablePdf(isShiftDown);
+                }
                 return 0;
             } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
                 SetToolMode(ToolMode::TextSelect);
@@ -2557,7 +2563,7 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     }
 
     if (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted())) {
-        ShowToast(L"Cannot bake OCR layer into an encrypted PDF");
+        PromptSaveDecryptedPdf();
         return;
     }
 
@@ -2709,6 +2715,135 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                     bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
                     EnqueueBakePdf(targetPath, isSame);
                 }
+            }
+        }
+
+        if (SUCCEEDED(hrCo)) CoUninitialize();
+    });
+}
+
+void AppWindow::PromptSaveDecryptedPdf() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) {
+        ShowToast(L"No document is currently loaded.");
+        return;
+    }
+
+    std::wstring origPath = pTab->document.GetFilePath();
+    std::wstring origName = pTab->document.GetFileName();
+    std::wstring password = pTab->document.GetPassword();
+    HWND hwnd = m_hwnd;
+
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
+
+    m_dialogThread = std::thread([this, hwnd, origPath, origName, password]() {
+        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+        typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+        HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
+        PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
+
+        bool proceedWithDecryptedSave = false;
+
+        if (pfnTaskDialogIndirect) {
+            TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
+            tdc.hwndParent = hwnd;
+            tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+            tdc.pszWindowTitle = L"Save Decrypted Copy";
+            tdc.pszMainInstruction = L"Save an unencrypted copy of this PDF?";
+            tdc.pszContent = L"The password protection will be permanently removed from the saved copy. The original file remains untouched.";
+
+            TASKDIALOG_BUTTON buttons[] = {
+                { 101, L"Save Decrypted Copy...\nChoose location to save an unencrypted version of this PDF" },
+            };
+            tdc.pButtons = buttons;
+            tdc.cButtons = ARRAYSIZE(buttons);
+            tdc.nDefaultButton = 101;
+
+            int nButton = 0;
+            HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
+            if (SUCCEEDED(hrTd) && nButton == 101) {
+                proceedWithDecryptedSave = true;
+            }
+        } else {
+            proceedWithDecryptedSave = true;
+        }
+
+        if (!proceedWithDecryptedSave) {
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+            return;
+        }
+
+        std::wstring defaultName = origName;
+        size_t dotPos = defaultName.rfind(L'.');
+        if (dotPos != std::string::npos) {
+            defaultName = defaultName.substr(0, dotPos) + L"_unprotected.pdf";
+        } else {
+            defaultName += L"_unprotected.pdf";
+        }
+
+        std::wstring targetPath;
+        ComPtr<IFileSaveDialog> pFileSave;
+        HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
+        if (SUCCEEDED(hr)) {
+            std::wstring pdfDesc = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
+            std::wstring pdfPat = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
+            COMDLG_FILTERSPEC filterSpecs[] = {
+                { pdfDesc.c_str(), pdfPat.c_str() },
+                { L"All Files (*.*)", L"*.*" }
+            };
+            pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
+            pFileSave->SetDefaultExtension(L"pdf");
+            pFileSave->SetFileName(defaultName.c_str());
+            pFileSave->SetTitle(L"Save Decrypted Copy As");
+
+            hr = pFileSave->Show(hwnd);
+            if (SUCCEEDED(hr)) {
+                ComPtr<IShellItem> pItem;
+                hr = pFileSave->GetResult(&pItem);
+                if (SUCCEEDED(hr)) {
+                    PWSTR pszPath = nullptr;
+                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath);
+                    if (SUCCEEDED(hr) && pszPath) {
+                        targetPath = pszPath;
+                        CoTaskMemFree(pszPath);
+                    }
+                }
+            }
+        }
+
+        if (targetPath.empty()) {
+            wchar_t szFile[MAX_PATH * 2] = { 0 };
+            wcscpy_s(szFile, defaultName.c_str());
+            OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
+            ofn.hwndOwner = hwnd;
+            ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
+            ofn.lpstrFile = szFile;
+            ofn.nMaxFile = _countof(szFile);
+            ofn.lpstrDefExt = L"pdf";
+            ofn.lpstrTitle = L"Save Decrypted Copy As";
+            ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+            if (GetSaveFileNameW(&ofn)) {
+                targetPath = szFile;
+            }
+        }
+
+        if (!targetPath.empty()) {
+            ShowToast(L"Decrypting and saving document...");
+            auto res = PdfDecryptor::DecryptAndSave(origPath, targetPath, password, [this](float /*p*/, const std::wstring& status) {
+                ShowToast(status);
+            });
+
+            if (res.success) {
+                std::wstring fileName = targetPath;
+                size_t slash = fileName.find_last_of(L"\\/");
+                if (slash != std::wstring::npos) fileName = fileName.substr(slash + 1);
+                ShowToast(L"Saved unencrypted copy to \"" + fileName + L"\"");
+            } else {
+                std::wstring msg = res.errorMessage.empty() ? L"Decryption failed" : res.errorMessage;
+                ShowToast(L"Error: " + msg);
             }
         }
 

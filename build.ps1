@@ -180,7 +180,8 @@ $sources = @(
     "src\ui_views.cpp",
     "src\tts_engine.cpp",
     "src\read_aloud_controller.cpp",
-    "src\recent_files_controller.cpp"
+    "src\recent_files_controller.cpp",
+    "src\pdf_decryptor.cpp"
 )
 
 # Recursive header dependency scanner with memoization
@@ -321,6 +322,7 @@ if ($needLink) {
         "windowscodecs.lib",
         "comdlg32.lib",
         "advapi32.lib",
+        "bcrypt.lib",
         "/OUT:$targetExe"
     )
 

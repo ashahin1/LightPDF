@@ -21,6 +21,7 @@
 #include "search_controller.hpp"
 #include "selection_controller.hpp"
 #include "pdf_parser.hpp"
+#include "pdf_decryptor.hpp"
 #include "pdf_searchable_writer.hpp"
 #include "pdf_search.hpp"
 #include "ui_views.hpp"
@@ -1146,5 +1147,55 @@ TEST_CASE("Performance: GetOrExtractPageText on Scanned PDFs Does Not Trigger Ea
         CHECK_FALSE(pageText->hasDigitalText);
         CHECK(pageText->chars.empty());
         CHECK(elapsedMs < 100);
+    }
+}
+
+
+// ============================================================================
+// PDF Decryption & Unencrypted PDF Export Test
+// ============================================================================
+TEST_CASE("Security: Decrypt and Save Unencrypted PDF (sample_encrypted.pdf)") {
+    std::wstring encPath = L"tests/fixtures/sample_encrypted.pdf";
+    std::wstring outDecPath = L"tests/fixtures/temp_sample_decrypted.pdf";
+    if (std::filesystem::exists(encPath)) {
+        std::error_code ec;
+        if (std::filesystem::exists(outDecPath, ec)) {
+            std::filesystem::remove(outDecPath, ec);
+        }
+
+        auto result = PdfDecryptor::DecryptAndSave(encPath, outDecPath, L"secret123");
+        REQUIRE(result.success);
+        REQUIRE(std::filesystem::exists(outDecPath, ec));
+
+        CHECK_FALSE(PdfParser::QuickCheckFileEncrypted(outDecPath));
+
+        {
+            PdfParser parser;
+            REQUIRE(parser.Load(outDecPath));
+            CHECK_FALSE(parser.IsEncrypted());
+            parser.Close();
+        }
+
+        {
+            PdfDocumentWrapper doc;
+            PdfLoadStatus status = doc.OpenWithPassword(outDecPath, nullptr, L"");
+            CHECK(status == PdfLoadStatus::Success);
+            CHECK(doc.IsLoaded());
+            CHECK_FALSE(doc.IsPasswordProtected());
+            CHECK(doc.GetPageCount() >= 1);
+
+            PdfDocumentWrapper origDoc;
+            if (origDoc.OpenWithPassword(encPath, nullptr, L"secret123") == PdfLoadStatus::Success) {
+                CHECK(doc.GetPageCount() == origDoc.GetPageCount());
+                auto origSize = origDoc.GetPageSize(0);
+                auto decSize = doc.GetPageSize(0);
+                CHECK(std::abs(origSize.width - decSize.width) < 1.0f);
+                CHECK(std::abs(origSize.height - decSize.height) < 1.0f);
+                origDoc.Close();
+            }
+            doc.Close();
+        }
+
+        std::filesystem::remove(outDecPath, ec);
     }
 }

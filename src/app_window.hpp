@@ -107,6 +107,7 @@ private:
     void PromptOpenFile() { OpenFileDialog(); }
     void PromptPrint();
     void PromptSaveSearchablePdf(bool forceSaveAs = false);
+    void PromptSaveDecryptedPdf();
     void StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal);
     void CancelBakingSearchablePdf();
     void Render();
