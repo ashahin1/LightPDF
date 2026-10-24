@@ -1,5 +1,4 @@
 #include "selection_controller.hpp"
-#include "pdf_search.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -104,61 +103,22 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
 
     PdfPageText pageText;
     bool extracted = pTab->parser && pTab->parser->ExtractPageText(pageIndex, pageText);
-    std::vector<PdfLink> preservedLinks = pageText.links;
-    if (extracted && pageText.hasDigitalText && !pageText.chars.empty()) {
-        auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
-        std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
-        if (pageIndex < pTab->textCache->pages.size()) {
-            pTab->textCache->pages[pageIndex] = sharedPage;
-        }
-        return sharedPage;
-    }
-
-    // Encrypted document or page without digital text: fallback to OCR if document is loaded
-    if (pTab->document.IsLoaded()) {
-        auto engines = CreateBilingualOcrEngines();
-        if (engines.IsValid()) {
-            auto page = pTab->document.GetPage(pageIndex);
-            if (page) {
-                auto pSize = pTab->document.GetPageSize(pageIndex);
-                OcrPageItem ocrItem;
-                if (ExtractBilingualPageOcr(page, pageIndex, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
-                    PopulatePageTextFromOcr(ocrItem, pageText);
-                    pageText.pageWidth = pSize.width;
-                    pageText.pageHeight = pSize.height;
-                    for (const auto& lk : preservedLinks) {
-                        bool dup = false;
-                        for (const auto& cur : pageText.links) {
-                            if (cur.uri == lk.uri && std::abs(cur.rect.left - lk.rect.left) < 5.0f && std::abs(cur.rect.top - lk.rect.top) < 5.0f) {
-                                dup = true;
-                                break;
-                            }
-                        }
-                        if (!dup) pageText.links.insert(pageText.links.begin(), lk);
-                    }
-                    auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
-                    std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
-                    if (pageIndex < pTab->textCache->pages.size()) {
-                        pTab->textCache->pages[pageIndex] = sharedPage;
-                    }
-                    return sharedPage;
-                }
-            }
-        }
+    if (!extracted) {
         auto pSize = pTab->document.GetPageSize(pageIndex);
+        pageText.pageIndex = pageIndex;
         pageText.pageWidth = pSize.width;
         pageText.pageHeight = pSize.height;
         pageText.hasDigitalText = false;
-        pageText.links = std::move(preservedLinks);
-        auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
+    }
+
+    auto sharedPage = std::make_shared<PdfPageText>(std::move(pageText));
+    {
         std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
         if (pageIndex < pTab->textCache->pages.size()) {
             pTab->textCache->pages[pageIndex] = sharedPage;
         }
-        return sharedPage;
     }
-
-    return nullptr;
+    return sharedPage;
 }
 
 bool SelectionController::HitTestPageText(

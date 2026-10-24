@@ -11,6 +11,7 @@
 #include <memory>
 #include <fstream>
 #include <filesystem>
+#include <chrono>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Data.Pdf.h>
 #include <winrt/Windows.Storage.h>
@@ -1080,5 +1081,70 @@ TEST_CASE("Links: PDF /Annots Extraction, Plaintext URL Detection, and Security 
         CHECK(tab.navBackStack.size() == 50);
         CHECK(tab.navBackStack.front().pageIndex == 5);
         CHECK(tab.navBackStack.back().pageIndex == 54);
+    }
+}
+
+
+// ============================================================================
+// Scanned PDF OCR Isolation & Link Hit-Test Performance Test
+// ============================================================================
+TEST_CASE("Performance: GetOrExtractPageText on Scanned PDFs Does Not Trigger Eager OCR") {
+    // Test 1: 123.pdf (Scanned PDF without digital text)
+    std::wstring scannedPath1 = L"tests/PDF/123.pdf";
+    if (std::filesystem::exists(scannedPath1)) {
+        TabController tabs;
+        std::wstring outPath;
+        bool alreadyOpen = false;
+        REQUIRE(tabs.OpenTab(scannedPath1, nullptr, outPath, alreadyOpen));
+        DocumentTab* pTab = tabs.GetActiveTab();
+        REQUIRE(pTab != nullptr);
+
+        SelectionController selController;
+        auto start = std::chrono::high_resolution_clock::now();
+        auto pageText = selController.GetOrExtractPageText(pTab, 0);
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - start
+        ).count();
+
+        REQUIRE(pageText != nullptr);
+        CHECK_FALSE(pageText->hasDigitalText);
+        CHECK(pageText->chars.empty());
+        // Verify fast execution: OCR takes >500ms, while pure extraction takes <50ms
+        CHECK(elapsedMs < 100);
+
+        // Verify link hit testing is instant and returns false with no links
+        uint32_t hitPage = 999;
+        PdfLink hitLink;
+        POINT pt{ 100, 100 };
+        auto hitStart = std::chrono::high_resolution_clock::now();
+        bool hasHit = selController.HitTestPageLink(pTab, pt, 1200.0f, 96.0f, 0.0f, hitPage, hitLink);
+        auto hitElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - hitStart
+        ).count();
+        CHECK_FALSE(hasHit);
+        CHECK(hitElapsedMs < 20);
+    }
+
+    // Test 2: 1234.pdf (Scanned PDF without digital text)
+    std::wstring scannedPath2 = L"tests/PDF/1234.pdf";
+    if (std::filesystem::exists(scannedPath2)) {
+        TabController tabs;
+        std::wstring outPath;
+        bool alreadyOpen = false;
+        REQUIRE(tabs.OpenTab(scannedPath2, nullptr, outPath, alreadyOpen));
+        DocumentTab* pTab = tabs.GetActiveTab();
+        REQUIRE(pTab != nullptr);
+
+        SelectionController selController;
+        auto start = std::chrono::high_resolution_clock::now();
+        auto pageText = selController.GetOrExtractPageText(pTab, 0);
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - start
+        ).count();
+
+        REQUIRE(pageText != nullptr);
+        CHECK_FALSE(pageText->hasDigitalText);
+        CHECK(pageText->chars.empty());
+        CHECK(elapsedMs < 100);
     }
 }
