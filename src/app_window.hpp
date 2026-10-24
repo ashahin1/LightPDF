@@ -29,6 +29,7 @@
 #include "selection_controller.hpp"
 #include "read_aloud_controller.hpp"
 #include "recent_files_controller.hpp"
+#include "context_menu_controller.hpp"
 #include "supported_formats.hpp"
 
 /// @brief Windows message posted when an external process opens a file via IPC (single-instance).
@@ -99,6 +100,8 @@ private:
     void OpenRecentFile(size_t index);
     void ReopenClosedTab();
     void CloseTab(size_t index);
+    void CloseOtherTabs(size_t keepIndex);
+    void CloseTabsToTheRight(size_t index);
     void SelectTab(size_t index);
     void NextTab();
     void PrevTab();
@@ -167,6 +170,11 @@ private:
     bool HitTestPageText(const POINT& clientPt, uint32_t& outPage, size_t& outCharIndex, bool& outAfterChar);
     std::vector<SelectionHighlightSpan> GetSelectionSpans() const;
     void CopySelectionToClipboard();
+    void SelectAll();
+    void Deselect();
+    void SetClipboardText(const std::wstring& text);
+    void HandleContextMenu(POINT ptScreen);
+    void ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& data);
     bool TriggerDictionaryLookup(const std::wstring& query, const D2D1_RECT_F& anchorRect);
     void DismissDictionaryCard();
     bool HitTestDictionaryCard(POINT pt) const;

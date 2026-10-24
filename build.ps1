@@ -181,7 +181,8 @@ $sources = @(
     "src\tts_engine.cpp",
     "src\read_aloud_controller.cpp",
     "src\recent_files_controller.cpp",
-    "src\pdf_decryptor.cpp"
+    "src\pdf_decryptor.cpp",
+    "src\context_menu_controller.cpp"
 )
 
 # Recursive header dependency scanner with memoization

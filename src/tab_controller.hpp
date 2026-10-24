@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <functional>
 #include "d2d_renderer.hpp"
 #include "pdf_document.hpp"
 #include "pdf_parser.hpp"
@@ -185,6 +186,20 @@ public:
      * @return true if closed, false if index invalid.
      */
     bool CloseTab(size_t index);
+
+    /**
+     * @brief Closes all tabs except the one specified by keepIndex.
+     * @param keepIndex 0-based tab index to preserve.
+     * @param onClosed Optional callback invoked for each tab being closed before its removal.
+     */
+    void CloseOtherTabs(size_t keepIndex, std::function<void(const DocumentTab&)> onClosed = nullptr);
+
+    /**
+     * @brief Closes all tabs strictly to the right of the specified index.
+     * @param index 0-based tab index.
+     * @param onClosed Optional callback invoked for each tab being closed before its removal.
+     */
+    void CloseTabsToTheRight(size_t index, std::function<void(const DocumentTab&)> onClosed = nullptr);
 
     /**
      * @brief Activates tab at specified index.

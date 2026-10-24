@@ -28,6 +28,7 @@
 #include "tts_engine.hpp"
 #include "read_aloud_controller.hpp"
 #include "recent_files_controller.hpp"
+#include "context_menu_controller.hpp"
 
 // ============================================================================
 // Dictionary Engine Tests
@@ -1197,5 +1198,175 @@ TEST_CASE("Security: Decrypt and Save Unencrypted PDF (sample_encrypted.pdf)") {
         }
 
         std::filesystem::remove(outDecPath, ec);
+    }
+}
+
+// ============================================================================
+// UI: Context Menu State Assembly and Command Routing Tests
+// ============================================================================
+TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
+    SUBCASE("ContextMenuController Menu Construction Across Contexts") {
+        // 1. TabStrip Menu
+        {
+            ContextMenuData data;
+            data.totalTabs = 3;
+            data.targetTabIndex = 1;
+            data.canReopenClosedTab = true;
+            data.tabFilePath = L"C:\\test\\file.pdf";
+
+            HMENU hMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::TabStrip, data);
+            REQUIRE(hMenu != nullptr);
+
+            UINT closeOthers = GetMenuState(hMenu, ID_CTX_TAB_CLOSE_OTHERS, MF_BYCOMMAND);
+            CHECK((closeOthers & MF_GRAYED) == 0); // Enabled when totalTabs > 1
+
+            UINT closeRight = GetMenuState(hMenu, ID_CTX_TAB_CLOSE_RIGHT, MF_BYCOMMAND);
+            CHECK((closeRight & MF_GRAYED) == 0); // Enabled when index 1 < 2
+
+            UINT reopen = GetMenuState(hMenu, ID_CTX_TAB_REOPEN_CLOSED, MF_BYCOMMAND);
+            CHECK((reopen & MF_GRAYED) == 0);
+
+            DestroyMenu(hMenu);
+
+            // Edge case: single tab, right-most tab
+            data.totalTabs = 1;
+            data.targetTabIndex = 0;
+            data.canReopenClosedTab = false;
+            HMENU hMenuSingle = ContextMenuController::CreateMenuForContext(ContextMenuContext::TabStrip, data);
+            REQUIRE(hMenuSingle != nullptr);
+
+            UINT closeOthersDis = GetMenuState(hMenuSingle, ID_CTX_TAB_CLOSE_OTHERS, MF_BYCOMMAND);
+            CHECK((closeOthersDis & MF_GRAYED) != 0); // Disabled when totalTabs <= 1
+
+            UINT closeRightDis = GetMenuState(hMenuSingle, ID_CTX_TAB_CLOSE_RIGHT, MF_BYCOMMAND);
+            CHECK((closeRightDis & MF_GRAYED) != 0); // Disabled at right-most tab
+
+            UINT reopenDis = GetMenuState(hMenuSingle, ID_CTX_TAB_REOPEN_CLOSED, MF_BYCOMMAND);
+            CHECK((reopenDis & MF_GRAYED) != 0); // Disabled when cannot reopen
+
+            DestroyMenu(hMenuSingle);
+        }
+
+        // 2. Hyperlink Menu
+        {
+            ContextMenuData data;
+            data.hasLink = true;
+            data.hitLink.type = PdfLinkType::ExternalUri;
+            data.hitLink.uri = L"https://github.com";
+
+            HMENU hMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::Hyperlink, data);
+            REQUIRE(hMenu != nullptr);
+
+            CHECK(GetMenuDefaultItem(hMenu, FALSE, 0) == ID_CTX_OPEN_LINK);
+            CHECK(GetMenuState(hMenu, ID_CTX_COPY_LINK, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_FIT_PAGE, MF_BYCOMMAND) != 0xFFFFFFFF);
+
+            DestroyMenu(hMenu);
+        }
+
+        // 3. TextSelection Menu with Truncation
+        {
+            ContextMenuData data;
+            data.hasSelection = true;
+            data.selectedText = L"Supercalifragilistic\n\textraordinary words";
+
+            HMENU hMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::TextSelection, data);
+            REQUIRE(hMenu != nullptr);
+
+            CHECK(GetMenuState(hMenu, ID_CTX_COPY, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_SELECT_ALL, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_DESELECT, MF_BYCOMMAND) != 0xFFFFFFFF);
+
+            wchar_t searchBuf[256] = {};
+            GetMenuStringW(hMenu, ID_CTX_SEARCH_SELECTION, searchBuf, 256, MF_BYCOMMAND);
+            std::wstring searchLabel(searchBuf);
+            CHECK(searchLabel.find(L"...") != std::wstring::npos);
+            CHECK(searchLabel.find(L"\tCtrl+F") != std::wstring::npos);
+
+            wchar_t dictBuf[256] = {};
+            GetMenuStringW(hMenu, ID_CTX_DICT_LOOKUP, dictBuf, 256, MF_BYCOMMAND);
+            std::wstring dictLabel(dictBuf);
+            CHECK(dictLabel.find(L"...") != std::wstring::npos);
+            CHECK(dictLabel.find(L"\tF8") != std::wstring::npos);
+
+            DestroyMenu(hMenu);
+        }
+
+        // 4. Canvas Menu
+        {
+            ContextMenuData data;
+            data.isDocumentLoaded = true;
+            data.currentPage = 0;
+            data.totalPages = 10;
+            data.isContinuousScroll = true;
+            data.isPasswordProtected = false;
+
+            HMENU hMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, data);
+            REQUIRE(hMenu != nullptr);
+
+            UINT prev = GetMenuState(hMenu, ID_CTX_PREV_PAGE, MF_BYCOMMAND);
+            CHECK((prev & MF_GRAYED) != 0); // Disabled on first page
+
+            UINT next = GetMenuState(hMenu, ID_CTX_NEXT_PAGE, MF_BYCOMMAND);
+            CHECK((next & MF_GRAYED) == 0); // Enabled
+
+            UINT cont = GetMenuState(hMenu, ID_CTX_CONTINUOUS_SCROLL, MF_BYCOMMAND);
+            CHECK((cont & MF_CHECKED) != 0); // Checked
+
+            CHECK(GetMenuState(hMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) == 0xFFFFFFFF); // Not present on unprotected
+
+            DestroyMenu(hMenu);
+
+            // Password-protected canvas
+            data.isPasswordProtected = true;
+            HMENU hEncMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, data);
+            REQUIRE(hEncMenu != nullptr);
+
+            CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) == 0xFFFFFFFF);
+
+            DestroyMenu(hEncMenu);
+        }
+    }
+
+    SUBCASE("TabController Batch Tab Operations") {
+        std::wstring p1 = L"tests/PDF/123.pdf";
+        std::wstring p2 = L"tests/PDF/1234.pdf";
+        std::wstring p3 = L"tests/PDF/1234_OCR.pdf";
+
+        TabController tabs;
+        std::wstring outPath;
+        bool alreadyOpen = false;
+
+        REQUIRE(tabs.OpenTab(p1, nullptr, outPath, alreadyOpen));
+        REQUIRE(tabs.OpenTab(p2, nullptr, outPath, alreadyOpen));
+        REQUIRE(tabs.OpenTab(p3, nullptr, outPath, alreadyOpen));
+        REQUIRE(tabs.GetTabCount() == 3);
+        CHECK(tabs.GetActiveIndex() == 2);
+
+        // Test CloseTabsToTheRight(1): closes tab 2 (index > 1)
+        std::vector<std::wstring> closedRightPaths;
+        tabs.CloseTabsToTheRight(1, [&](const DocumentTab& t) {
+            closedRightPaths.push_back(t.document.GetFilePath());
+        });
+
+        CHECK(closedRightPaths.size() == 1);
+        CHECK(tabs.GetTabCount() == 2);
+        CHECK(tabs.GetActiveIndex() == 1);
+
+        // Open a 3rd tab again
+        REQUIRE(tabs.OpenTab(p3, nullptr, outPath, alreadyOpen));
+        REQUIRE(tabs.GetTabCount() == 3);
+
+        // Test CloseOtherTabs(1): keeps tab 1, closes tabs 0 and 2
+        std::vector<std::wstring> closedOtherPaths;
+        tabs.CloseOtherTabs(1, [&](const DocumentTab& t) {
+            closedOtherPaths.push_back(t.document.GetFilePath());
+        });
+
+        CHECK(closedOtherPaths.size() == 2);
+        CHECK(tabs.GetTabCount() == 1);
+        CHECK(tabs.GetActiveIndex() == 0);
     }
 }

@@ -84,6 +84,38 @@ bool TabController::CloseTab(size_t index) {
     return true;
 }
 
+void TabController::CloseOtherTabs(size_t keepIndex, std::function<void(const DocumentTab&)> onClosed) {
+    if (keepIndex >= m_tabs.size() || m_tabs.size() <= 1) return;
+
+    DocumentTab keptTab = std::move(m_tabs[keepIndex]);
+
+    for (size_t i = 0; i < m_tabs.size(); ++i) {
+        if (i != keepIndex && onClosed) {
+            onClosed(m_tabs[i]);
+        }
+    }
+
+    m_tabs.clear();
+    m_tabs.push_back(std::move(keptTab));
+    m_activeTab = 0;
+}
+
+void TabController::CloseTabsToTheRight(size_t index, std::function<void(const DocumentTab&)> onClosed) {
+    if (index >= m_tabs.size() || index + 1 >= m_tabs.size()) return;
+
+    for (size_t i = index + 1; i < m_tabs.size(); ++i) {
+        if (onClosed) {
+            onClosed(m_tabs[i]);
+        }
+    }
+
+    m_tabs.erase(m_tabs.begin() + (index + 1), m_tabs.end());
+
+    if (m_activeTab > index) {
+        m_activeTab = index;
+    }
+}
+
 bool TabController::SelectTab(size_t index) {
     if (index >= m_tabs.size() || index == m_activeTab) return false;
     m_activeTab = index;

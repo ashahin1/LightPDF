@@ -389,6 +389,37 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_LBUTTONDBLCLK:
         return HandleMouseEvent(msg, wParam, lParam);
 
+    case WM_RBUTTONDOWN: {
+        if (m_isPanning) {
+            m_isPanning = false;
+            ReleaseCapture();
+            SetCursor((m_toolMode == ToolMode::Hand) ? m_cursorHand : m_cursorArrow);
+        }
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->selection.isDragging) {
+            pTab->selection.isDragging = false;
+            ReleaseCapture();
+        }
+        if (m_isDraggingScrollbar) {
+            m_isDraggingScrollbar = false;
+            ReleaseCapture();
+        }
+        break;
+    }
+
+    case WM_CONTEXTMENU: {
+        POINT ptScreen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (ptScreen.x == -1 && ptScreen.y == -1) {
+            RECT rc;
+            GetClientRect(m_hwnd, &rc);
+            POINT ptClient = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
+            ptScreen = ptClient;
+            ClientToScreen(m_hwnd, &ptScreen);
+        }
+        HandleContextMenu(ptScreen);
+        return 0;
+    }
+
     case WM_XBUTTONDOWN: {
         if (HIWORD(wParam) == XBUTTON1) {
             NavigateBack();
@@ -1611,6 +1642,12 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
                 return 0;
             }
             break;
+        case 'A':
+            if (isCtrlDown) {
+                SelectAll();
+                return 0;
+            }
+            break;
         case 'L':
             if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
                 ToggleLaserPointer();
@@ -2294,6 +2331,68 @@ void AppWindow::CloseTab(size_t index) {
         Render();
         return;
     }
+
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+        TriggerSearch();
+    }
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::CloseOtherTabs(size_t keepIndex) {
+    if (keepIndex >= m_tabController.GetTabCount()) return;
+
+    auto onTabClosing = [this](const DocumentTab& tab) {
+        if (tab.document.IsLoaded() && !tab.document.GetFilePath().empty()) {
+            ClosedTabInfo info;
+            info.filePath = tab.document.GetFilePath();
+            info.currentPage = tab.currentPage;
+            info.zoom = tab.zoom;
+            info.scrollY = tab.scrollY;
+            info.zoomMode = tab.zoomMode;
+            info.continuousScroll = tab.continuousScroll;
+            m_recentController.PushClosedTab(info);
+            m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
+        }
+    };
+
+    m_renderer.InvalidatePageCache();
+    m_tabController.CloseOtherTabs(keepIndex, onTabClosing);
+
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+        TriggerSearch();
+    }
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::CloseTabsToTheRight(size_t index) {
+    if (index >= m_tabController.GetTabCount()) return;
+
+    auto onTabClosing = [this](const DocumentTab& tab) {
+        if (tab.document.IsLoaded() && !tab.document.GetFilePath().empty()) {
+            ClosedTabInfo info;
+            info.filePath = tab.document.GetFilePath();
+            info.currentPage = tab.currentPage;
+            info.zoom = tab.zoom;
+            info.scrollY = tab.scrollY;
+            info.zoomMode = tab.zoomMode;
+            info.continuousScroll = tab.continuousScroll;
+            m_recentController.PushClosedTab(info);
+            m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
+        }
+    };
+
+    m_renderer.InvalidatePageCache();
+    m_tabController.CloseTabsToTheRight(index, onTabClosing);
 
     if (m_showProperties) {
         ShowDocumentProperties();
@@ -4447,4 +4546,322 @@ void AppWindow::NavigateForward() {
     }
     ShowToast(L"Page " + std::to_wstring(target.pageIndex + 1) + L" \u2192");
     Render();
+}
+
+
+void AppWindow::SetClipboardText(const std::wstring& text) {
+    if (text.empty()) return;
+    if (OpenClipboard(m_hwnd)) {
+        EmptyClipboard();
+        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (hMem) {
+            void* pMem = GlobalLock(hMem);
+            if (pMem) {
+                memcpy(pMem, text.c_str(), bytes);
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            } else {
+                GlobalFree(hMem);
+            }
+        }
+        CloseClipboard();
+    }
+}
+
+void AppWindow::SelectAll() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded()) return;
+
+    auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+    if (!pageText || pageText->chars.empty()) {
+        ShowToast(L"No selectable text on this page");
+        return;
+    }
+
+    pTab->selection.active = true;
+    pTab->selection.isDragging = false;
+    pTab->selection.startPage = pTab->currentPage;
+    pTab->selection.startIndex = 0;
+    pTab->selection.endPage = pTab->currentPage;
+    pTab->selection.endIndex = pageText->chars.size();
+    Render();
+}
+
+void AppWindow::Deselect() {
+    auto* pTab = GetActiveTab();
+    if (!pTab) return;
+    if (pTab->selection.active || pTab->selection.HasSelection()) {
+        pTab->selection.Clear();
+        Render();
+    }
+}
+
+void AppWindow::HandleContextMenu(POINT ptScreen) {
+    if (m_showPasswordOverlay || m_isFullscreen) {
+        return;
+    }
+
+    POINT ptClient = ptScreen;
+    ScreenToClient(m_hwnd, &ptClient);
+
+    float dipScale = 96.0f / (m_renderer.GetDpi() > 0.0f ? m_renderer.GetDpi() : 96.0f);
+    float dipY = (float)ptClient.y * dipScale;
+    float topOffset = GetTopOffset();
+
+    ContextMenuData data;
+    data.canReopenClosedTab = m_recentController.CanReopenClosedTab();
+
+    // 1. Tab strip hit test (if multiple tabs and clicked within top tab bar)
+    if (m_tabController.HasMultipleTabs() && dipY >= 0.0f && dipY <= topOffset) {
+        bool dummyClose = false, dummyAdd = false;
+        int hitTab = m_tabController.HitTestTab(ptClient, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), dummyClose, dummyAdd);
+        if (hitTab >= 0 && (size_t)hitTab < m_tabController.GetTabCount()) {
+            data.targetTabIndex = (size_t)hitTab;
+            data.totalTabs = m_tabController.GetTabCount();
+            const auto* pTargetTab = m_tabController.GetTab((size_t)hitTab);
+            if (pTargetTab && pTargetTab->document.IsLoaded()) {
+                data.tabFilePath = pTargetTab->document.GetFilePath();
+            }
+            UINT_PTR cmd = ContextMenuController::ShowContextMenu(m_hwnd, ptScreen, ContextMenuContext::TabStrip, data);
+            if (cmd != ID_CTX_NONE) {
+                ExecuteContextMenuCommand(cmd, data);
+            }
+            return;
+        }
+    }
+
+    auto* pTab = GetActiveTab();
+    if (pTab && pTab->document.IsLoaded()) {
+        data.isDocumentLoaded = true;
+        data.currentPage = pTab->currentPage;
+        data.totalPages = pTab->document.GetPageCount();
+        data.isContinuousScroll = pTab->continuousScroll;
+        data.isPasswordProtected = pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted());
+
+        // 2. Interactive Hyperlink hit test
+        uint32_t linkPage = 0;
+        PdfLink hitLink;
+        if (m_selectionController.HitTestPageLink(pTab, ptClient, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), topOffset, linkPage, hitLink)) {
+            data.hasLink = true;
+            data.hitLink = hitLink;
+            UINT_PTR cmd = ContextMenuController::ShowContextMenu(m_hwnd, ptScreen, ContextMenuContext::Hyperlink, data);
+            if (cmd != ID_CTX_NONE) {
+                ExecuteContextMenuCommand(cmd, data);
+            }
+            return;
+        }
+
+        // 3. Text Selection hit test:
+        // If there is no active selection, check if right-clicked on a word to auto-select it
+        if (!pTab->selection.HasSelection() && m_toolMode == ToolMode::TextSelect) {
+            uint32_t hitPage = 0;
+            size_t hitChar = 0;
+            bool afterChar = false;
+            if (HitTestPageText(ptClient, hitPage, hitChar, afterChar)) {
+                auto pageText = GetOrExtractPageText(pTab, hitPage);
+                if (pageText && hitChar < pageText->chars.size()) {
+                    auto isWordChar = [](wchar_t c) {
+                        return iswalnum(c) || c == L'_';
+                    };
+                    size_t wStart = hitChar;
+                    while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
+                        wStart--;
+                    }
+                    size_t wEnd = hitChar;
+                    while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
+                        wEnd++;
+                    }
+                    if (wEnd > wStart) {
+                        pTab->selection.active = true;
+                        pTab->selection.isDragging = false;
+                        pTab->selection.startPage = hitPage;
+                        pTab->selection.startIndex = wStart;
+                        pTab->selection.endPage = hitPage;
+                        pTab->selection.endIndex = wEnd;
+                        Render();
+                    }
+                }
+            }
+        }
+
+        if (pTab->selection.HasSelection()) {
+            D2D1_RECT_F anchorRect{};
+            data.hasSelection = true;
+            data.selectedText = GetSelectedWordOrText(anchorRect);
+            UINT_PTR cmd = ContextMenuController::ShowContextMenu(m_hwnd, ptScreen, ContextMenuContext::TextSelection, data);
+            if (cmd != ID_CTX_NONE) {
+                ExecuteContextMenuCommand(cmd, data);
+            }
+            return;
+        }
+    }
+
+    // 4. Default: Document Canvas Context Menu (or empty viewer)
+    UINT_PTR cmd = ContextMenuController::ShowContextMenu(m_hwnd, ptScreen, ContextMenuContext::Canvas, data);
+    if (cmd != ID_CTX_NONE) {
+        ExecuteContextMenuCommand(cmd, data);
+    }
+}
+
+void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& data) {
+    switch (cmd) {
+    // Selection commands
+    case ID_CTX_COPY:
+        CopySelectionToClipboard();
+        break;
+    case ID_CTX_SELECT_ALL:
+        SelectAll();
+        break;
+    case ID_CTX_DESELECT:
+        Deselect();
+        break;
+    case ID_CTX_DICT_LOOKUP: {
+        D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
+        std::wstring query = GetSelectedWordOrText(anchorRect);
+        if (!query.empty()) {
+            TriggerDictionaryLookup(query, anchorRect);
+        }
+        break;
+    }
+    case ID_CTX_READ_ALOUD_SELECTION: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->selection.HasSelection()) {
+            ToggleReadAloud();
+        }
+        break;
+    }
+    case ID_CTX_SEARCH_SELECTION: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->document.IsLoaded()) {
+            D2D1_RECT_F anchorRect{};
+            std::wstring query = GetSelectedWordOrText(anchorRect);
+            if (!query.empty()) {
+                auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+                if (pageText && !pageText->hasDigitalText) {
+                    m_searchController.SetOcrEnabled(true);
+                }
+                m_searchController.Open();
+                m_showGoToPage = false;
+                m_showHelp = false;
+                m_searchController.SetQuery(query);
+                TriggerSearch();
+                Render();
+            }
+        }
+        break;
+    }
+
+    // Link commands
+    case ID_CTX_OPEN_LINK:
+        ActivatePdfLink(data.hitLink);
+        break;
+    case ID_CTX_COPY_LINK: {
+        if (data.hitLink.type == PdfLinkType::ExternalUri) {
+            SetClipboardText(data.hitLink.uri);
+            ShowToast(L"Link copied to clipboard");
+        } else if (data.hitLink.type == PdfLinkType::InternalPage) {
+            std::wstring linkStr = L"Page " + std::to_wstring(data.hitLink.targetPage + 1);
+            SetClipboardText(linkStr);
+            ShowToast(L"Link target copied: " + linkStr);
+        }
+        break;
+    }
+
+    // Canvas / Reading commands
+    case ID_CTX_NEXT_PAGE:
+        NextPage();
+        break;
+    case ID_CTX_PREV_PAGE:
+        PrevPage();
+        break;
+    case ID_CTX_GOTO_PAGE: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
+            m_showGoToPage = true;
+            m_goToPageBuffer.clear();
+            Render();
+        }
+        break;
+    }
+    case ID_CTX_FIT_PAGE: {
+        auto* pTab = GetActiveTab();
+        if (pTab) {
+            pTab->zoomMode = ZoomMode::FitPage;
+            RecalculateLayout();
+            Render();
+        }
+        break;
+    }
+    case ID_CTX_FIT_WIDTH: {
+        auto* pTab = GetActiveTab();
+        if (pTab) {
+            pTab->zoomMode = ZoomMode::FitWidth;
+            RecalculateLayout();
+            Render();
+        }
+        break;
+    }
+    case ID_CTX_CONTINUOUS_SCROLL:
+        ToggleContinuousScroll();
+        break;
+    case ID_CTX_READ_ALOUD:
+        ToggleReadAloud();
+        break;
+    case ID_CTX_FIND: {
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->document.IsLoaded()) {
+            auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
+            if (pageText && !pageText->hasDigitalText) {
+                m_searchController.SetOcrEnabled(true);
+            }
+            m_searchController.Open();
+            m_showGoToPage = false;
+            m_showHelp = false;
+            if (!m_searchController.GetQuery().empty()) {
+                TriggerSearch();
+            }
+            Render();
+        }
+        break;
+    }
+    case ID_CTX_PRINT:
+        PromptPrint();
+        break;
+    case ID_CTX_SAVE_SEARCHABLE:
+        PromptSaveSearchablePdf(false);
+        break;
+    case ID_CTX_SAVE_DECRYPTED:
+        PromptSaveDecryptedPdf();
+        break;
+    case ID_CTX_DOC_PROPERTIES:
+        ShowDocumentProperties();
+        break;
+
+    // Tab commands
+    case ID_CTX_TAB_CLOSE:
+        CloseTab(data.targetTabIndex);
+        break;
+    case ID_CTX_TAB_CLOSE_OTHERS:
+        CloseOtherTabs(data.targetTabIndex);
+        break;
+    case ID_CTX_TAB_CLOSE_RIGHT:
+        CloseTabsToTheRight(data.targetTabIndex);
+        break;
+    case ID_CTX_TAB_REOPEN_CLOSED:
+        ReopenClosedTab();
+        break;
+    case ID_CTX_TAB_COPY_PATH:
+        if (!data.tabFilePath.empty()) {
+            SetClipboardText(data.tabFilePath);
+            ShowToast(L"File path copied to clipboard");
+        }
+        break;
+    case ID_CTX_TAB_OPEN_FOLDER:
+        if (!data.tabFilePath.empty()) {
+            std::wstring param = L"/select,\"" + data.tabFilePath + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", param.c_str(), nullptr, SW_SHOWNORMAL);
+        }
+        break;
+    }
 }
