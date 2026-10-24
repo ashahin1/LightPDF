@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>880 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>943 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
@@ -12,10 +12,10 @@
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
   <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-880_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-943_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-23%20passed%20%7C%20306%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20374%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -37,7 +37,8 @@
   - [⚡ Ultra-Fast Hardware-Accelerated Engine](#-ultra-fast-hardware-accelerated-engine)
   - [🗂️ Smart Tab Strip & Jump History](#️-smart-tab-strip--jump-history)
   - [🌐 Interactive Hyperlinks & Smart URLs](#-interactive-hyperlinks--smart-urls)
-  - [🔒 Password-Protected PDFs](#-password-protected-pdfs)
+  - [🔒 Password-Protected PDFs & Decrypted Copy Export](#-password-protected-pdfs--decrypted-copy-export)
+  - [🖱️ Smart Context-Sensitive Right-Click Menus](#️-smart-context-sensitive-right-click-menus)
   - [🗣️ Native Read Aloud (TTS) & Technical Dictionary](#️-native-read-aloud-tts--technical-dictionary)
   - [📄 Native Searchable PDF Baking & Multilingual Search](#-native-searchable-pdf-baking--multilingual-search)
 - [Keyboard & Mouse Shortcuts](#keyboard--mouse-shortcuts)
@@ -150,11 +151,19 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Sleek Bottom-Left Preview Pill**: Hovering reveals an `IDC_HAND` cursor, subtle on-page highlight + accent underline, and a floating URL preview status pill dynamically constrained so it never collides with the centered HUD pill.
 - **Strict Scheme Whitelisting**: Strictly restricts external launching to `https://`, `http://`, and `mailto:` &mdash; blocking dangerous schemes (`file:`, `javascript:`, `cmd:`, `powershell:`, and UNC paths).
 
-### 🔒 Password-Protected PDFs
+### 🔒 Password-Protected PDFs & Decrypted Copy Export
 - **Fast Encrypted Document Handling**: Native detection and unlocking of password-protected PDF files using `Windows.Data.Pdf`.
 - **Sleek Direct2D Modal Prompt**: Dark glass card with masked password input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), and error shake feedback.
 - **Zero RAM Plaintext Residue**: Clears password buffers immediately using `SecureZeroMemory` after authentication.
+- **Lossless Decrypted Copy Export**: Once unlocked, press `Ctrl+S` / `Ctrl+Shift+S` to export an unencrypted, password-free PDF copy without re-rendering or image recompression. Built on Windows CNG (`bcrypt.dll`), supporting Standard Security Handler Algorithm 2 (RC4-128, AES-128) and Algorithm 5 (AES-256) with automatic cross-reference reconstruction.
 - **On-Demand OCR Fallback**: Enables full text selection, offline dictionary lookup, and search even on encrypted PDFs whose security flags disable standard digital text extraction.
+
+### 🖱️ Smart Context-Sensitive Right-Click Menus
+- **Four Dynamic Interaction Domains**: Native Win32 menus that automatically adapt based on cursor context with automatic Windows 10/11 dark mode styling:
+  - **Tab Strip Menu**: Close Tab (`Ctrl+W`), Close Other Tabs, Close Tabs to Right, Reopen Closed Tab (`Ctrl+Shift+T`), Copy Full File Path, and Reveal in File Explorer (`/select`).
+  - **Hyperlink Menu**: Default bold Open Link action, Copy Link Address, Fit Page, Fit Width, and Print.
+  - **Text Selection Menu**: Copy (`Ctrl+C`), Look up in Dictionary (`F8`), Read Aloud Selection, Search for Selection (`Ctrl+F`), Select All (`Ctrl+A`), and Deselect (`Esc`). Auto-selects the word under the cursor when right-clicking unselected text.
+  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page, Fit Width, Continuous Scrolling toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, and Document Properties (`Ctrl+D`).
 
 ### 🗣️ Native Read Aloud (TTS) & Technical Dictionary
 - **Bilingual Text-to-Speech**: Press `Ctrl+R` for high-fidelity speech playback with real-time visual word highlighting. Automatically routes Arabic to `Microsoft Naayf` and English to system voices via Windows OneCore & SAPI.
@@ -208,6 +217,7 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 
 | Shortcut | Description |
 | :--- | :--- |
+| `Right Click Tab` | Tab Context Menu (Close, Close Others, Close Right, Reopen, Copy Path, Reveal in Explorer) |
 | `Ctrl + O` / `Ctrl + T` | Open PDF document in new tab |
 | `Ctrl + Shift + T` | Reopen last closed tab (restoring exact page, zoom, scroll position) |
 | `Ctrl + H` | Toggle Recent Documents Quick Switcher modal |
@@ -239,6 +249,10 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
 | `L` | Toggle Presentation Laser Pointer |
 | `C` | Cycle Laser Pointer Color (Red, Green, Cyan, Gold) |
+| `Right Click Canvas` | Document Canvas Menu (Navigation, View Modes, Scroll Toggle, Search, Print, Properties) |
+| `Right Click Selection` | Text Selection Menu (Copy, Dictionary, Read Aloud, Search Selection, Select All, Deselect) |
+| `Right Click Link` | Hyperlink Menu (Open Link, Copy Link Address, View Modes, Print) |
+| `Ctrl + A` | Select all text on current page |
 | `Ctrl + C` | Copy selected text to clipboard |
 | `D` / `Double Click` | Look up selected word in offline English-Arabic technical dictionary |
 | `Ctrl + P` | Print document (All / Current / Page Range) |
@@ -388,11 +402,11 @@ tests\run_tests.bat
 
 ```
 ===============================================================================
-[LightPDF Test Runner] Executing 23 test cases...
+[LightPDF Test Runner] Executing 26 test cases...
 ===============================================================================
-  Test Cases: 23 passed | 0 failed | 23 total
-  Assertions: 306 passed | 0 failed | 306 total
-  Elapsed:    ~3.2 s
+  Test Cases: 26 passed | 0 failed | 26 total
+  Assertions: 374 passed | 0 failed | 374 total
+  Elapsed:    ~3.8 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
 ```
@@ -402,7 +416,9 @@ The test suite exercises all critical components:
 - **CMap & Font Metrics**: Composite Type 0 fonts, CIDFontType2, and Adobe UCS `/ToUnicode` mapping.
 - **Multilingual Search**: Arabic diacritic stripping, Alef/Taa Marbuta normalization, Eastern-to-Western Arabic numeral normalization, and bidirectional text matching.
 - **Interactive Hyperlinks**: ISO 32000-1 `/Annots` parsing (`/URI`, `/GoTo`), plaintext URL regex extraction, single/continuous hit-testing, and navigation history stacks.
-- **Security & Password Protection**: Encrypted PDF status transitions, modal hit-testing, and memory clearing.
+- **Security & Password Protection**: Encrypted PDF status transitions, modal hit-testing, memory clearing, and lossless decryption export (sample_encrypted.pdf).
+- **Context Menus & Batch Tabs**: Context menu state assembly across all 4 domains, truncation logic, and TabController CloseOtherTabs / CloseTabsToTheRight batch operations.
+- **Scanned Document OCR Guard**: Verifies GetOrExtractPageText never triggers eager synchronous OCR during document load or hover.
 - **Read Aloud (TTS)**: Bilingual text chunking, script-based voice routing, and glyph bounding box mapping.
 - **Tab & Recent State**: Closed tab LIFO recovery, MRU registry persistence, and Quick Switcher hit-testing.
 
@@ -457,7 +473,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~880 KB standalone binary (zero external DLLs)
+│   ├── LightPDF.exe              # ~943 KB standalone binary (zero external DLLs, <1 MB budget)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -479,6 +495,8 @@ LightPDF/
 │   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 zero-copy hardware render pipeline, URL preview pill
 │   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper, password decryption & prefetch
 │   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal, /Annots link extraction
+│   ├── pdf_decryptor.hpp/.cpp    # Lossless PDF decryption engine, CNG BCrypt AES-128/256 & RC4-128 /Encrypt removal
+│   ├── context_menu_controller.hpp/.cpp # Native Win32 context-sensitive menus, dark mode, accelerator routing
 │   ├── pdf_search.hpp/.cpp       # Multilingual search engine, normalization, numerals, OCR fallback
 │   ├── pdf_searchable_writer.hpp/.cpp # Incremental PDF update engine, OCR sandwich layer
 │   ├── tts_engine.hpp/.cpp       # Pure COM SAPI voice engine, Desktop & OneCore voice discovery
@@ -492,7 +510,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (23 test cases, 306 assertions, <45ms runtime)
+│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 374 assertions, <4s runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
