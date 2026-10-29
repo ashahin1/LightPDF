@@ -1314,7 +1314,8 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             CHECK((cont & MF_CHECKED) != 0); // Checked
 
             CHECK(GetMenuState(hMenu, ID_CTX_ACTUAL_SIZE, MF_BYCOMMAND) != 0xFFFFFFFF);
-            CHECK(GetMenuState(hMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_SAVE_AS, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) == 0xFFFFFFFF); // Not present on pure digital PDF
             CHECK(GetMenuState(hMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) == 0xFFFFFFFF); // Not present on unprotected
 
             wchar_t itemBuf[256] = {};
@@ -1330,7 +1331,26 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             GetMenuStringW(hMenu, ID_CTX_CONTINUOUS_SCROLL, itemBuf, 256, MF_BYCOMMAND);
             CHECK(std::wstring(itemBuf).find(L"\tCtrl+3") != std::wstring::npos);
 
+            GetMenuStringW(hMenu, ID_CTX_SAVE_AS, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+S") != std::wstring::npos);
+
             DestroyMenu(hMenu);
+
+            // Scanned document canvas
+            data.hasScannedPages = true;
+            HMENU hScanMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, data);
+            REQUIRE(hScanMenu != nullptr);
+
+            CHECK(GetMenuState(hScanMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hScanMenu, ID_CTX_SAVE_AS, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hScanMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) == 0xFFFFFFFF);
+
+            GetMenuStringW(hScanMenu, ID_CTX_SAVE_SEARCHABLE, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+S") != std::wstring::npos);
+            GetMenuStringW(hScanMenu, ID_CTX_SAVE_AS, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+Shift+S") != std::wstring::npos);
+
+            DestroyMenu(hScanMenu);
 
             // Password-protected canvas
             data.isPasswordProtected = true;
@@ -1338,6 +1358,7 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             REQUIRE(hEncMenu != nullptr);
 
             CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_AS, MF_BYCOMMAND) != 0xFFFFFFFF);
             CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) == 0xFFFFFFFF);
 
             DestroyMenu(hEncMenu);

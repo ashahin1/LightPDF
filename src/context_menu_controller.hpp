@@ -49,6 +49,7 @@ enum ContextMenuCommand : UINT_PTR {
     ID_CTX_READ_ALOUD,
     ID_CTX_FIND,
     ID_CTX_PRINT,
+    ID_CTX_SAVE_AS,
     ID_CTX_SAVE_SEARCHABLE,
     ID_CTX_SAVE_DECRYPTED,
     ID_CTX_DOC_PROPERTIES,
@@ -67,6 +68,7 @@ struct ContextMenuData {
     // Document state
     bool isDocumentLoaded = false;
     bool isPasswordProtected = false;
+    bool hasScannedPages = false;
     bool isContinuousScroll = false;
     uint32_t currentPage = 0;
     uint32_t totalPages = 0;

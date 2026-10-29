@@ -733,19 +733,29 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
 
     if (progressCallback) progressCallback(0.95f, L"Saving unencrypted PDF file...");
 
-    // Write to destination file
-    std::ofstream outFile(dstPath, std::ios::binary);
+    bool isOverwrite = (_wcsicmp(srcPath.c_str(), dstPath.c_str()) == 0);
+    std::wstring writeTarget = isOverwrite ? (dstPath + L".tmp") : dstPath;
+
+    // Write to destination file (or temporary swap file if overwriting in-place)
+    std::ofstream outFile(writeTarget, std::ios::binary);
     if (!outFile.is_open()) {
-        result.errorMessage = L"Failed to create destination file: " + dstPath;
+        result.errorMessage = L"Failed to create destination file: " + writeTarget;
         return result;
     }
     outFile.write(outPdf.data(), outPdf.size());
     outFile.close();
 
     // Verify written file is unencrypted
-    if (PdfParser::QuickCheckFileEncrypted(dstPath)) {
+    if (PdfParser::QuickCheckFileEncrypted(writeTarget)) {
+        if (isOverwrite) DeleteFileW(writeTarget.c_str());
         result.errorMessage = L"Resulting PDF still contains /Encrypt signature";
         return result;
+    }
+
+    if (isOverwrite) {
+        if (!ReplaceFileW(dstPath.c_str(), writeTarget.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
+            MoveFileExW(writeTarget.c_str(), dstPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        }
     }
 
     if (progressCallback) progressCallback(1.0f, L"Document successfully saved without password!");

@@ -133,8 +133,12 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
 
         if (data.isPasswordProtected) {
             AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_DECRYPTED, L"Save Decrypted Copy...\tCtrl+S");
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_AS, L"Save As...\tCtrl+Shift+S");
+        } else if (data.hasScannedPages) {
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_SEARCHABLE, L"Save Searchable PDF (OCR)...\tCtrl+S");
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_AS, L"Save As...\tCtrl+Shift+S");
         } else {
-            AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_SEARCHABLE, L"Save Searchable PDF...\tCtrl+S");
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_SAVE_AS, L"Save As...\tCtrl+S");
         }
 
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);

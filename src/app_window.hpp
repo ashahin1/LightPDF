@@ -42,6 +42,8 @@
 #define WM_APP_BAKE_PDF_PROGRESS (WM_APP + 6)
 /// @brief Windows message posted by SAPI when a word boundary or end-of-stream event occurs.
 #define WM_APP_TTS_EVENT (WM_APP + 7)
+/// @brief Windows message posted when a Save As or Decrypted Save operation completes.
+#define WM_APP_SAVE_PDF_DONE (WM_APP + 8)
 
 extern const wchar_t* WINDOW_CLASS_NAME;
 
@@ -109,8 +111,11 @@ private:
     void OpenFile(const std::wstring& path) { OpenTab(path); }
     void PromptOpenFile() { OpenFileDialog(); }
     void PromptPrint();
+    void PromptSaveAsPdf();
     void PromptSaveSearchablePdf(bool forceSaveAs = false);
     void PromptSaveDecryptedPdf();
+    bool DoesDocumentNeedOcr(DocumentTab* pTab);
+    bool ReloadOrSwitchActiveTabToFile(const std::wstring& targetPath, const std::wstring& password = L"");
     void StartBakingSearchablePdf(const std::wstring& targetPath, bool overwriteOriginal);
     void CancelBakingSearchablePdf();
     void Render();
@@ -320,4 +325,15 @@ private:
     };
     std::mutex m_pendingBakeMutex;
     std::vector<PendingBakeRequest> m_pendingBakes;
+    std::wstring m_activeBakeTargetPath;
+
+    struct PendingSaveCompletion {
+        bool success = false;
+        std::wstring targetPath;
+        std::wstring password;
+        std::wstring toastMessage;
+    };
+    std::mutex m_pendingSaveDoneMutex;
+    std::vector<PendingSaveCompletion> m_pendingSaveCompletions;
+    void EnqueueSaveDone(bool success, const std::wstring& targetPath, const std::wstring& password, const std::wstring& toastMessage);
 };

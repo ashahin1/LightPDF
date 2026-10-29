@@ -220,30 +220,15 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_APP_BAKE_PDF_DONE: {
         m_isBakingPdf = false;
-        int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled
+        int status = (int)wParam; // 1 = success, 0 = error, 2 = cancelled, 3 = already digital
         bool wasOverwrite = (lParam != 0);
+        std::wstring targetPath = m_activeBakeTargetPath;
         if (status == 1) {
-            if (wasOverwrite) {
-                auto* pTab = GetActiveTab();
-                if (pTab) {
-                    std::wstring curPath = pTab->document.GetFilePath();
-                    uint32_t curPage = pTab->currentPage;
-                    pTab->document.Close();
-                    if (pTab->parser) pTab->parser->Close();
-
-                    if (pTab->document.Open(curPath, m_hwnd)) {
-                        pTab->parser = std::make_unique<PdfParser>();
-                        pTab->parser->Load(curPath);
-                        pTab->textCache = std::make_shared<PageTextCache>();
-                        pTab->textCache->pages.resize(pTab->document.GetPageCount());
-                        pTab->currentPage = std::min(curPage, pTab->document.GetPageCount() - 1);
-                        m_renderer.InvalidatePageCache();
-                        RecalculateLayout();
-                        UpdateTitle();
-                        ShowToast(L"Searchable PDF saved! (Original file updated)");
-                    } else {
-                        ShowToast(L"Searchable PDF saved, please reopen the file.");
-                    }
+            if (!targetPath.empty() && ReloadOrSwitchActiveTabToFile(targetPath)) {
+                if (wasOverwrite) {
+                    ShowToast(L"Searchable PDF saved! (Original file updated)");
+                } else {
+                    ShowToast(L"Searchable PDF saved and opened!");
                 }
             } else {
                 ShowToast(L"Searchable PDF saved successfully!");
@@ -254,10 +239,31 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wasOverwrite) {
                 ShowToast(L"Document already contains digital text on all pages.");
             } else {
+                if (!targetPath.empty()) {
+                    ReloadOrSwitchActiveTabToFile(targetPath);
+                }
                 ShowToast(L"PDF saved successfully! (Document is already digital)");
             }
         } else {
             ShowToast(L"Failed to save searchable PDF.");
+        }
+        Render();
+        return 0;
+    }
+
+    case WM_APP_SAVE_PDF_DONE: {
+        std::vector<PendingSaveCompletion> completions;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingSaveDoneMutex);
+            completions.swap(m_pendingSaveCompletions);
+        }
+        for (const auto& comp : completions) {
+            if (comp.success && !comp.targetPath.empty()) {
+                ReloadOrSwitchActiveTabToFile(comp.targetPath, comp.password);
+            }
+            if (!comp.toastMessage.empty()) {
+                ShowToast(comp.toastMessage);
+            }
         }
         Render();
         return 0;
@@ -1657,10 +1663,16 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
         case 'S':
             if (isCtrlDown) {
                 auto* pTab = GetActiveTab();
-                if (pTab && (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted()))) {
+                if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+                    ShowToast(L"No document is currently loaded.");
+                } else if (isShiftDown) {
+                    PromptSaveAsPdf();
+                } else if (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted())) {
                     PromptSaveDecryptedPdf();
+                } else if (DoesDocumentNeedOcr(pTab)) {
+                    PromptSaveSearchablePdf(false);
                 } else {
-                    PromptSaveSearchablePdf(isShiftDown);
+                    PromptSaveAsPdf();
                 }
                 return 0;
             } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
@@ -2080,6 +2092,16 @@ void AppWindow::EnqueueBakePdf(const std::wstring& targetPath, bool overwriteOri
     }
     if (m_hwnd && IsWindow(m_hwnd)) {
         PostMessageW(m_hwnd, WM_APP_BAKE_PDF_START, 0, 0);
+    }
+}
+
+void AppWindow::EnqueueSaveDone(bool success, const std::wstring& targetPath, const std::wstring& password, const std::wstring& toastMessage) {
+    {
+        std::lock_guard<std::mutex> lock(m_pendingSaveDoneMutex);
+        m_pendingSaveCompletions.push_back({ success, targetPath, password, toastMessage });
+    }
+    if (m_hwnd && IsWindow(m_hwnd)) {
+        PostMessageW(m_hwnd, WM_APP_SAVE_PDF_DONE, 0, 0);
     }
 }
 
@@ -2654,6 +2676,217 @@ void AppWindow::CancelBakingSearchablePdf() {
     m_cancelBakingPdf = true;
 }
 
+namespace {
+
+std::wstring GetParentDirectory(const std::wstring& filePath) {
+    size_t slash = filePath.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) {
+        return filePath.substr(0, slash);
+    }
+    return L"";
+}
+
+std::wstring GetFileNamePart(const std::wstring& filePath) {
+    size_t slash = filePath.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) {
+        return filePath.substr(slash + 1);
+    }
+    return filePath;
+}
+
+std::wstring AppendFilenameSuffix(const std::wstring& origName, const std::wstring& suffix) {
+    size_t dotPos = origName.rfind(L'.');
+    if (dotPos != std::wstring::npos) {
+        return origName.substr(0, dotPos) + suffix + L".pdf";
+    }
+    return origName + suffix + L".pdf";
+}
+
+std::wstring ShowNativeSavePdfDialog(
+    HWND hwndOwner,
+    const std::wstring& title,
+    const std::wstring& initialDir,
+    const std::wstring& defaultFileName
+) {
+    ComPtr<IFileSaveDialog> pFileSave;
+    HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
+    if (SUCCEEDED(hr) && pFileSave) {
+        std::wstring pdfDesc = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
+        std::wstring pdfPat = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
+        COMDLG_FILTERSPEC filterSpecs[] = {
+            { pdfDesc.c_str(), pdfPat.c_str() },
+            { L"All Files (*.*)", L"*.*" }
+        };
+        pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
+        pFileSave->SetDefaultExtension(L"pdf");
+        pFileSave->SetFileName(defaultFileName.c_str());
+        pFileSave->SetTitle(title.c_str());
+
+        if (!initialDir.empty()) {
+            ComPtr<IShellItem> pFolder;
+            if (SUCCEEDED(SHCreateItemFromParsingName(initialDir.c_str(), nullptr, IID_PPV_ARGS(&pFolder))) && pFolder) {
+                pFileSave->SetFolder(pFolder.Get());
+            }
+        }
+
+        hr = pFileSave->Show(hwndOwner);
+        if (SUCCEEDED(hr)) {
+            ComPtr<IShellItem> pItem;
+            if (SUCCEEDED(pFileSave->GetResult(&pItem)) && pItem) {
+                PWSTR pszFilePath = nullptr;
+                if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath)) && pszFilePath) {
+                    std::wstring targetPath(pszFilePath);
+                    CoTaskMemFree(pszFilePath);
+                    return targetPath;
+                }
+            }
+        }
+        return L"";
+    }
+
+    std::wstring saveFilter;
+    saveFilter += SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
+    saveFilter.push_back(L'\0');
+    saveFilter += SupportedFormats::BuildPattern(SupportedFormats::kPdf);
+    saveFilter.push_back(L'\0');
+    saveFilter += L"All Files (*.*)";
+    saveFilter.push_back(L'\0');
+    saveFilter += L"*.*";
+    saveFilter.push_back(L'\0');
+    saveFilter.push_back(L'\0');
+
+    wchar_t szFile[MAX_PATH * 2] = { 0 };
+    wcsncpy_s(szFile, defaultFileName.c_str(), _TRUNCATE);
+    OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
+    ofn.hwndOwner = hwndOwner;
+    ofn.lpstrFilter = saveFilter.c_str();
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = _countof(szFile);
+    ofn.lpstrInitialDir = initialDir.empty() ? nullptr : initialDir.c_str();
+    ofn.lpstrDefExt = L"pdf";
+    ofn.lpstrTitle = title.c_str();
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
+    if (GetSaveFileNameW(&ofn)) {
+        return std::wstring(szFile);
+    }
+    return L"";
+}
+
+} // anonymous namespace
+
+bool AppWindow::DoesDocumentNeedOcr(DocumentTab* pTab) {
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+        return false;
+    }
+    if (pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted())) {
+        return false;
+    }
+
+    auto curPageText = GetOrExtractPageText(pTab, pTab->currentPage);
+    if (!curPageText || !curPageText->hasDigitalText) {
+        return true;
+    }
+
+    uint32_t totalPages = pTab->document.GetPageCount();
+    uint32_t checkLimit = std::min(totalPages, 25u);
+    for (uint32_t p = 0; p < checkLimit; ++p) {
+        if (p == pTab->currentPage) continue;
+        auto pt = GetOrExtractPageText(pTab, p);
+        if (!pt || !pt->hasDigitalText) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool AppWindow::ReloadOrSwitchActiveTabToFile(const std::wstring& targetPath, const std::wstring& password) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || targetPath.empty()) return false;
+
+    uint32_t curPage = pTab->currentPage;
+    float curZoom = pTab->zoom;
+    ZoomMode curZoomMode = pTab->zoomMode;
+    bool curContinuous = pTab->continuousScroll;
+    float curScrollY = pTab->scrollY;
+    float curOffsetX = pTab->offsetX;
+    float curOffsetY = pTab->offsetY;
+
+    pTab->document.Close();
+    if (pTab->parser) pTab->parser->Close();
+    pTab->selection.Clear();
+
+    // Complete any pending atomic .tmp swap now that viewer handles are closed
+    std::wstring tmpPath = targetPath + L".tmp";
+    if (GetFileAttributesW(tmpPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (!ReplaceFileW(targetPath.c_str(), tmpPath.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
+            MoveFileExW(tmpPath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        }
+    }
+
+    if (pTab->document.OpenWithPassword(targetPath, m_hwnd, password) != PdfLoadStatus::Success) {
+        return false;
+    }
+
+    pTab->parser = std::make_unique<PdfParser>();
+    pTab->parser->Load(targetPath);
+    pTab->metadataLoaded = false;
+    pTab->textCache = std::make_shared<PageTextCache>();
+    uint32_t totalPages = pTab->document.GetPageCount();
+    pTab->textCache->pages.resize(totalPages);
+
+    pTab->currentPage = (totalPages > 0) ? std::min(curPage, totalPages - 1) : 0;
+    pTab->zoom = curZoom;
+    pTab->zoomMode = curZoomMode;
+    pTab->continuousScroll = curContinuous;
+    pTab->scrollY = curScrollY;
+    pTab->offsetX = curOffsetX;
+    pTab->offsetY = curOffsetY;
+    pTab->lastOffsetsZoom = -1.0f;
+
+    m_recentController.AddRecentFile(targetPath, totalPages, pTab->currentPage);
+    m_renderer.InvalidatePageCache();
+    RecalculateLayout();
+    UpdateTitle();
+    return true;
+}
+
+void AppWindow::PromptSaveAsPdf() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
+        ShowToast(L"No document is currently loaded.");
+        return;
+    }
+
+    std::wstring origPath = pTab->document.GetFilePath();
+    std::wstring origName = pTab->document.GetFileName();
+    std::wstring password = pTab->document.GetPassword();
+    HWND hwnd = m_hwnd;
+
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
+
+    m_dialogThread = std::thread([this, hwnd, origPath, origName, password]() {
+        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+        std::wstring initialDir = GetParentDirectory(origPath);
+        std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save PDF As", initialDir, origName);
+
+        if (!targetPath.empty()) {
+            if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
+                EnqueueSaveDone(false, L"", L"", L"Document saved.");
+            } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
+                std::wstring savedName = GetFileNamePart(targetPath);
+                EnqueueSaveDone(true, targetPath, password, L"Saved to \"" + savedName + L"\"");
+            } else {
+                EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
+            }
+        }
+
+        if (SUCCEEDED(hrCo)) CoUninitialize();
+    });
+}
+
 void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
@@ -2671,6 +2904,11 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
         return;
     }
 
+    if (!DoesDocumentNeedOcr(pTab)) {
+        PromptSaveAsPdf();
+        return;
+    }
+
     std::wstring origPath = pTab->document.GetFilePath();
     std::wstring origName = pTab->document.GetFileName();
     HWND hwnd = m_hwnd;
@@ -2682,8 +2920,7 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     m_dialogThread = std::thread([this, hwnd, origPath, origName, forceSaveAs]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-        bool doSaveAs = forceSaveAs;
-        bool doOverwrite = false;
+        int action = forceSaveAs ? 101 : 0; // 101 = Bake OCR Save As, 102 = Bake OCR Overwrite, 103 = Copy Without OCR
 
         if (!forceSaveAs) {
             typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
@@ -2695,26 +2932,24 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                 TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
                 tdc.hwndParent = hwnd;
                 tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-                tdc.pszWindowTitle = L"Save Searchable PDF";
-                tdc.pszMainInstruction = L"How would you like to save this searchable PDF?";
-                tdc.pszContent = L"Optical Character Recognition (OCR) will bake an invisible, permanent text layer (English & Arabic) into the document.";
+                tdc.pszWindowTitle = L"Save Scanned PDF";
+                tdc.pszMainInstruction = L"How would you like to save this scanned document?";
+                tdc.pszContent = L"This PDF contains scanned pages without selectable text. You can bake an invisible English & Arabic OCR text layer or save a direct copy.";
 
                 TASKDIALOG_BUTTON buttons[] = {
-                    { 101, L"Save As New File...\nChoose a new location or filename (Original file will be untouched)" },
-                    { 102, L"Overwrite Original File\nUpdate the current file directly (A safe backup swap will be used)" }
+                    { 101, L"Save Searchable PDF As...\nRun OCR and save to a new searchable PDF file (Original file untouched)" },
+                    { 102, L"Update Original File (Bake OCR In-Place)\nRun OCR and update the current file directly using a safe atomic swap" },
+                    { 103, L"Save Original Copy As... (Without OCR)\nSave a fast copy of the document as-is without running OCR" }
                 };
                 tdc.pButtons = buttons;
                 tdc.cButtons = ARRAYSIZE(buttons);
                 tdc.nDefaultButton = 101;
 
                 int nButton = 0;
-                HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
-                if (SUCCEEDED(hrTd)) {
+                if (SUCCEEDED(pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr))) {
                     handled = true;
-                    if (nButton == 101) {
-                        doSaveAs = true;
-                    } else if (nButton == 102) {
-                        doOverwrite = true;
+                    if (nButton == 101 || nButton == 102 || nButton == 103) {
+                        action = nButton;
                     } else {
                         if (SUCCEEDED(hrCo)) CoUninitialize();
                         return;
@@ -2725,17 +2960,17 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
             if (!handled) {
                 int res = MessageBoxW(
                     hwnd,
-                    L"Do you want to overwrite the original file?\n\n"
-                    L"Click 'Yes' to overwrite the original file.\n"
-                    L"Click 'No' to save as a new file.\n"
+                    L"Do you want to bake OCR and overwrite the original file?\n\n"
+                    L"Click 'Yes' to update the original file with OCR.\n"
+                    L"Click 'No' to save as a new searchable file.\n"
                     L"Click 'Cancel' to abort.",
                     L"Save Searchable PDF",
                     MB_YESNOCANCEL | MB_ICONQUESTION
                 );
                 if (res == IDYES) {
-                    doOverwrite = true;
+                    action = 102;
                 } else if (res == IDNO) {
-                    doSaveAs = true;
+                    action = 101;
                 } else {
                     if (SUCCEEDED(hrCo)) CoUninitialize();
                     return;
@@ -2743,76 +2978,27 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
             }
         }
 
-        if (doOverwrite) {
+        std::wstring initialDir = GetParentDirectory(origPath);
+
+        if (action == 102) {
             EnqueueBakePdf(origPath, true);
-            if (SUCCEEDED(hrCo)) CoUninitialize();
-            return;
-        }
-
-        if (doSaveAs) {
-            std::wstring defaultName = origName;
-            size_t dotPos = defaultName.rfind(L'.');
-            if (dotPos != std::string::npos) {
-                defaultName = defaultName.substr(0, dotPos) + L"_searchable.pdf";
-            } else {
-                defaultName += L"_searchable.pdf";
+        } else if (action == 101) {
+            std::wstring defaultName = AppendFilenameSuffix(origName, L"_searchable");
+            std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save Searchable PDF As", initialDir, defaultName);
+            if (!targetPath.empty()) {
+                bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+                EnqueueBakePdf(targetPath, isSame);
             }
-
-            ComPtr<IFileSaveDialog> pFileSave;
-            HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
-            if (SUCCEEDED(hr)) {
-                std::wstring pdfDesc = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
-                std::wstring pdfPat = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
-                COMDLG_FILTERSPEC filterSpecs[] = {
-                    { pdfDesc.c_str(), pdfPat.c_str() },
-                    { L"All Files (*.*)", L"*.*" }
-                };
-                pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
-                pFileSave->SetDefaultExtension(L"pdf");
-                pFileSave->SetFileName(defaultName.c_str());
-                pFileSave->SetTitle(L"Save Searchable PDF As");
-
-                hr = pFileSave->Show(hwnd);
-                if (SUCCEEDED(hr)) {
-                    ComPtr<IShellItem> pItem;
-                    hr = pFileSave->GetResult(&pItem);
-                    if (SUCCEEDED(hr) && pItem) {
-                        PWSTR pszFilePath = nullptr;
-                        hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
-                        if (SUCCEEDED(hr) && pszFilePath) {
-                            std::wstring targetPath(pszFilePath);
-                            CoTaskMemFree(pszFilePath);
-                            bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                            EnqueueBakePdf(targetPath, isSame);
-                        }
-                    }
-                }
-            } else {
-                std::wstring saveFilter;
-                saveFilter += SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
-                saveFilter.push_back(L'\0');
-                saveFilter += SupportedFormats::BuildPattern(SupportedFormats::kPdf);
-                saveFilter.push_back(L'\0');
-                saveFilter += L"All Files (*.*)";
-                saveFilter.push_back(L'\0');
-                saveFilter += L"*.*";
-                saveFilter.push_back(L'\0');
-                saveFilter.push_back(L'\0');
-
-                wchar_t szFile[MAX_PATH * 2] = { 0 };
-                wcsncpy_s(szFile, defaultName.c_str(), _TRUNCATE);
-                OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
-                ofn.hwndOwner = hwnd;
-                ofn.lpstrFilter = saveFilter.c_str();
-                ofn.lpstrFile = szFile;
-                ofn.nMaxFile = _countof(szFile);
-                ofn.lpstrDefExt = L"pdf";
-                ofn.lpstrTitle = L"Save Searchable PDF As";
-                ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-                if (GetSaveFileNameW(&ofn)) {
-                    std::wstring targetPath(szFile);
-                    bool isSame = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
-                    EnqueueBakePdf(targetPath, isSame);
+        } else if (action == 103) {
+            std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save PDF Copy As", initialDir, origName);
+            if (!targetPath.empty()) {
+                if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
+                    EnqueueSaveDone(false, L"", L"", L"Document saved.");
+                } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
+                    std::wstring savedName = GetFileNamePart(targetPath);
+                    EnqueueSaveDone(true, targetPath, L"", L"Saved to \"" + savedName + L"\"");
+                } else {
+                    EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
                 }
             }
         }
@@ -2844,105 +3030,74 @@ void AppWindow::PromptSaveDecryptedPdf() {
         HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
         PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
 
-        bool proceedWithDecryptedSave = false;
+        int action = 101; // 101 = Save Decrypted Copy As, 102 = Remove Password In-Place, 103 = Save Encrypted Copy As
 
         if (pfnTaskDialogIndirect) {
             TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
             tdc.hwndParent = hwnd;
             tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-            tdc.pszWindowTitle = L"Save Decrypted Copy";
-            tdc.pszMainInstruction = L"Save an unencrypted copy of this PDF?";
-            tdc.pszContent = L"The password protection will be permanently removed from the saved copy. The original file remains untouched.";
+            tdc.pszWindowTitle = L"Save Password-Protected PDF";
+            tdc.pszMainInstruction = L"How would you like to save this encrypted document?";
+            tdc.pszContent = L"Since you have unlocked this document, you can save a decrypted (password-free) version, unlock the original file in-place, or save a copy keeping the password.";
 
             TASKDIALOG_BUTTON buttons[] = {
-                { 101, L"Save Decrypted Copy...\nChoose location to save an unencrypted version of this PDF" },
+                { 101, L"Save Decrypted Copy As...\nSave an unencrypted, password-free copy to a new file (Original file untouched)" },
+                { 102, L"Remove Password from Original File\nPermanently unlock the current file in-place using a safe atomic swap" },
+                { 103, L"Save Encrypted Copy As...\nSave a copy of the document keeping its password protection" }
             };
             tdc.pButtons = buttons;
             tdc.cButtons = ARRAYSIZE(buttons);
             tdc.nDefaultButton = 101;
 
             int nButton = 0;
-            HRESULT hrTd = pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr);
-            if (SUCCEEDED(hrTd) && nButton == 101) {
-                proceedWithDecryptedSave = true;
-            }
-        } else {
-            proceedWithDecryptedSave = true;
-        }
-
-        if (!proceedWithDecryptedSave) {
-            if (SUCCEEDED(hrCo)) CoUninitialize();
-            return;
-        }
-
-        std::wstring defaultName = origName;
-        size_t dotPos = defaultName.rfind(L'.');
-        if (dotPos != std::string::npos) {
-            defaultName = defaultName.substr(0, dotPos) + L"_unprotected.pdf";
-        } else {
-            defaultName += L"_unprotected.pdf";
-        }
-
-        std::wstring targetPath;
-        ComPtr<IFileSaveDialog> pFileSave;
-        HRESULT hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pFileSave));
-        if (SUCCEEDED(hr)) {
-            std::wstring pdfDesc = SupportedFormats::BuildFilterLabel(L"PDF Documents", SupportedFormats::kPdf);
-            std::wstring pdfPat = SupportedFormats::BuildPattern(SupportedFormats::kPdf);
-            COMDLG_FILTERSPEC filterSpecs[] = {
-                { pdfDesc.c_str(), pdfPat.c_str() },
-                { L"All Files (*.*)", L"*.*" }
-            };
-            pFileSave->SetFileTypes(ARRAYSIZE(filterSpecs), filterSpecs);
-            pFileSave->SetDefaultExtension(L"pdf");
-            pFileSave->SetFileName(defaultName.c_str());
-            pFileSave->SetTitle(L"Save Decrypted Copy As");
-
-            hr = pFileSave->Show(hwnd);
-            if (SUCCEEDED(hr)) {
-                ComPtr<IShellItem> pItem;
-                hr = pFileSave->GetResult(&pItem);
-                if (SUCCEEDED(hr)) {
-                    PWSTR pszPath = nullptr;
-                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath);
-                    if (SUCCEEDED(hr) && pszPath) {
-                        targetPath = pszPath;
-                        CoTaskMemFree(pszPath);
-                    }
+            if (SUCCEEDED(pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr))) {
+                if (nButton == 101 || nButton == 102 || nButton == 103) {
+                    action = nButton;
+                } else {
+                    if (SUCCEEDED(hrCo)) CoUninitialize();
+                    return;
                 }
             }
         }
 
-        if (targetPath.empty()) {
-            wchar_t szFile[MAX_PATH * 2] = { 0 };
-            wcscpy_s(szFile, defaultName.c_str());
-            OPENFILENAMEW ofn = { sizeof(OPENFILENAMEW) };
-            ofn.hwndOwner = hwnd;
-            ofn.lpstrFilter = L"PDF Documents (*.pdf)\0*.pdf\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = szFile;
-            ofn.nMaxFile = _countof(szFile);
-            ofn.lpstrDefExt = L"pdf";
-            ofn.lpstrTitle = L"Save Decrypted Copy As";
-            ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_HIDEREADONLY;
-            if (GetSaveFileNameW(&ofn)) {
-                targetPath = szFile;
+        std::wstring initialDir = GetParentDirectory(origPath);
+
+        if (action == 103) {
+            std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save Encrypted PDF Copy As", initialDir, origName);
+            if (!targetPath.empty()) {
+                if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
+                    EnqueueSaveDone(false, L"", L"", L"Document saved.");
+                } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
+                    std::wstring savedName = GetFileNamePart(targetPath);
+                    EnqueueSaveDone(true, targetPath, password, L"Saved encrypted copy to \"" + savedName + L"\"");
+                } else {
+                    EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
+                }
             }
+            if (SUCCEEDED(hrCo)) CoUninitialize();
+            return;
+        }
+
+        std::wstring targetPath;
+        if (action == 102) {
+            targetPath = origPath;
+        } else {
+            std::wstring defaultName = AppendFilenameSuffix(origName, L"_unprotected");
+            targetPath = ShowNativeSavePdfDialog(hwnd, L"Save Decrypted Copy As", initialDir, defaultName);
         }
 
         if (!targetPath.empty()) {
-            ShowToast(L"Decrypting and saving document...");
-            auto res = PdfDecryptor::DecryptAndSave(origPath, targetPath, password, [this](float /*p*/, const std::wstring& status) {
-                ShowToast(status);
-            });
-
+            bool isOverwrite = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
+            auto res = PdfDecryptor::DecryptAndSave(origPath, targetPath, password, nullptr);
             if (res.success) {
-                std::wstring fileName = targetPath;
-                size_t slash = fileName.find_last_of(L"\\/");
-                if (slash != std::wstring::npos) fileName = fileName.substr(slash + 1);
-                ShowToast(L"Saved unencrypted copy to \"" + fileName + L"\"");
+                std::wstring savedName = GetFileNamePart(targetPath);
+                std::wstring msg = isOverwrite
+                    ? (L"Password removed from \"" + savedName + L"\"!")
+                    : (L"Saved unencrypted copy to \"" + savedName + L"\"");
+                EnqueueSaveDone(true, targetPath, L"", msg);
             } else {
                 std::wstring msg = res.errorMessage.empty() ? L"Decryption failed" : res.errorMessage;
-                ShowToast(L"Error: " + msg);
+                EnqueueSaveDone(false, L"", L"", L"Error: " + msg);
             }
         }
 
@@ -2964,6 +3119,11 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
         return;
     }
 
+    if (overwriteOriginal && pTab->parser) {
+        pTab->parser->Close();
+    }
+
+    m_activeBakeTargetPath = targetPath;
     std::wstring srcPath = pTab->document.GetFilePath();
     uint32_t totalPages = pTab->document.GetPageCount();
     HWND hwnd = m_hwnd;
@@ -4638,6 +4798,14 @@ void AppWindow::HandleContextMenu(POINT ptScreen) {
         data.totalPages = pTab->document.GetPageCount();
         data.isContinuousScroll = pTab->continuousScroll;
         data.isPasswordProtected = pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted());
+        if (!data.isPasswordProtected && pTab->document.GetPageCount() > 0) {
+            auto curPageText = GetOrExtractPageText(pTab, pTab->currentPage);
+            data.hasScannedPages = (!curPageText || !curPageText->hasDigitalText);
+            if (!data.hasScannedPages && pTab->currentPage != 0) {
+                auto firstPageText = GetOrExtractPageText(pTab, 0);
+                data.hasScannedPages = (!firstPageText || !firstPageText->hasDigitalText);
+            }
+        }
 
         // 2. Interactive Hyperlink hit test
         uint32_t linkPage = 0;
@@ -4805,6 +4973,9 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
     }
     case ID_CTX_PRINT:
         PromptPrint();
+        break;
+    case ID_CTX_SAVE_AS:
+        PromptSaveAsPdf();
         break;
     case ID_CTX_SAVE_SEARCHABLE:
         PromptSaveSearchablePdf(false);

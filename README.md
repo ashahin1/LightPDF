@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/binary-944_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20379%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20388%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -405,7 +405,7 @@ tests\run_tests.bat
 [LightPDF Test Runner] Executing 26 test cases...
 ===============================================================================
   Test Cases: 26 passed | 0 failed | 26 total
-  Assertions: 379 passed | 0 failed | 379 total
+  Assertions: 388 passed | 0 failed | 388 total
   Elapsed:    ~3.8 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
@@ -510,7 +510,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 379 assertions, <5s runtime)
+│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 388 assertions, <5s runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
