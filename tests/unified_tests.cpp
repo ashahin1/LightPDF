@@ -29,6 +29,7 @@
 #include "read_aloud_controller.hpp"
 #include "recent_files_controller.hpp"
 #include "context_menu_controller.hpp"
+#include "settings_controller.hpp"
 
 // ============================================================================
 // Dictionary Engine Tests
@@ -1334,6 +1335,10 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             GetMenuStringW(hMenu, ID_CTX_SAVE_AS, itemBuf, 256, MF_BYCOMMAND);
             CHECK(std::wstring(itemBuf).find(L"\tCtrl+S") != std::wstring::npos);
 
+            CHECK(GetMenuState(hMenu, ID_CTX_OPTIONS, MF_BYCOMMAND) != 0xFFFFFFFF);
+            GetMenuStringW(hMenu, ID_CTX_OPTIONS, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+,") != std::wstring::npos);
+
             DestroyMenu(hMenu);
 
             // Scanned document canvas
@@ -1403,5 +1408,100 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
         CHECK(closedOtherPaths.size() == 2);
         CHECK(tabs.GetTabCount() == 1);
         CHECK(tabs.GetActiveIndex() == 0);
+    }
+}
+
+// ============================================================================
+// SettingsController & OptionsOverlayView Tests
+// ============================================================================
+TEST_CASE("Settings: Registry Persistence, Theme Cycling, and Options Modal Hit-Testing") {
+    const std::wstring testKey = L"Software\\LightPDF\\UnitTestSettings";
+
+    SUBCASE("SettingsController Load, Save, CycleTheme, and ResetToDefaults") {
+        SettingsController ctrl(testKey);
+        ctrl.ResetToDefaults();
+
+        CHECK(ctrl.Get().defaultZoomMode == 0);
+        CHECK_FALSE(ctrl.Get().defaultContinuous);
+        CHECK(ctrl.Get().pageTheme == PageTheme::Original);
+        CHECK(ctrl.Get().rememberLastPage);
+        CHECK(ctrl.Get().doubleClickLookup);
+        CHECK_FALSE(ctrl.Get().rightClickAutoSelect);
+        CHECK(ctrl.Get().defaultTtsRate == 0);
+        CHECK(ctrl.Get().autoOcrSearch);
+        CHECK(ctrl.Get().keepRecentHistory);
+
+        // Modify all fields and save
+        ctrl.Get().defaultZoomMode = 1;
+        ctrl.Get().defaultContinuous = true;
+        ctrl.Get().pageTheme = PageTheme::Sepia;
+        ctrl.Get().rememberLastPage = false;
+        ctrl.Get().doubleClickLookup = false;
+        ctrl.Get().rightClickAutoSelect = true;
+        ctrl.Get().defaultTtsRate = 2;
+        ctrl.Get().autoOcrSearch = false;
+        ctrl.Get().keepRecentHistory = false;
+        ctrl.SaveToRegistry();
+
+        // Reload in fresh instance
+        SettingsController reloaded(testKey);
+        reloaded.LoadFromRegistry();
+        CHECK(reloaded.Get().defaultZoomMode == 1);
+        CHECK(reloaded.Get().defaultContinuous);
+        CHECK(reloaded.Get().pageTheme == PageTheme::Sepia);
+        CHECK_FALSE(reloaded.Get().rememberLastPage);
+        CHECK_FALSE(reloaded.Get().doubleClickLookup);
+        CHECK(reloaded.Get().rightClickAutoSelect);
+        CHECK(reloaded.Get().defaultTtsRate == 2);
+        CHECK_FALSE(reloaded.Get().autoOcrSearch);
+        CHECK_FALSE(reloaded.Get().keepRecentHistory);
+
+        // Cycle theme: Sepia -> Original -> Night -> Sepia
+        CHECK(reloaded.CyclePageTheme() == PageTheme::Original);
+        CHECK(reloaded.CyclePageTheme() == PageTheme::Night);
+        CHECK(reloaded.CyclePageTheme() == PageTheme::Sepia);
+
+        // Reset defaults and clean up test registry key
+        reloaded.ResetToDefaults();
+        CHECK(reloaded.Get().defaultZoomMode == 0);
+        CHECK(reloaded.Get().pageTheme == PageTheme::Original);
+        RegDeleteKeyW(HKEY_CURRENT_USER, testKey.c_str());
+    }
+
+    SUBCASE("OptionsOverlayView Hit-Testing Across Categories") {
+        const UINT winW = 1200;
+        const UINT winH = 800;
+        const float dpi = 96.0f;
+        D2D1_RECT_F card = OptionsOverlayLayout::GetCardRect((float)winW, (float)winH);
+
+        auto midPt = [](const D2D1_RECT_F& r) -> POINT {
+            return POINT{ (LONG)((r.left + r.right) * 0.5f), (LONG)((r.top + r.bottom) * 0.5f) };
+        };
+
+        // Outside card
+        CHECK(UIViews::OptionsOverlayView::HitTest(POINT{ 5, 5 }, winW, winH, dpi, 0) == OPT_HIT_OUTSIDE);
+
+        // Header close button & footer buttons
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetCloseBtnRect(card)), winW, winH, dpi, 0) == OPT_HIT_CLOSE_BTN);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetResetBtnRect(card)), winW, winH, dpi, 0) == OPT_HIT_RESET_BTN);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetDoneBtnRect(card)),  winW, winH, dpi, 0) == OPT_HIT_DONE_BTN);
+
+        // Category tabs
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetCategoryTabRect(card, 0)), winW, winH, dpi, 0) == OPT_HIT_TAB_VIEW);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetCategoryTabRect(card, 1)), winW, winH, dpi, 0) == OPT_HIT_TAB_TOOLS);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetCategoryTabRect(card, 2)), winW, winH, dpi, 0) == OPT_HIT_TAB_SYSTEM);
+
+        // Tab 0 controls
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, 1, 3)), winW, winH, dpi, 0) == OPT_HIT_ZOOM_FIT_WIDTH);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 1, 3)), winW, winH, dpi, 0) == OPT_HIT_THEME_NIGHT);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetToggleRect(card, 3)), winW, winH, dpi, 0) == OPT_HIT_REMEMBER_PAGE);
+
+        // Tab 1 controls
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetToggleRect(card, 0)), winW, winH, dpi, 1) == OPT_HIT_DBLCLK_LOOKUP);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 3, 5)), winW, winH, dpi, 1) == OPT_HIT_TTS_150X);
+
+        // Tab 2 controls
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, 0, 2)), winW, winH, dpi, 2) == OPT_HIT_SET_DEFAULT);
+        CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 1, 2)), winW, winH, dpi, 2) == OPT_HIT_CLEAR_RECENT);
     }
 }

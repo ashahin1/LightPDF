@@ -50,8 +50,9 @@ PdfLoadStatus TabController::OpenTabWithPassword(
     PdfLoadStatus status = newTab.document.OpenWithPassword(resolvedPath, hwnd, password);
     if (status == PdfLoadStatus::Success) {
         newTab.currentPage = 0;
-        newTab.zoomMode = ZoomMode::FitPage;
-        newTab.continuousScroll = false;
+        newTab.zoomMode = m_defaultZoomMode;
+        newTab.zoom = 1.0f;
+        newTab.continuousScroll = m_defaultContinuous;
         newTab.scrollY = 0.0f;
         newTab.textCache = std::make_shared<PageTextCache>();
         newTab.textCache->pages.resize(newTab.document.GetPageCount());

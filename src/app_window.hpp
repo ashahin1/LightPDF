@@ -30,6 +30,7 @@
 #include "read_aloud_controller.hpp"
 #include "recent_files_controller.hpp"
 #include "context_menu_controller.hpp"
+#include "settings_controller.hpp"
 #include "supported_formats.hpp"
 
 /// @brief Windows message posted when an external process opens a file via IPC (single-instance).
@@ -167,6 +168,12 @@ private:
     void CloseDocumentProperties();
     void CopyPropertiesToClipboard();
 
+    void ToggleOptionsOverlay();
+    void CloseOptionsOverlay();
+    void HandleOptionsClick(int hitId);
+    void ApplySettingsToSession();
+    OptionsOverlayRenderInfo GetOptionsInfo() const;
+
     void SetToolMode(ToolMode mode);
     void ShowToast(const std::wstring& text);
     void ToggleReadAloud();
@@ -210,6 +217,7 @@ private:
     SelectionController m_selectionController;
     ReadAloudController m_readAloudController;
     RecentFilesController m_recentController;
+    SettingsController m_settingsController;
 
     bool m_justOpenedRecent = false;
 
@@ -243,6 +251,11 @@ private:
     int m_propsHoveredBtn = 0; // 0=body/none, 1=close, 2=copy, 3=ok
     uint64_t m_propsCopiedFeedbackTime = 0;
     DocumentPropertiesRenderInfo m_docPropsInfo;
+
+    // Options / Preferences Modal state
+    bool m_showOptions = false;
+    int m_optionsActiveCategory = 0; // 0=View & Reading, 1=Selection & Speech, 2=System & Privacy
+    int m_optionsHoveredId = 0;
 
     // Scrollbar state
     bool m_isDraggingScrollbar = false;

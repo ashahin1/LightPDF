@@ -53,6 +53,7 @@ enum ContextMenuCommand : UINT_PTR {
     ID_CTX_SAVE_SEARCHABLE,
     ID_CTX_SAVE_DECRYPTED,
     ID_CTX_DOC_PROPERTIES,
+    ID_CTX_OPTIONS,
 
     // Tab commands
     ID_CTX_TAB_CLOSE = 2040,

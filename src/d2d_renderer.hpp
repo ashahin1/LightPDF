@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 #include <d3d11_1.h>
 #include <d2d1_1.h>
+#include <d2d1effects.h>
 #include <dxgi1_2.h>
 #include <dwrite.h>
 #include <wincodec.h>
@@ -24,6 +25,8 @@
 using Microsoft::WRL::ComPtr;
 
 struct RecentRenderInfo;
+struct OptionsOverlayRenderInfo;
+enum class PageTheme : uint32_t;
 
 /// @brief Cache entry for a rendered page Direct2D bitmap.
 struct PageBitmapCache {
@@ -480,7 +483,8 @@ public:
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
-        const LinkHoverRenderInfo* pLinkHover = nullptr
+        const LinkHoverRenderInfo* pLinkHover = nullptr,
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
     );
 
     /**
@@ -512,7 +516,8 @@ public:
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
-        const LinkHoverRenderInfo* pLinkHover = nullptr
+        const LinkHoverRenderInfo* pLinkHover = nullptr,
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
     );
 
     /**
@@ -541,8 +546,15 @@ public:
         const TtsBarRenderInfo& ttsBar = {},
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
-        const LinkHoverRenderInfo* pLinkHover = nullptr
+        const LinkHoverRenderInfo* pLinkHover = nullptr,
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
     );
+
+    /// @brief Sets the active page color filter theme (Original, Night, Sepia).
+    void SetPageTheme(PageTheme theme) { m_pageTheme = theme; }
+
+    /// @brief Returns the active page color filter theme.
+    PageTheme GetPageTheme() const { return m_pageTheme; }
 
     /// @brief Draws the floating dictionary translation card.
     void DrawDictionaryCard(const DictionaryCardRenderInfo& dictCard);
@@ -559,8 +571,14 @@ public:
     /// @brief Draws the modal Password Prompt overlay.
     void DrawPasswordOverlay(const PasswordOverlayRenderInfo& pwdInfo);
 
+    /// @brief Draws the modal Options & Preferences overlay.
+    void DrawOptionsOverlay(const OptionsOverlayRenderInfo& optInfo);
+
     /// @brief Hit-tests password prompt modal buttons.
     int HitTestPasswordOverlay(POINT pt) const;
+
+    /// @brief Hit-tests Options modal tabs, toggles, and buttons.
+    int HitTestOptionsOverlay(POINT pt, int activeCategory) const;
 
     /// @brief Hit-tests document properties modal buttons.
     int HitTestDocumentProperties(POINT pt) const;
@@ -618,6 +636,7 @@ private:
     void DrawGoToPageOverlay(const std::wstring& buffer, uint32_t totalPages);
     void DrawSearchBar(const SearchBarRenderInfo& searchBar);
     void DrawDocumentProperties(const DocumentPropertiesRenderInfo& props);
+    void DrawPageBitmapWithTheme(ID2D1Bitmap1* pBitmap, const D2D1_RECT_F& destRect);
     void DrawOverlays(
         const std::vector<TabRenderInfo>& tabs,
         bool isAddHovered,
@@ -634,7 +653,8 @@ private:
         const TtsBarRenderInfo* pTtsBar = nullptr,
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
-        const LinkHoverRenderInfo* pLinkHover = nullptr
+        const LinkHoverRenderInfo* pLinkHover = nullptr,
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
     );
 
     /// @brief Draws the floating bottom-left URL preview pill when hovering over an interactive hyperlink.
@@ -801,6 +821,10 @@ private:
     float m_cachedSearchLayoutW = 0.0f;
     float m_cachedSearchLayoutH = 0.0f;
     FLOAT m_cachedSearchCaretX = 0.0f;
+
+    // Page Theme Effect (Night Mode / Sepia Filter)
+    ComPtr<ID2D1Effect> m_colorMatrixEffect;
+    PageTheme m_pageTheme = static_cast<PageTheme>(0);
 
     // Mutex for thread-safe rendering between UI and background print worker
     std::mutex m_renderMutex;

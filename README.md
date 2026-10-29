@@ -209,6 +209,7 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Ctrl + 1` | Actual size (100% zoom) |
 | `Ctrl + 2` | Fit page width to window |
 | `Ctrl + 3` | Toggle continuous vertical scroll |
+| `Ctrl + I` | Cycle page theme filter (Original, Night Dark, Sepia) |
 | `Double Click` | Fit Page / Fit Width toggle (or Open file if canvas empty) |
 | `F11` | Toggle borderless fullscreen |
 | `Scrollbar Drag` | Scrub through document pages with live preview tooltip |
@@ -258,6 +259,7 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Ctrl + P` | Print document (All / Current / Page Range) |
 | `Ctrl + G` | Jump to specific page number |
 | `Ctrl + D` | Document properties (metadata, page count, PDF version) |
+| `Ctrl + ,` | Options & Preferences dialog (Tabbed Direct2D modal) |
 | `F1` / `Esc` | Toggle / dismiss help overlay or cancel operations |
 
 ---

@@ -17,7 +17,13 @@ $srcs = @(
     "src\pdf_parser.cpp",
     "src\pdf_searchable_writer.cpp",
     "src\pdf_search.cpp",
-    "src\ui_views.cpp"
+    "src\ui_views.cpp",
+    "src\tts_engine.cpp",
+    "src\read_aloud_controller.cpp",
+    "src\recent_files_controller.cpp",
+    "src\pdf_decryptor.cpp",
+    "src\context_menu_controller.cpp",
+    "src\settings_controller.cpp"
 )
 
 $libs = @(
@@ -32,7 +38,9 @@ $libs = @(
     "shell32.lib",
     "ole32.lib",
     "shcore.lib",
-    "windowscodecs.lib"
+    "windowscodecs.lib",
+    "advapi32.lib",
+    "bcrypt.lib"
 )
 
 $compileArgs = @(

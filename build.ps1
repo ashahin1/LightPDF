@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
+[System.IO.Directory]::SetCurrentDirectory($PSScriptRoot)
 
 Write-Host "===================================================" -ForegroundColor Cyan
 Write-Host "  Building LightPDF (Ultra-Fast Windows PDF Viewer)" -ForegroundColor Cyan
@@ -182,7 +183,8 @@ $sources = @(
     "src\read_aloud_controller.cpp",
     "src\recent_files_controller.cpp",
     "src\pdf_decryptor.cpp",
-    "src\context_menu_controller.cpp"
+    "src\context_menu_controller.cpp",
+    "src\settings_controller.cpp"
 )
 
 # Recursive header dependency scanner with memoization

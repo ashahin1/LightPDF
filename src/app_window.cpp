@@ -21,13 +21,16 @@ const wchar_t* WINDOW_CLASS_NAME = L"LightPDF_WindowClass";
 AppWindow::AppWindow() = default;
 
 AppWindow::~AppWindow() {
-    for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
-        const auto* tab = m_tabController.GetTab(i);
-        if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
-            m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+    if (m_settingsController.Get().keepRecentHistory) {
+        for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
+            const auto* tab = m_tabController.GetTab(i);
+            if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
+                m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+            }
         }
+        m_recentController.SaveToRegistry();
     }
-    m_recentController.SaveToRegistry();
+    m_settingsController.SaveToRegistry();
 
     m_cancelBakingPdf = true;
     if (m_bakePdfThread.joinable()) {
@@ -90,8 +93,12 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
     // Initialize offline dictionary engine (non-blocking, graceful fallback if missing)
     m_selectionController.GetDictEngine().Initialize();
 
-    // Load persistent recent files history from registry
-    m_recentController.LoadFromRegistry();
+    // Load persistent user settings and recent files history from registry
+    m_settingsController.LoadFromRegistry();
+    ApplySettingsToSession();
+    if (m_settingsController.Get().keepRecentHistory) {
+        m_recentController.LoadFromRegistry();
+    }
 
     if (!initialFile.empty()) {
         OpenTab(initialFile);
@@ -503,6 +510,21 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_ENDSESSION:
         if (wParam) {
+            if (m_settingsController.Get().keepRecentHistory) {
+                for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
+                    const auto* tab = m_tabController.GetTab(i);
+                    if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
+                        m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
+                    }
+                }
+                m_recentController.SaveToRegistry();
+            }
+            m_settingsController.SaveToRegistry();
+        }
+        return 0;
+
+    case WM_DESTROY:
+        if (m_settingsController.Get().keepRecentHistory) {
             for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
                 const auto* tab = m_tabController.GetTab(i);
                 if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
@@ -511,16 +533,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             m_recentController.SaveToRegistry();
         }
-        return 0;
-
-    case WM_DESTROY:
-        for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
-            const auto* tab = m_tabController.GetTab(i);
-            if (tab && tab->document.IsLoaded() && !tab->document.GetFilePath().empty()) {
-                m_recentController.UpdateLastPage(tab->document.GetFilePath(), tab->currentPage);
-            }
-        }
-        m_recentController.SaveToRegistry();
+        m_settingsController.SaveToRegistry();
         m_renderer.Cleanup();
         PostQuitMessage(0);
         return 0;
@@ -531,7 +544,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_MOUSEWHEEL: {
-        if (m_showProperties) return 0;
+        if (m_showProperties || m_showOptions) return 0;
         if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
@@ -561,7 +574,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_MOUSEHWHEEL: {
-        if (m_showProperties) return 0;
+        if (m_showProperties || m_showOptions) return 0;
         if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
@@ -635,6 +648,15 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (presHit == 100) {
                 return 0; // Clicked on bar body
             }
+        }
+
+        // 00c. If Options Overlay is open, handle clicks
+        if (m_showOptions) {
+            if (msg == WM_LBUTTONDOWN) {
+                int optHit = m_renderer.HitTestOptionsOverlay(pt, m_optionsActiveCategory);
+                HandleOptionsClick(optHit);
+            }
+            return 0;
         }
 
         // 0. If Document Properties is open, handle clicks
@@ -965,6 +987,18 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        // 00c. Options Overlay hover detection
+        if (m_showOptions) {
+            int hit = m_renderer.HitTestOptionsOverlay(pt, m_optionsActiveCategory);
+            int newHov = (hit > 0) ? hit : 0;
+            if (newHov != m_optionsHoveredId) {
+                m_optionsHoveredId = newHov;
+                Render();
+            }
+            SetCursor((hit > 0) ? m_cursorHand : m_cursorArrow);
+            return 0;
+        }
+
         // 0. Document Properties hover detection
         if (m_showProperties) {
             int hit = m_renderer.HitTestDocumentProperties(pt);
@@ -1274,7 +1308,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_justOpenedRecent = false;
             return 0;
         }
-        if (m_showProperties) return 0;
+        if (m_showProperties || m_showOptions) return 0;
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float topOffset = GetTopOffset();
         float dipScale = 96.0f / m_renderer.GetDpi();
@@ -1312,10 +1346,12 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                             pTab->selection.endPage = hitPage;
                             pTab->selection.endIndex = wEnd;
 
-                            D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
-                            std::wstring selectedWord = GetSelectedWordOrText(anchorRect);
-                            if (!selectedWord.empty()) {
-                                TriggerDictionaryLookup(selectedWord, anchorRect);
+                            if (m_settingsController.Get().doubleClickLookup) {
+                                D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
+                                std::wstring selectedWord = GetSelectedWordOrText(anchorRect);
+                                if (!selectedWord.empty()) {
+                                    TriggerDictionaryLookup(selectedWord, anchorRect);
+                                }
                             }
                             Render();
                             return 0;
@@ -1469,6 +1505,32 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             }
         }
 
+        if (m_showOptions) {
+            if (wParam == VK_ESCAPE || wParam == VK_RETURN || (wParam == VK_OEM_COMMA && isCtrlDown)) {
+                CloseOptionsOverlay();
+                return 0;
+            } else if (wParam >= '1' && wParam <= '3' && !isCtrlDown) {
+                m_optionsActiveCategory = (int)(wParam - '1');
+                Render();
+                return 0;
+            } else if (wParam == VK_TAB) {
+                m_optionsActiveCategory = isShiftDown
+                    ? ((m_optionsActiveCategory + 2) % 3)
+                    : ((m_optionsActiveCategory + 1) % 3);
+                Render();
+                return 0;
+            } else if (wParam == VK_LEFT) {
+                m_optionsActiveCategory = (m_optionsActiveCategory + 2) % 3;
+                Render();
+                return 0;
+            } else if (wParam == VK_RIGHT) {
+                m_optionsActiveCategory = (m_optionsActiveCategory + 1) % 3;
+                Render();
+                return 0;
+            }
+            return 0;
+        }
+
         if (m_showProperties) {
             if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
                 CloseDocumentProperties();
@@ -1615,12 +1677,27 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
         }
 
         switch (wParam) {
+        case VK_OEM_COMMA:
+            if (isCtrlDown) {
+                ToggleOptionsOverlay();
+                return 0;
+            }
+            break;
+        case 'I':
+            if (isCtrlDown) {
+                PageTheme newTheme = m_settingsController.CyclePageTheme();
+                m_renderer.SetPageTheme(newTheme);
+                ShowToast(std::wstring(L"Page Theme: ") + SettingsController::GetThemeName(newTheme));
+                Render();
+                return 0;
+            }
+            break;
         case 'F':
             if (isCtrlDown) {
                 auto* pTab = GetActiveTab();
                 if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
                     auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
-                    if (pageText && !pageText->hasDigitalText) {
+                    if (pageText && !pageText->hasDigitalText && m_settingsController.Get().autoOcrSearch) {
                         m_searchController.SetOcrEnabled(true);
                     }
                     m_searchController.Open();
@@ -2113,9 +2190,21 @@ void AppWindow::OpenTab(const std::wstring& path) {
     PdfLoadStatus status = m_tabController.OpenTabWithPassword(path, m_hwnd, resolvedPath, alreadyOpen, L"");
     if (status == PdfLoadStatus::Success) {
         auto* pTab = GetActiveTab();
+        if (pTab && !alreadyOpen && m_settingsController.Get().rememberLastPage) {
+            for (const auto& item : m_recentController.GetItems()) {
+                if (_wcsicmp(item.filePath.c_str(), resolvedPath.c_str()) == 0) {
+                    if (item.lastPage > 0 && item.lastPage < pTab->document.GetPageCount()) {
+                        pTab->currentPage = item.lastPage;
+                    }
+                    break;
+                }
+            }
+        }
         uint32_t totalPages = pTab ? pTab->document.GetPageCount() : 0;
         uint32_t lastPage = pTab ? pTab->currentPage : 0;
-        m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+        if (m_settingsController.Get().keepRecentHistory) {
+            m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+        }
         SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
 
         m_renderer.InvalidatePageCache();
@@ -2158,13 +2247,15 @@ void AppWindow::OpenRecentFile(size_t index) {
     if (status == PdfLoadStatus::Success) {
         m_renderer.InvalidatePageCache();
         auto* pTab = GetActiveTab();
-        if (pTab && !alreadyOpen && item.lastPage > 0) {
+        if (pTab && !alreadyOpen && item.lastPage > 0 && m_settingsController.Get().rememberLastPage) {
             if (item.lastPage < pTab->document.GetPageCount()) {
                 GoToPage(item.lastPage);
             }
         }
         uint32_t totalPages = GetActiveTab() ? GetActiveTab()->document.GetPageCount() : item.totalPages;
-        m_recentController.AddRecentFile(resolvedPath, totalPages, GetActiveTab() ? GetActiveTab()->currentPage : item.lastPage);
+        if (m_settingsController.Get().keepRecentHistory) {
+            m_recentController.AddRecentFile(resolvedPath, totalPages, GetActiveTab() ? GetActiveTab()->currentPage : item.lastPage);
+        }
         SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
 
         if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
@@ -3725,6 +3816,7 @@ void AppWindow::Render() {
     }
 
     auto recentInfo = m_recentController.GetRenderInfo();
+    OptionsOverlayRenderInfo optInfo = GetOptionsInfo();
 
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
@@ -3810,7 +3902,8 @@ void AppWindow::Render() {
                 ttsBarInfo,
                 &recentInfo,
                 &pwdInfo,
-                &linkHover
+                &linkHover,
+                &optInfo
             );
             return;
         }
@@ -3846,7 +3939,8 @@ void AppWindow::Render() {
                 ttsBarInfo,
                 &recentInfo,
                 &pwdInfo,
-                &linkHover
+                &linkHover,
+                &optInfo
             );
             return;
         }
@@ -3869,7 +3963,8 @@ void AppWindow::Render() {
         ttsBarInfo,
         &recentInfo,
         &pwdInfo,
-        &linkHover
+        &linkHover,
+        &optInfo
     );
 }
 
@@ -4264,7 +4359,184 @@ void AppWindow::CopyPropertiesToClipboard() {
     Render();
 }
 
+void AppWindow::ToggleOptionsOverlay() {
+    m_showOptions = !m_showOptions;
+    if (m_showOptions) {
+        m_optionsHoveredId = 0;
+        m_showHelp = false;
+        m_showProperties = false;
+        m_showGoToPage = false;
+        m_recentController.CloseSwitcher();
+        m_searchController.SetOpen(false);
+    } else {
+        m_settingsController.SaveToRegistry();
+    }
+    Render();
+}
 
+void AppWindow::CloseOptionsOverlay() {
+    if (m_showOptions) {
+        m_showOptions = false;
+        m_optionsHoveredId = 0;
+        m_settingsController.SaveToRegistry();
+        Render();
+    }
+}
+
+OptionsOverlayRenderInfo AppWindow::GetOptionsInfo() const {
+    OptionsOverlayRenderInfo info;
+    info.visible = m_showOptions;
+    info.activeCategory = m_optionsActiveCategory;
+    info.hoveredId = m_optionsHoveredId;
+    info.recentCount = m_recentController.GetCount();
+    info.settings = m_settingsController.Get();
+    return info;
+}
+
+void AppWindow::ApplySettingsToSession() {
+    const auto& s = m_settingsController.Get();
+    ZoomMode defZoom = ZoomMode::FitPage;
+    if (s.defaultZoomMode == 1) defZoom = ZoomMode::FitWidth;
+    else if (s.defaultZoomMode == 2) defZoom = ZoomMode::Custom;
+
+    m_tabController.SetDefaultViewSettings(defZoom, s.defaultContinuous);
+    m_renderer.SetPageTheme(s.pageTheme);
+    m_readAloudController.SetRate(s.defaultTtsRate);
+}
+
+void AppWindow::HandleOptionsClick(int hitId) {
+    auto& s = m_settingsController.Get();
+
+    switch (hitId) {
+    case OPT_HIT_OUTSIDE:
+    case OPT_HIT_CLOSE_BTN:
+    case OPT_HIT_DONE_BTN:
+        CloseOptionsOverlay();
+        return;
+
+    case OPT_HIT_TAB_VIEW:
+    case OPT_HIT_TAB_TOOLS:
+    case OPT_HIT_TAB_SYSTEM:
+        m_optionsActiveCategory = hitId - OPT_HIT_TAB_VIEW;
+        Render();
+        return;
+
+    case OPT_HIT_RESET_BTN:
+        m_settingsController.ResetToDefaults();
+        ApplySettingsToSession();
+        if (auto* pTab = GetActiveTab()) {
+            pTab->zoomMode = ZoomMode::FitPage;
+            pTab->continuousScroll = false;
+            RecalculateLayout();
+        }
+        ShowToast(L"Settings reset to defaults");
+        Render();
+        return;
+
+    // Tab 0: View & Reading
+    case OPT_HIT_ZOOM_FIT_PAGE:
+    case OPT_HIT_ZOOM_FIT_WIDTH:
+    case OPT_HIT_ZOOM_100: {
+        s.defaultZoomMode = static_cast<uint32_t>(hitId - OPT_HIT_ZOOM_FIT_PAGE);
+        ApplySettingsToSession();
+        m_settingsController.SaveToRegistry();
+        if (auto* pTab = GetActiveTab()) {
+            if (s.defaultZoomMode == 0) pTab->zoomMode = ZoomMode::FitPage;
+            else if (s.defaultZoomMode == 1) pTab->zoomMode = ZoomMode::FitWidth;
+            else { pTab->zoom = 1.0f; pTab->zoomMode = ZoomMode::Custom; }
+            RecalculateLayout();
+        }
+        Render();
+        return;
+    }
+    case OPT_HIT_SCROLL_SINGLE:
+    case OPT_HIT_SCROLL_CONT: {
+        bool wantCont = (hitId == OPT_HIT_SCROLL_CONT);
+        s.defaultContinuous = wantCont;
+        ApplySettingsToSession();
+        m_settingsController.SaveToRegistry();
+        if (auto* pTab = GetActiveTab()) {
+            if (pTab->continuousScroll != wantCont) {
+                ToggleContinuousScroll();
+                return;
+            }
+        }
+        Render();
+        return;
+    }
+    case OPT_HIT_THEME_ORIG:
+    case OPT_HIT_THEME_NIGHT:
+    case OPT_HIT_THEME_SEPIA:
+        s.pageTheme = static_cast<PageTheme>(hitId - OPT_HIT_THEME_ORIG);
+        ApplySettingsToSession();
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    case OPT_HIT_REMEMBER_PAGE:
+        s.rememberLastPage = !s.rememberLastPage;
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    // Tab 1: Selection & Speech
+    case OPT_HIT_DBLCLK_LOOKUP:
+        s.doubleClickLookup = !s.doubleClickLookup;
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    case OPT_HIT_RCLICK_SELECT:
+        s.rightClickAutoSelect = !s.rightClickAutoSelect;
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    case OPT_HIT_TTS_075X: s.defaultTtsRate = -2; ApplySettingsToSession(); m_settingsController.SaveToRegistry(); Render(); return;
+    case OPT_HIT_TTS_100X: s.defaultTtsRate = 0;  ApplySettingsToSession(); m_settingsController.SaveToRegistry(); Render(); return;
+    case OPT_HIT_TTS_125X: s.defaultTtsRate = 1;  ApplySettingsToSession(); m_settingsController.SaveToRegistry(); Render(); return;
+    case OPT_HIT_TTS_150X: s.defaultTtsRate = 2;  ApplySettingsToSession(); m_settingsController.SaveToRegistry(); Render(); return;
+    case OPT_HIT_TTS_200X: s.defaultTtsRate = 4;  ApplySettingsToSession(); m_settingsController.SaveToRegistry(); Render(); return;
+
+    case OPT_HIT_AUTO_OCR:
+        s.autoOcrSearch = !s.autoOcrSearch;
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    // Tab 2: System & Privacy
+    case OPT_HIT_SET_DEFAULT:
+        RegisterShellAssociations();
+        ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
+        ShowToast(L"Registered! Select LightPDF in Windows Default Apps.");
+        Render();
+        return;
+
+    case OPT_HIT_UNREGISTER:
+        UnregisterShellAssociations();
+        ShowToast(L"File associations removed from registry.");
+        Render();
+        return;
+
+    case OPT_HIT_KEEP_RECENT:
+        s.keepRecentHistory = !s.keepRecentHistory;
+        if (!s.keepRecentHistory) {
+            m_recentController.ClearRecentFiles();
+        }
+        m_settingsController.SaveToRegistry();
+        Render();
+        return;
+
+    case OPT_HIT_CLEAR_RECENT:
+        m_recentController.ClearRecentFiles();
+        ShowToast(L"Recent files history cleared");
+        Render();
+        return;
+
+    default:
+        break;
+    }
+}
 
 void AppWindow::SetToolMode(ToolMode mode) {
     m_toolMode = mode;
@@ -4438,6 +4710,7 @@ void AppWindow::ToggleReadAloud() {
         ShowToast(L"Read Aloud: No speech voices available");
         return;
     }
+    m_readAloudController.SetRate(m_settingsController.Get().defaultTtsRate);
 
     auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
     if (pageText && !pageText->hasDigitalText && pageText->fullText.empty()) {
@@ -4820,7 +5093,35 @@ void AppWindow::HandleContextMenu(POINT ptScreen) {
             return;
         }
 
-        // 3. Text Selection context menu (only when text was selected prior to right-click)
+        // 3. Optional auto-word selection on right-click (when enabled in Options)
+        if (!pTab->selection.HasSelection() && m_settingsController.Get().rightClickAutoSelect) {
+            uint32_t hitPage = 0;
+            size_t hitChar = 0;
+            bool afterChar = false;
+            if (HitTestPageText(ptClient, hitPage, hitChar, afterChar)) {
+                auto pageText = GetOrExtractPageText(pTab, hitPage);
+                if (pageText && hitChar < pageText->chars.size()) {
+                    auto isWordChar = [](wchar_t c) { return iswalnum(c) || c == L'_'; };
+                    if (isWordChar(pageText->chars[hitChar].ch)) {
+                        size_t wStart = hitChar;
+                        while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) wStart--;
+                        size_t wEnd = hitChar;
+                        while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) wEnd++;
+                        if (wEnd > wStart) {
+                            pTab->selection.active = true;
+                            pTab->selection.isDragging = false;
+                            pTab->selection.startPage = hitPage;
+                            pTab->selection.startIndex = wStart;
+                            pTab->selection.endPage = hitPage;
+                            pTab->selection.endIndex = wEnd;
+                            Render();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Text Selection context menu
         if (pTab->selection.HasSelection()) {
             D2D1_RECT_F anchorRect{};
             data.hasSelection = true;
@@ -4958,7 +5259,7 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         auto* pTab = GetActiveTab();
         if (pTab && pTab->document.IsLoaded()) {
             auto pageText = GetOrExtractPageText(pTab, pTab->currentPage);
-            if (pageText && !pageText->hasDigitalText) {
+            if (pageText && !pageText->hasDigitalText && m_settingsController.Get().autoOcrSearch) {
                 m_searchController.SetOcrEnabled(true);
             }
             m_searchController.Open();
@@ -4985,6 +5286,9 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         break;
     case ID_CTX_DOC_PROPERTIES:
         ShowDocumentProperties();
+        break;
+    case ID_CTX_OPTIONS:
+        ToggleOptionsOverlay();
         break;
 
     // Tab commands

@@ -76,6 +76,9 @@ public:
     /// @brief Decreases speech rate by one step.
     void SpeedDown();
 
+    /// @brief Sets the speech rate directly (-5 to +5).
+    void SetRate(int rate) { m_engine.SetRate(rate); }
+
     /// @brief Skips forward to the next sentence/chunk.
     void SkipForward();
 

@@ -141,6 +141,12 @@ public:
     /// @brief Sets the active tab index if within valid range.
     void SetActiveIndex(size_t index) { if (index < m_tabs.size()) m_activeTab = index; }
 
+    /// @brief Configures default zoom mode and continuous scroll for newly opened tabs.
+    void SetDefaultViewSettings(ZoomMode defaultZoomMode, bool defaultContinuous) {
+        m_defaultZoomMode = defaultZoomMode;
+        m_defaultContinuous = defaultContinuous;
+    }
+
     /// @brief Returns pointer to the currently active DocumentTab (or nullptr if none).
     DocumentTab* GetActiveTab();
 
@@ -261,6 +267,8 @@ private:
     int m_hoveredTab = -1;
     bool m_hoveredClose = false;
     bool m_hoveredAdd = false;
+    ZoomMode m_defaultZoomMode = ZoomMode::FitPage;
+    bool m_defaultContinuous = false;
 
     mutable std::vector<TabRenderInfo> m_cachedTabInfos;
 };

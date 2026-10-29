@@ -1,6 +1,10 @@
 #include "d2d_renderer.hpp"
+#include "settings_controller.hpp"
 #include "ui_views.hpp"
 #include <cmath>
+
+// Direct2D Color Matrix Effect CLSID {92181405-A903-4704-8B65-5D1436512B1B}
+EXTERN_C const GUID CLSID_D2D1ColorMatrix = { 0x92181405, 0xa903, 0x4704, { 0x8b, 0x65, 0x5d, 0x14, 0x36, 0x51, 0x2b, 0x1b } };
 #include <algorithm>
 #include <shcore.h>
 #include <winrt/Windows.Foundation.h>
@@ -821,6 +825,7 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushTtsBarText = nullptr;
     m_brushTtsBarBtnHover = nullptr;
     m_brushTtsBarBtnActive = nullptr;
+    m_colorMatrixEffect = nullptr;
     m_pageCache = PageBitmapCache();
     m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
@@ -834,6 +839,66 @@ void D2DRenderer::DiscardDeviceResources() {
     m_swapChain = nullptr;
     m_d3dContext = nullptr;
     m_d3dDevice = nullptr;
+}
+
+void D2DRenderer::DrawPageBitmapWithTheme(ID2D1Bitmap1* pBitmap, const D2D1_RECT_F& destRect) {
+    if (!pBitmap || !m_d2dContext) return;
+
+    if (m_pageTheme == PageTheme::Original) {
+        m_d2dContext->DrawBitmap(pBitmap, destRect);
+        return;
+    }
+
+    if (!m_colorMatrixEffect) {
+        m_d2dContext->CreateEffect(CLSID_D2D1ColorMatrix, &m_colorMatrixEffect);
+    }
+
+    if (!m_colorMatrixEffect) {
+        m_d2dContext->DrawBitmap(pBitmap, destRect);
+        return;
+    }
+
+    D2D1_MATRIX_5X4_F matrix = {};
+    if (m_pageTheme == PageTheme::Night) {
+        // Dark contrast-friendly inversion: maps white (1,1,1) -> dark charcoal (0.11, 0.12, 0.14)
+        // and black (0,0,0) -> soft warm white (0.93, 0.93, 0.95)
+        matrix = D2D1::Matrix5x4F(
+            -0.82f,  0.0f,   0.0f,  0.0f,
+             0.0f,  -0.81f,  0.0f,  0.0f,
+             0.0f,   0.0f,  -0.81f, 0.0f,
+             0.0f,   0.0f,   0.0f,  1.0f,
+             0.93f,  0.93f,  0.95f, 0.0f
+        );
+    } else {
+        // Sepia warm paper tint: maps white (1,1,1) -> warm cream (0.96, 0.91, 0.81)
+        matrix = D2D1::Matrix5x4F(
+            0.96f, 0.0f,  0.0f,  0.0f,
+            0.0f,  0.91f, 0.0f,  0.0f,
+            0.0f,  0.0f,  0.81f, 0.0f,
+            0.0f,  0.0f,  0.0f,  1.0f,
+            0.0f,  0.0f,  0.0f,  0.0f
+        );
+    }
+
+    m_colorMatrixEffect->SetInput(0, pBitmap);
+    m_colorMatrixEffect->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, matrix);
+
+    D2D1_SIZE_F bmpSize = pBitmap->GetSize();
+    float destW = destRect.right - destRect.left;
+    float destH = destRect.bottom - destRect.top;
+    float scaleX = (bmpSize.width > 0.0f) ? (destW / bmpSize.width) : 1.0f;
+    float scaleY = (bmpSize.height > 0.0f) ? (destH / bmpSize.height) : 1.0f;
+
+    D2D1_MATRIX_3X2_F prevTransform;
+    m_d2dContext->GetTransform(&prevTransform);
+    m_d2dContext->SetTransform(
+        D2D1::Matrix3x2F::Scale(scaleX, scaleY) *
+        D2D1::Matrix3x2F::Translation(destRect.left, destRect.top) *
+        prevTransform
+    );
+    m_d2dContext->DrawImage(m_colorMatrixEffect.Get(), D2D1::Point2F(0.0f, 0.0f));
+    m_d2dContext->SetTransform(prevTransform);
+    m_colorMatrixEffect->SetInput(0, nullptr);
 }
 
 void D2DRenderer::RenderBlank(
@@ -851,7 +916,8 @@ void D2DRenderer::RenderBlank(
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
-    const LinkHoverRenderInfo* pLinkHover
+    const LinkHoverRenderInfo* pLinkHover,
+    const OptionsOverlayRenderInfo* pOptionsOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -904,7 +970,7 @@ void D2DRenderer::RenderBlank(
         );
     }
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1029,7 +1095,8 @@ void D2DRenderer::RenderPage(
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
-    const LinkHoverRenderInfo* pLinkHover
+    const LinkHoverRenderInfo* pLinkHover,
+    const OptionsOverlayRenderInfo* pOptionsOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1058,7 +1125,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
         HRESULT hr = m_d2dContext->EndDraw();
         if (hr == D2DERR_RECREATE_TARGET) {
@@ -1178,7 +1245,7 @@ void D2DRenderer::RenderPage(
 
     // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
     if (m_pageCache.bitmap && m_pageCache.pageIndex == currentPageIndex) {
-        m_d2dContext->DrawBitmap(m_pageCache.bitmap.Get(), pageRect);
+        DrawPageBitmapWithTheme(m_pageCache.bitmap.Get(), pageRect);
     } else if (!hasType3Font && m_pdfRenderer) {
         PDF_RENDER_PARAMS params = {};
         params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1296,7 +1363,7 @@ void D2DRenderer::RenderPage(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1336,7 +1403,8 @@ void D2DRenderer::RenderContinuous(
     const TtsBarRenderInfo& ttsBar,
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
-    const LinkHoverRenderInfo* pLinkHover
+    const LinkHoverRenderInfo* pLinkHover,
+    const OptionsOverlayRenderInfo* pOptionsOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1475,7 +1543,7 @@ void D2DRenderer::RenderContinuous(
         }
 
         if (pCachedBmp) {
-            m_d2dContext->DrawBitmap(pCachedBmp, pageRect);
+            DrawPageBitmapWithTheme(pCachedBmp, pageRect);
         } else if (!vp.hasType3Font && m_pdfRenderer) {
             PDF_RENDER_PARAMS params = {};
             params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1594,7 +1662,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
     HRESULT hr = m_d2dContext->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
@@ -1627,7 +1695,8 @@ void D2DRenderer::DrawOverlays(
     const TtsBarRenderInfo* pTtsBar,
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
-    const LinkHoverRenderInfo* pLinkHover
+    const LinkHoverRenderInfo* pLinkHover,
+    const OptionsOverlayRenderInfo* pOptionsOverlay
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1715,10 +1784,16 @@ void D2DRenderer::DrawOverlays(
         DrawPasswordOverlay(*pPasswordOverlay);
     }
 
-    // 13. Draw Link Preview Pill if hovered (bottom-left status preview, non-modal)
+    // 13. Draw Options Overlay if active (modal preferences dialog)
+    if (pOptionsOverlay && pOptionsOverlay->visible) {
+        DrawOptionsOverlay(*pOptionsOverlay);
+    }
+
+    // 14. Draw Link Preview Pill if hovered (bottom-left status preview, non-modal)
     if (pLinkHover && pLinkHover->active && !pLinkHover->label.empty() &&
         !help.visible && !showGoToPage && !docProps.visible &&
         !(pPasswordOverlay && pPasswordOverlay->visible) &&
+        !(pOptionsOverlay && pOptionsOverlay->visible) &&
         !(pRecent && pRecent->showSwitcher)) {
         DrawLinkPreviewPill(*pLinkHover);
     }
@@ -2269,4 +2344,39 @@ void D2DRenderer::DrawLinkPreviewPill(const LinkHoverRenderInfo& linkHover) {
 
     D2D1_POINT_2F textOrigin = D2D1::Point2F(pillLeft + padX, pillTop);
     m_d2dContext->DrawTextLayout(textOrigin, textLayout.Get(), m_brushHudText.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
+void D2DRenderer::DrawOptionsOverlay(const OptionsOverlayRenderInfo& optInfo) {
+    if (!m_d2dContext || !optInfo.visible) return;
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+
+    UIViews::OptionsOverlayResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
+        m_brushHelpCardBorder.Get(),
+        m_brushTabAccent.Get(),
+        m_brushHudText.Get(),
+        m_brushHelpSubText.Get(),
+        m_brushTabCloseHover.Get(),
+        m_brushTabHoverBg.Get(),
+        m_brushPropsSecBtn.Get(),
+        m_brushPropsSecBtnHover.Get(),
+        m_brushSearchBtnActive.Get(),
+        m_brushPropsBtn.Get(),
+        m_brushPropsBtnHover.Get(),
+        m_brushHelpRowAlt.Get(),
+        m_textFormatHelpTitle.Get(),
+        m_textFormatTabClose.Get(),
+        m_textFormatHelpColDesc.Get(),
+        m_textFormatTab.Get(),
+        m_textFormatSearchBtn.Get()
+    };
+    UIViews::OptionsOverlayView::Render(m_d2dContext.Get(), optInfo, dipWidth, dipHeight, res);
+}
+
+int D2DRenderer::HitTestOptionsOverlay(POINT pt, int activeCategory) const {
+    return UIViews::OptionsOverlayView::HitTest(pt, m_width, m_height, m_dpi, activeCategory);
 }

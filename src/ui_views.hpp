@@ -17,6 +17,7 @@
 #include <vector>
 #include "d2d_renderer.hpp"
 #include "recent_files_controller.hpp"
+#include "settings_controller.hpp"
 
 /**
  * @namespace UIViews
@@ -537,6 +538,48 @@ public:
     );
 
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
+};
+
+// =========================================================================
+// 12. OptionsOverlay View (Modal Preferences Dialog - Ctrl+,)
+// =========================================================================
+
+/// @brief Pre-allocated brush and typography resources for the Options dialog.
+struct OptionsOverlayResources {
+    ID2D1SolidColorBrush* brushBackdrop = nullptr;
+    ID2D1SolidColorBrush* brushPageShadow = nullptr;
+    ID2D1SolidColorBrush* brushCardBg = nullptr;
+    ID2D1SolidColorBrush* brushBorder = nullptr;
+    ID2D1SolidColorBrush* brushAccent = nullptr;
+    ID2D1SolidColorBrush* brushText = nullptr;
+    ID2D1SolidColorBrush* brushSubText = nullptr;
+    ID2D1SolidColorBrush* brushCloseHover = nullptr;
+    ID2D1SolidColorBrush* brushTabHoverBg = nullptr;
+    ID2D1SolidColorBrush* brushBtnBg = nullptr;
+    ID2D1SolidColorBrush* brushBtnHover = nullptr;
+    ID2D1SolidColorBrush* brushBtnActive = nullptr;
+    ID2D1SolidColorBrush* brushPrimaryBtn = nullptr;
+    ID2D1SolidColorBrush* brushPrimaryBtnHover = nullptr;
+    ID2D1SolidColorBrush* brushRowBg = nullptr;
+    IDWriteTextFormat* textFormatTitle = nullptr;
+    IDWriteTextFormat* textFormatClose = nullptr;
+    IDWriteTextFormat* textFormatSub = nullptr;
+    IDWriteTextFormat* textFormatLabel = nullptr;
+    IDWriteTextFormat* textFormatBtn = nullptr;
+};
+
+/// @brief Renders the tabbed Options & Preferences modal dialog (Ctrl+,).
+class OptionsOverlayView {
+public:
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        const OptionsOverlayRenderInfo& info,
+        float dipWidth,
+        float dipHeight,
+        const OptionsOverlayResources& res
+    );
+
+    static int HitTest(POINT pt, UINT width, UINT height, float dpi, int activeCategory);
 };
 
 } // namespace UIViews

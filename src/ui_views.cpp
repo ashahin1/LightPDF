@@ -1,4 +1,5 @@
 #include "ui_views.hpp"
+#include "settings_controller.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -629,9 +630,9 @@ void HelpOverlayView::Render(
         { L"L / C",                 L"Laser pointer (toggle / color)" },
         { L"Ctrl + C",              L"Copy selected text to clipboard" },
         { L"D / Double-Click",      L"Offline English-Arabic Dictionary" },
-        { L"Ctrl + P",              L"Print document (All / Range)" },
-        { L"Ctrl + G",              L"Go to specific page prompt" },
-        { L"Ctrl + D",              L"Document properties (Information)" }
+        { L"Ctrl + I",              L"Cycle page theme (Night / Sepia)" },
+        { L"Ctrl + G / Ctrl + D",   L"Go to page / Document properties" },
+        { L"Ctrl + ,",              L"Options & Preferences dialog" }
     };
 
     if (help.activeCategory == 0) {
@@ -1685,6 +1686,269 @@ int PasswordOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
     if (inRect(PasswordOverlayLayout::GetInputBoxRect(card))) return 5;
 
     return 100; // Inside card body
+}
+
+// =========================================================================
+// 12. OptionsOverlay View Implementation
+// =========================================================================
+
+int OptionsOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi, int activeCategory) {
+    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float px = (float)pt.x * dipScale;
+    float py = (float)pt.y * dipScale;
+    float dipW = (float)width * dipScale;
+    float dipH = (float)height * dipScale;
+
+    D2D1_RECT_F card = OptionsOverlayLayout::GetCardRect(dipW, dipH);
+    if (px < card.left || px > card.right || py < card.top || py > card.bottom) {
+        return OPT_HIT_OUTSIDE;
+    }
+
+    auto inRect = [&](const D2D1_RECT_F& r) {
+        return px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
+    };
+
+    if (inRect(OptionsOverlayLayout::GetCloseBtnRect(card))) return OPT_HIT_CLOSE_BTN;
+    if (inRect(OptionsOverlayLayout::GetResetBtnRect(card))) return OPT_HIT_RESET_BTN;
+    if (inRect(OptionsOverlayLayout::GetDoneBtnRect(card)))  return OPT_HIT_DONE_BTN;
+
+    for (int i = 0; i < 3; ++i) {
+        if (inRect(OptionsOverlayLayout::GetCategoryTabRect(card, i))) {
+            return OPT_HIT_TAB_VIEW + i;
+        }
+    }
+
+    if (activeCategory == 0) {
+        for (int b = 0; b < 3; ++b) {
+            if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, b, 3))) return OPT_HIT_ZOOM_FIT_PAGE + b;
+        }
+        for (int b = 0; b < 2; ++b) {
+            if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 1, b, 2))) return OPT_HIT_SCROLL_SINGLE + b;
+        }
+        for (int b = 0; b < 3; ++b) {
+            if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, b, 3))) return OPT_HIT_THEME_ORIG + b;
+        }
+        if (inRect(OptionsOverlayLayout::GetToggleRect(card, 3))) return OPT_HIT_REMEMBER_PAGE;
+    } else if (activeCategory == 1) {
+        if (inRect(OptionsOverlayLayout::GetToggleRect(card, 0))) return OPT_HIT_DBLCLK_LOOKUP;
+        if (inRect(OptionsOverlayLayout::GetToggleRect(card, 1))) return OPT_HIT_RCLICK_SELECT;
+        for (int b = 0; b < 5; ++b) {
+            if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, b, 5))) return OPT_HIT_TTS_075X + b;
+        }
+        if (inRect(OptionsOverlayLayout::GetToggleRect(card, 3))) return OPT_HIT_AUTO_OCR;
+    } else if (activeCategory == 2) {
+        if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, 0, 2))) return OPT_HIT_SET_DEFAULT;
+        if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, 1, 2))) return OPT_HIT_UNREGISTER;
+        if (inRect(OptionsOverlayLayout::GetToggleRect(card, 1))) return OPT_HIT_KEEP_RECENT;
+        if (inRect(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 1, 2))) return OPT_HIT_CLEAR_RECENT;
+    }
+
+    return OPT_HIT_CARD_BODY;
+}
+
+void OptionsOverlayView::Render(
+    ID2D1DeviceContext* ctx,
+    const OptionsOverlayRenderInfo& info,
+    float dipWidth,
+    float dipHeight,
+    const OptionsOverlayResources& res
+) {
+    if (!ctx || !info.visible) return;
+
+    // 1. Backdrop
+    if (res.brushBackdrop) {
+        ctx->FillRectangle(D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight), res.brushBackdrop);
+    }
+
+    // 2. Card & Shadow
+    D2D1_RECT_F card = OptionsOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    if (res.brushPageShadow) {
+        D2D1_RECT_F shadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(shadow, 12.0f, 12.0f), res.brushPageShadow);
+    }
+    if (res.brushCardBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushCardBg);
+    }
+    if (res.brushBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushBorder, 1.5f);
+    }
+
+    // 3. Header Title & Close Button
+    D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 14.0f, card.right - 50.0f, card.top + 40.0f);
+    if (res.textFormatTitle && res.brushText) {
+        const wchar_t* titleStr = L"Options & Preferences";
+        ctx->DrawText(titleStr, (UINT32)wcslen(titleStr), res.textFormatTitle, titleRect, res.brushText);
+    }
+
+    D2D1_RECT_F closeRect = OptionsOverlayLayout::GetCloseBtnRect(card);
+    if (info.hoveredId == OPT_HIT_CLOSE_BTN && res.brushCloseHover) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), res.brushCloseHover);
+    }
+    if (res.textFormatClose) {
+        ctx->DrawText(L"\x00D7", 1, res.textFormatClose, closeRect,
+            (info.hoveredId == OPT_HIT_CLOSE_BTN) ? res.brushText : res.brushSubText);
+    }
+
+    // 4. Category Tabs
+    static const wchar_t* tabLabels[3] = {
+        L"View & Reading",
+        L"Selection & Speech",
+        L"System & Privacy"
+    };
+    for (int i = 0; i < 3; ++i) {
+        D2D1_RECT_F tabR = OptionsOverlayLayout::GetCategoryTabRect(card, i);
+        D2D1_ROUNDED_RECT rrTab = D2D1::RoundedRect(tabR, 5.0f, 5.0f);
+        bool isAct = (info.activeCategory == i);
+        bool isHov = (info.hoveredId == (OPT_HIT_TAB_VIEW + i));
+
+        if (isAct && res.brushBtnActive) {
+            ctx->FillRoundedRectangle(rrTab, res.brushBtnActive);
+            if (res.brushAccent) ctx->DrawRoundedRectangle(rrTab, res.brushAccent, 1.0f);
+        } else if (isHov && res.brushTabHoverBg) {
+            ctx->FillRoundedRectangle(rrTab, res.brushTabHoverBg);
+        }
+        if (res.textFormatBtn) {
+            ctx->DrawText(tabLabels[i], (UINT32)wcslen(tabLabels[i]), res.textFormatBtn, tabR,
+                (isAct || isHov) ? res.brushText : res.brushSubText);
+        }
+    }
+
+    if (res.brushBorder) {
+        ctx->DrawLine(
+            D2D1::Point2F(card.left + 24.0f, card.top + 88.0f),
+            D2D1::Point2F(card.right - 24.0f, card.top + 88.0f),
+            res.brushBorder, 1.0f
+        );
+    }
+
+    // Helper lambdas for rows, segmented pills, and toggles
+    auto drawRowHeader = [&](int rowIdx, const wchar_t* title, const wchar_t* desc) {
+        D2D1_RECT_F row = OptionsOverlayLayout::GetRowRect(card, rowIdx);
+        if (res.brushRowBg) {
+            ctx->FillRoundedRectangle(D2D1::RoundedRect(row, 8.0f, 8.0f), res.brushRowBg);
+        }
+        D2D1_RECT_F tR = D2D1::RectF(row.left + 14.0f, row.top + 10.0f, row.right - 265.0f, row.top + 32.0f);
+        D2D1_RECT_F dR = D2D1::RectF(row.left + 14.0f, row.top + 32.0f, row.right - 265.0f, row.bottom - 8.0f);
+        if (res.textFormatLabel && res.brushText) {
+            ctx->DrawText(title, (UINT32)wcslen(title), res.textFormatLabel, tR, res.brushText);
+        }
+        if (res.textFormatSub && res.brushSubText) {
+            ctx->DrawText(desc, (UINT32)wcslen(desc), res.textFormatSub, dR, res.brushSubText);
+        }
+    };
+
+    auto drawSegmentedBtn = [&](int rowIdx, int btnIdx, int totalBtns, const wchar_t* label, bool isSelected, int hitId) {
+        D2D1_RECT_F r = OptionsOverlayLayout::GetSegmentedBtnRect(card, rowIdx, btnIdx, totalBtns);
+        D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 5.0f, 5.0f);
+        bool isHov = (info.hoveredId == hitId);
+
+        if (isSelected && res.brushBtnActive) {
+            ctx->FillRoundedRectangle(rr, res.brushBtnActive);
+            if (res.brushAccent) ctx->DrawRoundedRectangle(rr, res.brushAccent, 1.2f);
+        } else {
+            ID2D1SolidColorBrush* bg = isHov ? res.brushBtnHover : res.brushBtnBg;
+            if (bg) ctx->FillRoundedRectangle(rr, bg);
+            if (res.brushBorder) ctx->DrawRoundedRectangle(rr, res.brushBorder, 1.0f);
+        }
+        if (res.textFormatBtn) {
+            ctx->DrawText(label, (UINT32)wcslen(label), res.textFormatBtn, r,
+                (isSelected || isHov) ? res.brushText : res.brushSubText);
+        }
+    };
+
+    auto drawToggle = [&](int rowIdx, bool isOn, int hitId) {
+        D2D1_RECT_F r = OptionsOverlayLayout::GetToggleRect(card, rowIdx);
+        D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 14.0f, 14.0f);
+        bool isHov = (info.hoveredId == hitId);
+
+        if (isOn && res.brushBtnActive) {
+            ctx->FillRoundedRectangle(rr, res.brushBtnActive);
+            if (res.brushAccent) ctx->DrawRoundedRectangle(rr, res.brushAccent, 1.2f);
+        } else {
+            ID2D1SolidColorBrush* bg = isHov ? res.brushBtnHover : res.brushBtnBg;
+            if (bg) ctx->FillRoundedRectangle(rr, bg);
+            if (res.brushBorder) ctx->DrawRoundedRectangle(rr, res.brushBorder, 1.0f);
+        }
+        const wchar_t* txt = isOn ? L"ON" : L"OFF";
+        if (res.textFormatBtn) {
+            ctx->DrawText(txt, (UINT32)wcslen(txt), res.textFormatBtn, r,
+                isOn ? res.brushText : res.brushSubText);
+        }
+    };
+
+    // 5. Active Category Rows
+    const auto& s = info.settings;
+    if (info.activeCategory == 0) {
+        drawRowHeader(0, L"Default Zoom Mode", L"Initial zoom level when opening a new document tab");
+        drawSegmentedBtn(0, 0, 3, L"Fit Page",  s.defaultZoomMode == 0, OPT_HIT_ZOOM_FIT_PAGE);
+        drawSegmentedBtn(0, 1, 3, L"Fit Width", s.defaultZoomMode == 1, OPT_HIT_ZOOM_FIT_WIDTH);
+        drawSegmentedBtn(0, 2, 3, L"100%",      s.defaultZoomMode == 2, OPT_HIT_ZOOM_100);
+
+        drawRowHeader(1, L"Default Scroll Layout", L"Vertical page flow mode for newly opened documents");
+        drawSegmentedBtn(1, 0, 2, L"Single Page", !s.defaultContinuous, OPT_HIT_SCROLL_SINGLE);
+        drawSegmentedBtn(1, 1, 2, L"Continuous",   s.defaultContinuous, OPT_HIT_SCROLL_CONT);
+
+        drawRowHeader(2, L"Page Color Theme", L"Color filter for rendered PDF pages (Ctrl+I to cycle)");
+        drawSegmentedBtn(2, 0, 3, L"Original",   s.pageTheme == PageTheme::Original, OPT_HIT_THEME_ORIG);
+        drawSegmentedBtn(2, 1, 3, L"Night Dark", s.pageTheme == PageTheme::Night,    OPT_HIT_THEME_NIGHT);
+        drawSegmentedBtn(2, 2, 3, L"Sepia",      s.pageTheme == PageTheme::Sepia,    OPT_HIT_THEME_SEPIA);
+
+        drawRowHeader(3, L"Resume Last Read Page", L"Reopen previously viewed documents at their last read page");
+        drawToggle(3, s.rememberLastPage, OPT_HIT_REMEMBER_PAGE);
+    } else if (info.activeCategory == 1) {
+        drawRowHeader(0, L"Double-Click Word Lookup", L"Automatically show offline EN-AR dictionary card on double-click");
+        drawToggle(0, s.doubleClickLookup, OPT_HIT_DBLCLK_LOOKUP);
+
+        drawRowHeader(1, L"Right-Click Auto-Select Word", L"Select nearest word when right-clicking unselected text");
+        drawToggle(1, s.rightClickAutoSelect, OPT_HIT_RCLICK_SELECT);
+
+        drawRowHeader(2, L"Default Read Aloud Speed", L"Initial speech synthesis rate when starting Read Aloud (Ctrl+R)");
+        drawSegmentedBtn(2, 0, 5, L"0.75x", s.defaultTtsRate == -2, OPT_HIT_TTS_075X);
+        drawSegmentedBtn(2, 1, 5, L"1.0x",  s.defaultTtsRate == 0,  OPT_HIT_TTS_100X);
+        drawSegmentedBtn(2, 2, 5, L"1.25x", s.defaultTtsRate == 1,  OPT_HIT_TTS_125X);
+        drawSegmentedBtn(2, 3, 5, L"1.5x",  s.defaultTtsRate == 2,  OPT_HIT_TTS_150X);
+        drawSegmentedBtn(2, 4, 5, L"2.0x",  s.defaultTtsRate == 4,  OPT_HIT_TTS_200X);
+
+        drawRowHeader(3, L"Auto-Enable OCR on Search", L"Automatically enable OCR fallback when searching scanned PDFs");
+        drawToggle(3, s.autoOcrSearch, OPT_HIT_AUTO_OCR);
+    } else if (info.activeCategory == 2) {
+        drawRowHeader(0, L"Default PDF Viewer", L"Register LightPDF in Windows Default Apps for .pdf files");
+        drawSegmentedBtn(0, 0, 2, L"Set Default", false, OPT_HIT_SET_DEFAULT);
+        drawSegmentedBtn(0, 1, 2, L"Unregister",  false, OPT_HIT_UNREGISTER);
+
+        drawRowHeader(1, L"Keep Recent Files History", L"Track recently opened PDF documents on the welcome screen");
+        drawToggle(1, s.keepRecentHistory, OPT_HIT_KEEP_RECENT);
+
+        std::wstring histDesc = L"Remove all saved entries from recent list (" + std::to_wstring(info.recentCount) + L" stored)";
+        drawRowHeader(2, L"Clear Recent History", histDesc.c_str());
+        drawSegmentedBtn(2, 1, 2, L"Clear History", false, OPT_HIT_CLEAR_RECENT);
+    }
+
+    // 6. Footer Divider & Action Buttons
+    if (res.brushBorder) {
+        ctx->DrawLine(
+            D2D1::Point2F(card.left + 24.0f, card.bottom - 54.0f),
+            D2D1::Point2F(card.right - 24.0f, card.bottom - 54.0f),
+            res.brushBorder, 1.0f
+        );
+    }
+
+    D2D1_RECT_F resetRect = OptionsOverlayLayout::GetResetBtnRect(card);
+    ID2D1SolidColorBrush* resetBg = (info.hoveredId == OPT_HIT_RESET_BTN) ? res.brushBtnHover : res.brushBtnBg;
+    if (resetBg) ctx->FillRoundedRectangle(D2D1::RoundedRect(resetRect, 6.0f, 6.0f), resetBg);
+    if (res.brushBorder) ctx->DrawRoundedRectangle(D2D1::RoundedRect(resetRect, 6.0f, 6.0f), res.brushBorder, 1.0f);
+    if (res.textFormatBtn && res.brushText) {
+        const wchar_t* resetStr = L"Reset Defaults";
+        ctx->DrawText(resetStr, (UINT32)wcslen(resetStr), res.textFormatBtn, resetRect, res.brushText);
+    }
+
+    D2D1_RECT_F doneRect = OptionsOverlayLayout::GetDoneBtnRect(card);
+    ID2D1SolidColorBrush* doneBg = (info.hoveredId == OPT_HIT_DONE_BTN) ? res.brushPrimaryBtnHover : res.brushPrimaryBtn;
+    if (doneBg) ctx->FillRoundedRectangle(D2D1::RoundedRect(doneRect, 6.0f, 6.0f), doneBg);
+    if (res.textFormatBtn && res.brushCardBg) {
+        const wchar_t* doneStr = L"Done";
+        ctx->DrawText(doneStr, (UINT32)wcslen(doneStr), res.textFormatBtn, doneRect, res.brushCardBg);
+    }
 }
 
 } // namespace UIViews
