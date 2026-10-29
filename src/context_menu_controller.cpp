@@ -79,7 +79,8 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
         AppendMenuW(hMenu, MF_STRING, ID_CTX_COPY_LINK, L"Copy Link Address");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_PAGE, L"Fit to Page\tCtrl+0");
-        AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_WIDTH, L"Fit to Width\tCtrl+1");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ACTUAL_SIZE, L"Actual Size (100%)\tCtrl+1");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_WIDTH, L"Fit to Width\tCtrl+2");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_PRINT, L"Print...\tCtrl+P");
         break;
     }
@@ -90,8 +91,8 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
 
         std::wstring truncQuery = FormatTruncatedQuery(data.selectedText);
         std::wstring dictLabel = truncQuery.empty()
-            ? L"Look up in Dictionary\tF8"
-            : (L"Look up \"" + truncQuery + L"\" in Dictionary\tF8");
+            ? L"Look up in Dictionary\tD"
+            : (L"Look up \"" + truncQuery + L"\" in Dictionary\tD");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_DICT_LOOKUP, dictLabel.c_str());
 
         AppendMenuW(hMenu, MF_STRING, ID_CTX_READ_ALOUD_SELECTION, L"Read Aloud Selection");
@@ -121,8 +122,9 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
         AppendMenuW(hMenu, MF_STRING, ID_CTX_GOTO_PAGE, L"Go to Page...\tCtrl+G");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_PAGE, L"Fit to Page\tCtrl+0");
-        AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_WIDTH, L"Fit to Width\tCtrl+1");
-        AppendMenuW(hMenu, MF_STRING | (data.isContinuousScroll ? MF_CHECKED : MF_UNCHECKED), ID_CTX_CONTINUOUS_SCROLL, L"Continuous Scrolling\tCtrl+2");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ACTUAL_SIZE, L"Actual Size (100%)\tCtrl+1");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_WIDTH, L"Fit to Width\tCtrl+2");
+        AppendMenuW(hMenu, MF_STRING | (data.isContinuousScroll ? MF_CHECKED : MF_UNCHECKED), ID_CTX_CONTINUOUS_SCROLL, L"Continuous Scrolling\tCtrl+3");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, ID_CTX_READ_ALOUD, L"Read Aloud\tCtrl+R");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_FIND, L"Find in Page...\tCtrl+F");

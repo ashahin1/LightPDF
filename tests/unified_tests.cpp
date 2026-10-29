@@ -1287,7 +1287,7 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             GetMenuStringW(hMenu, ID_CTX_DICT_LOOKUP, dictBuf, 256, MF_BYCOMMAND);
             std::wstring dictLabel(dictBuf);
             CHECK(dictLabel.find(L"...") != std::wstring::npos);
-            CHECK(dictLabel.find(L"\tF8") != std::wstring::npos);
+            CHECK(dictLabel.find(L"\tD") != std::wstring::npos);
 
             DestroyMenu(hMenu);
         }
@@ -1313,8 +1313,22 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             UINT cont = GetMenuState(hMenu, ID_CTX_CONTINUOUS_SCROLL, MF_BYCOMMAND);
             CHECK((cont & MF_CHECKED) != 0); // Checked
 
+            CHECK(GetMenuState(hMenu, ID_CTX_ACTUAL_SIZE, MF_BYCOMMAND) != 0xFFFFFFFF);
             CHECK(GetMenuState(hMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) != 0xFFFFFFFF);
             CHECK(GetMenuState(hMenu, ID_CTX_SAVE_DECRYPTED, MF_BYCOMMAND) == 0xFFFFFFFF); // Not present on unprotected
+
+            wchar_t itemBuf[256] = {};
+            GetMenuStringW(hMenu, ID_CTX_FIT_PAGE, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+0") != std::wstring::npos);
+
+            GetMenuStringW(hMenu, ID_CTX_ACTUAL_SIZE, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+1") != std::wstring::npos);
+
+            GetMenuStringW(hMenu, ID_CTX_FIT_WIDTH, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+2") != std::wstring::npos);
+
+            GetMenuStringW(hMenu, ID_CTX_CONTINUOUS_SCROLL, itemBuf, 256, MF_BYCOMMAND);
+            CHECK(std::wstring(itemBuf).find(L"\tCtrl+3") != std::wstring::npos);
 
             DestroyMenu(hMenu);
 

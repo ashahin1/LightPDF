@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>943 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>944 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p align="center">
@@ -12,10 +12,10 @@
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
   <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-943_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-944_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20374%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20379%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -161,9 +161,9 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 ### 🖱️ Smart Context-Sensitive Right-Click Menus
 - **Four Dynamic Interaction Domains**: Native Win32 menus that automatically adapt based on cursor context with automatic Windows 10/11 dark mode styling:
   - **Tab Strip Menu**: Close Tab (`Ctrl+W`), Close Other Tabs, Close Tabs to Right, Reopen Closed Tab (`Ctrl+Shift+T`), Copy Full File Path, and Reveal in File Explorer (`/select`).
-  - **Hyperlink Menu**: Default bold Open Link action, Copy Link Address, Fit Page, Fit Width, and Print.
-  - **Text Selection Menu**: Copy (`Ctrl+C`), Look up in Dictionary (`F8`), Read Aloud Selection, Search for Selection (`Ctrl+F`), Select All (`Ctrl+A`), and Deselect (`Esc`). Auto-selects the word under the cursor when right-clicking unselected text.
-  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page, Fit Width, Continuous Scrolling toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, and Document Properties (`Ctrl+D`).
+  - **Hyperlink Menu**: Default bold Open Link action, Copy Link Address, Fit Page (`Ctrl+0`), Actual Size (`Ctrl+1`), Fit Width (`Ctrl+2`), and Print (`Ctrl+P`).
+  - **Text Selection Menu**: Copy (`Ctrl+C`), Look up in Dictionary (`D`), Read Aloud Selection, Search for Selection (`Ctrl+F`), Select All (`Ctrl+A`), and Deselect (`Esc`). Appears seamlessly whenever text is selected prior to right-clicking.
+  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page `Ctrl+0`, Actual Size `Ctrl+1`, Fit Width `Ctrl+2`, Continuous Scrolling `Ctrl+3` toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, and Document Properties (`Ctrl+D`).
 
 ### 🗣️ Native Read Aloud (TTS) & Technical Dictionary
 - **Bilingual Text-to-Speech**: Press `Ctrl+R` for high-fidelity speech playback with real-time visual word highlighting. Automatically routes Arabic to `Microsoft Naayf` and English to system voices via Windows OneCore & SAPI.
@@ -405,7 +405,7 @@ tests\run_tests.bat
 [LightPDF Test Runner] Executing 26 test cases...
 ===============================================================================
   Test Cases: 26 passed | 0 failed | 26 total
-  Assertions: 374 passed | 0 failed | 374 total
+  Assertions: 379 passed | 0 failed | 379 total
   Elapsed:    ~3.8 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
@@ -473,7 +473,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~943 KB standalone binary (zero external DLLs, <1 MB budget)
+│   ├── LightPDF.exe              # ~944 KB standalone binary (zero external DLLs, <1 MB budget)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -510,7 +510,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 374 assertions, <4s runtime)
+│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 379 assertions, <5s runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses

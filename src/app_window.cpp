@@ -4652,39 +4652,7 @@ void AppWindow::HandleContextMenu(POINT ptScreen) {
             return;
         }
 
-        // 3. Text Selection hit test:
-        // If there is no active selection, check if right-clicked on a word to auto-select it
-        if (!pTab->selection.HasSelection() && m_toolMode == ToolMode::TextSelect) {
-            uint32_t hitPage = 0;
-            size_t hitChar = 0;
-            bool afterChar = false;
-            if (HitTestPageText(ptClient, hitPage, hitChar, afterChar)) {
-                auto pageText = GetOrExtractPageText(pTab, hitPage);
-                if (pageText && hitChar < pageText->chars.size()) {
-                    auto isWordChar = [](wchar_t c) {
-                        return iswalnum(c) || c == L'_';
-                    };
-                    size_t wStart = hitChar;
-                    while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
-                        wStart--;
-                    }
-                    size_t wEnd = hitChar;
-                    while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
-                        wEnd++;
-                    }
-                    if (wEnd > wStart) {
-                        pTab->selection.active = true;
-                        pTab->selection.isDragging = false;
-                        pTab->selection.startPage = hitPage;
-                        pTab->selection.startIndex = wStart;
-                        pTab->selection.endPage = hitPage;
-                        pTab->selection.endIndex = wEnd;
-                        Render();
-                    }
-                }
-            }
-        }
-
+        // 3. Text Selection context menu (only when text was selected prior to right-click)
         if (pTab->selection.HasSelection()) {
             D2D1_RECT_F anchorRect{};
             data.hasSelection = true;
@@ -4788,6 +4756,16 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         auto* pTab = GetActiveTab();
         if (pTab) {
             pTab->zoomMode = ZoomMode::FitPage;
+            RecalculateLayout();
+            Render();
+        }
+        break;
+    }
+    case ID_CTX_ACTUAL_SIZE: {
+        auto* pTab = GetActiveTab();
+        if (pTab) {
+            pTab->zoom = 1.0f;
+            pTab->zoomMode = ZoomMode::Custom;
             RecalculateLayout();
             Render();
         }
