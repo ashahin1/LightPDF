@@ -24,3 +24,18 @@
 - Verify zero warnings by running `.\generate_docs.ps1`.
 - Enforce Level 4 compiler diagnostics (`/W4 /permissive-`) with zero compiler warnings.
 - All unit tests in `.\tests\run_test.ps1` must pass 100%.
+
+## 5. Build Script Parity & Toolchain Standards
+- **Dual Script Parity:** `build.ps1` and `build.bat` must maintain 100% functional and toolchain parity. Any enhancement (Visual Studio auto-detection, MSVC flag updates, resource compiler paths, AVX2 support, CFG/CET security flags) added to one must be mirrored in the other.
+- **Fast Multicore Tooling:** All build and test runners (`build.ps1`, `build.bat`, `tests\run_test.ps1`) must employ multicore compilation (`/MP`) and incremental object caching to avoid unneeded full rebuilds.
+
+## 6. Execution Laziness & UI Responsiveness
+- **Zero Eager Heavy Compute:** Intensive processing (OCR, deep content parsing, technical dictionary bulk indexing, searchable PDF baking) must never be executed eagerly during file load or page scroll.
+- **Strictly On-Demand:** OCR and deep indexing run only when explicitly requested (e.g., Search trigger or Save As Searchable PDF) and must remain off the primary Direct2D rendering thread.
+
+## 7. UI Shortcuts & Configurable Interaction Semantics
+- **Accelerator Synchronization:** Shortcut labels displayed in Direct2D custom context menus, toolbars, and help overlays must strictly reflect actual Win32 accelerator definitions in `resources\app.rc`.
+- **Configurable Interaction Semantics:** Interaction behaviors with multiple valid user preferences (such as `rightClickAutoSelect` expanding right-clicks to words vs. opening the document canvas menu) must respect `SettingsController` and remain cleanly configurable via the Options Dialog (`OPT_HIT_RCLICK_SELECT`).
+
+## 8. Implementation Plan Rigor
+- When formulating `/plan` artifacts, create detailed, step-by-step blueprints specifying file paths, method signatures, error handling branches, and exact verification criteria to enable flawless execution by any model or subagent.
