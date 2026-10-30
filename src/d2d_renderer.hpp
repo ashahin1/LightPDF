@@ -485,6 +485,9 @@ public:
      * @param presenterBar Presenter bar descriptor.
      * @param ttsBar Read aloud control bar descriptor.
      * @param pRecent Optional recent files and switcher descriptor.
+     * @param pPasswordOverlay Optional password prompt overlay descriptor.
+     * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
+     * @param pOptionsOverlay Optional options and preferences overlay descriptor.
      */
     void RenderBlank(
         const std::wstring& message,
@@ -507,6 +510,33 @@ public:
 
     /**
      * @brief Renders a single PDF page centered or panned with all active HUD overlays.
+     * @param page WinRT PDF page to render.
+     * @param zoom Current zoom scaling factor.
+     * @param offsetX Horizontal pan offset in DIPs.
+     * @param offsetY Vertical pan offset in DIPs.
+     * @param pageSize Page dimensions in PDF points / DIPs.
+     * @param currentPageIndex 0-based index of current page.
+     * @param totalPages Total page count of document.
+     * @param zoomModeText Formatted zoom level / mode indicator string.
+     * @param hasType3Font Flag indicating if page contains Type 3 fonts.
+     * @param help Help overlay descriptor.
+     * @param tabs Tab strip descriptor.
+     * @param isAddHovered Add tab button hover state.
+     * @param scrollbar Scrollbar descriptor.
+     * @param showGoToPage Whether Go To Page modal is active.
+     * @param goToPageBuffer Go To Page input text.
+     * @param searchBar Search bar descriptor.
+     * @param highlights Vector of active search highlight rectangles.
+     * @param docProps Document properties descriptor.
+     * @param selectionSpans Active text selection highlight rectangles.
+     * @param dictCard Dictionary card descriptor.
+     * @param laser Laser pointer descriptor.
+     * @param presenterBar Presenter bar descriptor.
+     * @param ttsBar Read aloud control bar descriptor.
+     * @param pRecent Optional recent files and switcher descriptor.
+     * @param pPasswordOverlay Optional password prompt overlay descriptor.
+     * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
+     * @param pOptionsOverlay Optional options and preferences overlay descriptor.
      */
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -540,6 +570,30 @@ public:
 
     /**
      * @brief Renders multiple visible pages in continuous vertical scroll layout.
+     * @param visiblePages Vector of visible page descriptors with WinRT pages and layout offsets.
+     * @param zoom Current zoom scaling factor.
+     * @param currentPageIndex 0-based index of top-most visible page.
+     * @param totalPages Total page count of document.
+     * @param zoomModeText Formatted zoom level / mode indicator string.
+     * @param isContinuous Layout mode flag (true for continuous vertical scrolling).
+     * @param help Help overlay descriptor.
+     * @param tabs Tab strip descriptor.
+     * @param isAddHovered Add tab button hover state.
+     * @param scrollbar Scrollbar descriptor.
+     * @param showGoToPage Whether Go To Page modal is active.
+     * @param goToPageBuffer Go To Page input text.
+     * @param searchBar Search bar descriptor.
+     * @param highlights Vector of active search highlight rectangles.
+     * @param docProps Document properties descriptor.
+     * @param selectionSpans Active text selection highlight rectangles.
+     * @param dictCard Dictionary card descriptor.
+     * @param laser Laser pointer descriptor.
+     * @param presenterBar Presenter bar descriptor.
+     * @param ttsBar Read aloud control bar descriptor.
+     * @param pRecent Optional recent files and switcher descriptor.
+     * @param pPasswordOverlay Optional password prompt overlay descriptor.
+     * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
+     * @param pOptionsOverlay Optional options and preferences overlay descriptor.
      */
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,

@@ -148,7 +148,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 ### 🌐 Interactive Hyperlinks & Smart URLs
 - **ISO 32000-1 `/Annots` Parsing**: Extracts both external web/email links (`/Action /S /URI`) and internal page jumps (`/Action /S /GoTo` with `/D` arrays or direct `/Dest`).
-- **Full Rotation & Geometry Mapping**: Maps coordinates from bottom-left PDF point space to top-left Direct2D DIP space across CropBox/MediaBox offsets and all rotations ($0^\circ, 90^\circ, 180^\circ, 270^\circ$).
+- **Full Rotation & Geometry Mapping**: Maps coordinates from bottom-left PDF point space to top-left Direct2D DIP space across CropBox/MediaBox offsets and all rotations (0°, 90°, 180°, 270°).
 - **Smart URL & Email Auto-Detection**: Scans digital text and OCR layers for `https://`, `http://`, `www.`, and `mailto:` links, unifying glyph bounding boxes across multi-line wraps with automatic `/Annots` de-duplication.
 - **Sleek Bottom-Left Preview Pill**: Hovering reveals an `IDC_HAND` cursor, subtle on-page highlight + accent underline, and a floating URL preview status pill dynamically constrained so it never collides with the centered HUD pill.
 - **Strict Scheme Whitelisting**: Strictly restricts external launching to `https://`, `http://`, and `mailto:` &mdash; blocking dangerous schemes (`file:`, `javascript:`, `cmd:`, `powershell:`, and UNC paths).

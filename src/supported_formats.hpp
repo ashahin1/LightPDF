@@ -8,14 +8,23 @@
  * @brief Single source of truth for every file extension LightPDF can open and register.
  * Used by Open/Save File dialogs, shell (/register) associations, and format validation.
  */
+/**
+ * @namespace SupportedFormats
+ * @brief Single source of truth for supported document extensions, wildcard filters, and validation.
+ */
 namespace SupportedFormats {
 
-/// PDF Documents extension list (all lowercase with leading dot)
+/// @brief PDF Documents extension list (all lowercase with leading dot).
 inline constexpr const wchar_t* kPdf[] = {
     L".pdf"
 };
 
-/// Builds a semicolon-separated wildcard pattern such as "*.pdf"
+/**
+ * @brief Builds a semicolon-separated wildcard pattern such as "*.pdf".
+ * @tparam N Number of extensions in fixed array.
+ * @param exts Fixed array of extension string pointers.
+ * @return Semicolon-separated wildcard pattern string.
+ */
 template <size_t N>
 inline std::wstring BuildPattern(const wchar_t* const (&exts)[N]) {
     std::wstring out;
@@ -27,7 +36,13 @@ inline std::wstring BuildPattern(const wchar_t* const (&exts)[N]) {
     return out;
 }
 
-/// Builds a human-readable filter label with wildcard pattern e.g. "PDF Documents (*.pdf)"
+/**
+ * @brief Builds a human-readable filter label with wildcard pattern e.g. "PDF Documents (*.pdf)".
+ * @tparam N Number of extensions in fixed array.
+ * @param prefix Human-readable category label prefix.
+ * @param exts Fixed array of extension string pointers.
+ * @return Formatted filter label string.
+ */
 template <size_t N>
 inline std::wstring BuildFilterLabel(const wchar_t* prefix, const wchar_t* const (&exts)[N]) {
     std::wstring out = prefix;
@@ -41,7 +56,10 @@ inline std::wstring BuildFilterLabel(const wchar_t* prefix, const wchar_t* const
     return out;
 }
 
-/// Returns all supported extensions across all categories
+/**
+ * @brief Returns all supported extensions across all categories.
+ * @return Vector of extension strings with leading dots.
+ */
 inline std::vector<std::wstring> GetAllExtensions() {
     std::vector<std::wstring> exts;
     exts.reserve(sizeof(kPdf) / sizeof(kPdf[0]));
@@ -51,12 +69,19 @@ inline std::vector<std::wstring> GetAllExtensions() {
     return exts;
 }
 
-/// Builds an all-inclusive wildcard pattern covering EVERY supported extension
+/**
+ * @brief Builds an all-inclusive wildcard pattern covering EVERY supported extension.
+ * @return Wildcard pattern string.
+ */
 inline std::wstring BuildAllSupportedPattern() {
     return BuildPattern(kPdf);
 }
 
-/// Checks if an extension or file path is in the supported formats list
+/**
+ * @brief Checks if an extension or file path is in the supported formats list.
+ * @param extOrPath File extension (e.g. ".pdf") or full file path.
+ * @return true if extension is supported, false otherwise.
+ */
 inline bool IsSupported(const std::wstring& extOrPath) {
     if (extOrPath.empty()) return false;
     size_t dotPos = extOrPath.rfind(L'.');

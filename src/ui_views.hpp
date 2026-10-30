@@ -478,6 +478,15 @@ struct RecentFilesResources {
 /// @brief Renders the recent documents cards on the empty canvas.
 class RecentDashboardView {
 public:
+    /**
+     * @brief Renders the recent documents dashboard on the empty canvas.
+     * @param ctx Active Direct2D device context.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param info Recent documents descriptor and hover states.
+     * @param errorMessage Optional error message string to display above dashboard.
+     * @param res Resource bundle for recent files dashboard rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         float dipWidth,
@@ -491,6 +500,14 @@ public:
 /// @brief Renders the floating Ctrl+H modal palette for recent documents.
 class RecentSwitcherView {
 public:
+    /**
+     * @brief Renders the floating Ctrl+H quick switcher modal palette.
+     * @param ctx Active Direct2D device context.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param info Recent documents descriptor and switcher selection index.
+     * @param res Resource bundle for recent files switcher rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         float dipWidth,
@@ -529,6 +546,14 @@ struct PasswordOverlayResources {
 /// @brief Renders the password prompt modal dialog for encrypted PDFs.
 class PasswordOverlayView {
 public:
+    /**
+     * @brief Renders the password prompt modal dialog card.
+     * @param ctx Active Direct2D device context.
+     * @param info Password prompt state descriptor and error feedback.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for password modal rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const PasswordOverlayRenderInfo& info,
@@ -537,6 +562,14 @@ public:
         const PasswordOverlayResources& res
     );
 
+    /**
+     * @brief Hit-tests buttons in password prompt modal (close, toggle show, unlock, cancel).
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @return Button index hit (0=body/none, 1=close, 2=show/hide, 3=unlock, 4=cancel, -1=outside).
+     */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi);
 };
 
@@ -571,6 +604,14 @@ struct OptionsOverlayResources {
 /// @brief Renders the tabbed Options & Preferences modal dialog (Ctrl+,).
 class OptionsOverlayView {
 public:
+    /**
+     * @brief Renders the Options & Preferences modal dialog card.
+     * @param ctx Active Direct2D device context.
+     * @param info Preferences descriptor and active tab category.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for options overlay rendering.
+     */
     static void Render(
         ID2D1DeviceContext* ctx,
         const OptionsOverlayRenderInfo& info,
@@ -579,6 +620,15 @@ public:
         const OptionsOverlayResources& res
     );
 
+    /**
+     * @brief Hit-tests tabs, toggles, and buttons in Options modal dialog.
+     * @param pt Mouse point in client coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @param activeCategory 0-based index of active category tab (0..2).
+     * @return OptionsHitId hit code or -1 if outside modal.
+     */
     static int HitTest(POINT pt, UINT width, UINT height, float dpi, int activeCategory);
 };
 
