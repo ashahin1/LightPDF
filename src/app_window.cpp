@@ -24,9 +24,15 @@
 
 const wchar_t* WINDOW_CLASS_NAME = L"LightPDF_WindowClass";
 
-AppWindow::AppWindow() = default;
+AppWindow::AppWindow() {
+    m_passwordInput.reserve(256);
+}
 
 AppWindow::~AppWindow() {
+    if (m_passwordInput.capacity() > 0) {
+        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.capacity() * sizeof(wchar_t));
+        m_passwordInput.clear();
+    }
     if (m_settingsController.Get().keepRecentHistory) {
         for (size_t i = 0; i < m_tabController.GetTabCount(); ++i) {
             const auto* tab = m_tabController.GetTab(i);
@@ -2161,8 +2167,8 @@ void AppWindow::OpenTab(const std::wstring& path) {
         uint32_t lastPage = pTab ? pTab->currentPage : 0;
         if (m_settingsController.Get().keepRecentHistory) {
             m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+            SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
         }
-        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
 
         m_renderer.InvalidatePageCache();
         if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
@@ -2212,8 +2218,8 @@ void AppWindow::OpenRecentFile(size_t index) {
         uint32_t totalPages = GetActiveTab() ? GetActiveTab()->document.GetPageCount() : item.totalPages;
         if (m_settingsController.Get().keepRecentHistory) {
             m_recentController.AddRecentFile(resolvedPath, totalPages, GetActiveTab() ? GetActiveTab()->currentPage : item.lastPage);
+            SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
         }
-        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
 
         if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
             TriggerSearch();
@@ -2288,6 +2294,9 @@ void AppWindow::PromptForPassword(const PendingPasswordRequest& req) {
     }
     m_activePasswordReq = req;
     m_showPasswordOverlay = true;
+    if (m_passwordInput.capacity() > 0) {
+        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.capacity() * sizeof(wchar_t));
+    }
     m_passwordInput.clear();
     m_passwordError.clear();
     m_passwordShowPlain = false;
@@ -2312,7 +2321,9 @@ void AppWindow::SubmitPasswordPrompt() {
         m_passwordInput
     );
 
-    SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+    if (m_passwordInput.capacity() > 0) {
+        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.capacity() * sizeof(wchar_t));
+    }
     m_passwordInput.clear();
 
     if (status == PdfLoadStatus::Success) {
@@ -2332,8 +2343,10 @@ void AppWindow::SubmitPasswordPrompt() {
 
         uint32_t totalPages = pTab ? pTab->document.GetPageCount() : 0;
         uint32_t lastPage = pTab ? pTab->currentPage : 0;
-        m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
-        SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
+        if (m_settingsController.Get().keepRecentHistory) {
+            m_recentController.AddRecentFile(resolvedPath, totalPages, lastPage);
+            SHAddToRecentDocs(SHARD_PATHW, resolvedPath.c_str());
+        }
 
         m_renderer.InvalidatePageCache();
         if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
@@ -2358,8 +2371,8 @@ void AppWindow::SubmitPasswordPrompt() {
 }
 
 void AppWindow::CancelPasswordPrompt() {
-    if (!m_passwordInput.empty()) {
-        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+    if (m_passwordInput.capacity() > 0) {
+        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.capacity() * sizeof(wchar_t));
         m_passwordInput.clear();
     }
     m_showPasswordOverlay = false;
@@ -3654,7 +3667,10 @@ void AppWindow::Render() {
     pwdInfo.visible = m_showPasswordOverlay;
     if (m_showPasswordOverlay) {
         pwdInfo.fileName = RecentFilesController::ExtractFileName(m_activePasswordReq.filePath);
-        pwdInfo.passwordInput = m_passwordInput;
+        pwdInfo.passwordLength = m_passwordInput.length();
+        if (m_passwordShowPlain) {
+            pwdInfo.passwordInput = m_passwordInput;
+        }
         pwdInfo.errorMessage = m_passwordError;
         pwdInfo.showPassword = m_passwordShowPlain;
         pwdInfo.hoveredButton = m_passwordHoveredBtn;

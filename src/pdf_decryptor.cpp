@@ -13,6 +13,7 @@
 #include <cstring>
 #include <vector>
 #include <map>
+#include <atomic>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -117,6 +118,187 @@ static bool AesCbcDecrypt(
         }
     }
     return true;
+}
+
+// Generate unpredictable temporary path in same directory to prevent symlink attacks (SEC-03)
+static std::wstring MakeUniqueTempPath(const std::wstring& targetPath) {
+    static std::atomic<uint32_t> s_tempCounter{ 0 };
+    uint32_t c = ++s_tempCounter;
+    DWORD pid = GetCurrentProcessId();
+    ULONGLONG ticks = GetTickCount64();
+    return targetPath + L"." + std::to_wstring(pid) + L"_" + std::to_wstring(ticks) + L"_" + std::to_wstring(c) + L".tmp";
+}
+
+static std::string HexEncodeBytes(const uint8_t* data, size_t len) {
+    static const char hexChars[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(len * 2);
+    for (size_t i = 0; i < len; ++i) {
+        out.push_back(hexChars[(data[i] >> 4) & 0x0F]);
+        out.push_back(hexChars[data[i] & 0x0F]);
+    }
+    return out;
+}
+
+static std::vector<uint8_t> HexDecodeStr(const char* data, size_t len) {
+    std::vector<uint8_t> out;
+    out.reserve(len / 2);
+    int hi = -1;
+    for (size_t i = 0; i < len; ++i) {
+        char c = data[i];
+        int val = -1;
+        if (c >= '0' && c <= '9') val = c - '0';
+        else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
+        else if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        else if (c == '>') break;
+        else break;
+
+        if (hi < 0) {
+            hi = val;
+        } else {
+            out.push_back(static_cast<uint8_t>((hi << 4) | val));
+            hi = -1;
+        }
+    }
+    if (hi >= 0) {
+        out.push_back(static_cast<uint8_t>(hi << 4));
+    }
+    return out;
+}
+
+// Decrypt literal and hex string literals within a non-stream object according to ISO 32000-1 §7.6.2 (SEC-12)
+static std::string DecryptNonStreamStrings(const std::string& objText, const std::vector<uint8_t>& objKey, bool isAES) {
+    if (objKey.empty() || objText.empty()) return objText;
+
+    std::string result;
+    result.reserve(objText.size());
+    size_t i = 0;
+    size_t len = objText.size();
+
+    while (i < len) {
+        // Hex string: starts with '<' and not '<<'
+        if (objText[i] == '<' && (i + 1 < len && objText[i + 1] != '<')) {
+            size_t closePos = objText.find('>', i + 1);
+            if (closePos != std::string::npos) {
+                std::string hexBody = objText.substr(i + 1, closePos - i - 1);
+                std::vector<uint8_t> cipherBytes = HexDecodeStr(hexBody.data(), hexBody.size());
+                std::vector<uint8_t> plainBytes;
+                bool decOk = false;
+                if (isAES) {
+                    if (cipherBytes.size() >= 16) {
+                        const uint8_t* iv = cipherBytes.data();
+                        const uint8_t* cipher = cipherBytes.data() + 16;
+                        size_t cipherLen = cipherBytes.size() - 16;
+                        AesCbcDecrypt(objKey.data(), objKey.size(), iv, cipher, cipherLen, plainBytes);
+                        decOk = !plainBytes.empty();
+                    }
+                } else {
+                    if (!cipherBytes.empty()) {
+                        plainBytes.resize(cipherBytes.size());
+                        Rc4Crypt(objKey.data(), objKey.size(), cipherBytes.data(), cipherBytes.size(), plainBytes.data());
+                        decOk = true;
+                    }
+                }
+
+                if (decOk) {
+                    result.push_back('<');
+                    result.append(HexEncodeBytes(plainBytes.data(), plainBytes.size()));
+                    result.push_back('>');
+                } else {
+                    result.append(objText.substr(i, closePos - i + 1));
+                }
+                i = closePos + 1;
+                continue;
+            }
+        }
+
+        // Literal string: starts with '('
+        if (objText[i] == '(') {
+            size_t startStr = i;
+            size_t depth = 1;
+            std::vector<uint8_t> rawBytes;
+            i++;
+            bool escape = false;
+            while (i < len && depth > 0) {
+                char ch = objText[i];
+                if (escape) {
+                    if (ch == 'n') rawBytes.push_back('\n');
+                    else if (ch == 'r') rawBytes.push_back('\r');
+                    else if (ch == 't') rawBytes.push_back('\t');
+                    else if (ch == 'b') rawBytes.push_back('\b');
+                    else if (ch == 'f') rawBytes.push_back('\f');
+                    else if (ch == '(') rawBytes.push_back('(');
+                    else if (ch == ')') rawBytes.push_back(')');
+                    else if (ch == '\\') rawBytes.push_back('\\');
+                    else if (ch >= '0' && ch <= '7') {
+                        int oct = ch - '0';
+                        if (i + 1 < len && objText[i + 1] >= '0' && objText[i + 1] <= '7') {
+                            oct = oct * 8 + (objText[++i] - '0');
+                            if (i + 1 < len && objText[i + 1] >= '0' && objText[i + 1] <= '7') {
+                                oct = oct * 8 + (objText[++i] - '0');
+                            }
+                        }
+                        rawBytes.push_back(static_cast<uint8_t>(oct & 0xFF));
+                    } else {
+                        rawBytes.push_back(static_cast<uint8_t>(ch));
+                    }
+                    escape = false;
+                } else {
+                    if (ch == '\\') {
+                        escape = true;
+                    } else if (ch == '(') {
+                        depth++;
+                        rawBytes.push_back(static_cast<uint8_t>(ch));
+                    } else if (ch == ')') {
+                        depth--;
+                        if (depth > 0) {
+                            rawBytes.push_back(static_cast<uint8_t>(ch));
+                        }
+                    } else {
+                        rawBytes.push_back(static_cast<uint8_t>(ch));
+                    }
+                }
+                i++;
+            }
+
+            if (depth == 0) {
+                std::vector<uint8_t> plainBytes;
+                bool decOk = false;
+                if (isAES) {
+                    if (rawBytes.size() >= 16) {
+                        const uint8_t* iv = rawBytes.data();
+                        const uint8_t* cipher = rawBytes.data() + 16;
+                        size_t cipherLen = rawBytes.size() - 16;
+                        AesCbcDecrypt(objKey.data(), objKey.size(), iv, cipher, cipherLen, plainBytes);
+                        decOk = !plainBytes.empty();
+                    }
+                } else {
+                    if (!rawBytes.empty()) {
+                        plainBytes.resize(rawBytes.size());
+                        Rc4Crypt(objKey.data(), objKey.size(), rawBytes.data(), rawBytes.size(), plainBytes.data());
+                        decOk = true;
+                    }
+                }
+
+                if (decOk) {
+                    result.push_back('<');
+                    result.append(HexEncodeBytes(plainBytes.data(), plainBytes.size()));
+                    result.push_back('>');
+                } else {
+                    result.append(objText.substr(startStr, i - startStr));
+                }
+                continue;
+            } else {
+                result.append(objText.substr(startStr, i - startStr));
+                continue;
+            }
+        }
+
+        result.push_back(objText[i++]);
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -476,6 +658,11 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
     size_t fileSize = static_cast<size_t>(inFile.tellg());
     inFile.seekg(0, std::ios::beg);
 
+    if (fileSize > 2ULL * 1024ULL * 1024ULL * 1024ULL) {
+        result.errorMessage = L"File exceeds 2 GB size limit";
+        return result;
+    }
+
     std::string fileContent;
     fileContent.resize(fileSize);
     inFile.read(&fileContent[0], fileSize);
@@ -641,11 +828,10 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
             result.streamsDecrypted++;
             result.objectsDecrypted++;
         } else {
-            // Non-stream object: check for literal or hex strings to decrypt
+            // Non-stream object: check for literal or hex strings to decrypt (SEC-12)
             std::string objText = fileContent.substr(obj.startPos, obj.endPos - obj.startPos);
-
-            // Simple string decryption for literal (string) or <hex> in non-stream objects
-            outPdf.append(objText);
+            std::string decText = DecryptNonStreamStrings(objText, objKey, info.isAES);
+            outPdf.append(decText);
             outPdf.append("\r\n");
             result.objectsDecrypted++;
         }
@@ -656,6 +842,10 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
     // Build new xref section
     size_t startXrefPos = outPdf.size();
     uint32_t maxObjNum = newXrefOffsets.empty() ? 0 : newXrefOffsets.rbegin()->first;
+    if (maxObjNum > 1000000 || (newXrefOffsets.size() > 0 && maxObjNum > newXrefOffsets.size() * 10 + 1024)) {
+        result.errorMessage = L"Sparse object ID distribution exceeds safe limits";
+        return result;
+    }
     uint32_t xrefSize = maxObjNum + 1;
 
     outPdf.append("xref\r\n");
@@ -723,7 +913,7 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
     if (progressCallback) progressCallback(0.95f, L"Saving unencrypted PDF file...");
 
     bool isOverwrite = (_wcsicmp(srcPath.c_str(), dstPath.c_str()) == 0);
-    std::wstring writeTarget = isOverwrite ? (dstPath + L".tmp") : dstPath;
+    std::wstring writeTarget = isOverwrite ? MakeUniqueTempPath(dstPath) : dstPath;
 
     // Write to destination file (or temporary swap file if overwriting in-place)
     std::ofstream outFile(writeTarget, std::ios::binary);
@@ -743,7 +933,12 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
 
     if (isOverwrite) {
         if (!ReplaceFileW(dstPath.c_str(), writeTarget.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
-            MoveFileExW(writeTarget.c_str(), dstPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+            if (!MoveFileExW(writeTarget.c_str(), dstPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                DeleteFileW(writeTarget.c_str());
+                result.errorMessage = L"Failed to overwrite destination file with decrypted copy.";
+                result.success = false;
+                return result;
+            }
         }
     }
 

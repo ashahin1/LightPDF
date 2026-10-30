@@ -1557,9 +1557,9 @@ void PasswordOverlayView::Render(
         ctx->DrawRoundedRectangle(D2D1::RoundedRect(inputBox, 6.0f, 6.0f), inputBorderBrush, 1.5f);
     }
 
-    // Input text / mask
+    // Input text / mask (SEC-13)
     D2D1_RECT_F textRect = D2D1::RectF(inputBox.left + 10.0f, inputBox.top, inputBox.right - 8.0f, inputBox.bottom);
-    if (info.passwordInput.empty()) {
+    if (info.passwordLength == 0 && info.passwordInput.empty()) {
         const wchar_t* placeholder = L"Enter password...";
         if (res.textFormatInput && res.brushSubText) {
             ctx->DrawText(placeholder, (UINT32)wcslen(placeholder), res.textFormatInput, textRect, res.brushSubText);
@@ -1567,7 +1567,8 @@ void PasswordOverlayView::Render(
     } else {
         std::wstring displayStr;
         if (!info.showPassword) {
-            displayStr.assign(info.passwordInput.length(), (wchar_t)0x25CF); // Bullet / dot
+            size_t len = info.passwordLength > 0 ? info.passwordLength : info.passwordInput.length();
+            displayStr.assign(len, (wchar_t)0x25CF); // Bullet / dot
         } else {
             displayStr = info.passwordInput;
         }

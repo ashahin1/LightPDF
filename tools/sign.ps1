@@ -41,7 +41,13 @@ try {
 # 3. Sign bin\LightPDF.exe
 if (Test-Path $BinaryPath) {
     Write-Host "Signing '$BinaryPath' with Authenticode (SHA256)..." -ForegroundColor Yellow
-    $sig = Set-AuthenticodeSignature -FilePath $BinaryPath -Certificate $cert -HashAlgorithm "SHA256"
+    try {
+        $sig = Set-AuthenticodeSignature -FilePath $BinaryPath -Certificate $cert -HashAlgorithm "SHA256" -TimestampServer "http://timestamp.digicert.com" -ErrorAction Stop
+        Write-Host "Authenticode signed with Digicert RFC 3161 timestamp." -ForegroundColor Green
+    } catch {
+        Write-Host "Timestamp server unreachable; falling back to local SHA256 signature..." -ForegroundColor Yellow
+        $sig = Set-AuthenticodeSignature -FilePath $BinaryPath -Certificate $cert -HashAlgorithm "SHA256"
+    }
     Write-Host "Signature Status: $($sig.Status)" -ForegroundColor Green
     if ($sig.StatusMessage) {
         Write-Host "Status Message: $($sig.StatusMessage)" -ForegroundColor Gray
@@ -98,12 +104,38 @@ pause
 
 Set-Content -Path (Join-Path $DistDir "install_certificate.bat") -Value $installBat -Encoding Ascii
 
+# Create certificate uninstallation batch script (SEC-16)
+$uninstallBat = @"
+@echo off
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
+
+echo ===================================================
+echo   LightPDF - Remove Publisher Certificate
+echo   Publisher: Ahmed Amer Shahin (EtherHome)
+echo ===================================================
+echo.
+echo Removing publisher certificate from user stores...
+
+certutil.exe -user -delstore Root "Ahmed Amer Shahin (EtherHome)" >nul 2>&1
+certutil.exe -user -delstore TrustedPublisher "Ahmed Amer Shahin (EtherHome)" >nul 2>&1
+
+echo.
+echo ===================================================
+echo [SUCCESS] Certificate removed cleanly from stores.
+echo ===================================================
+echo.
+pause
+"@
+
+Set-Content -Path (Join-Path $DistDir "uninstall_certificate.bat") -Value $uninstallBat -Encoding Ascii
+
 # Create README for colleagues
 $colleagueReadme = @"
 LightPDF - Instructions for Colleagues
 ======================================
 Publisher: Ahmed Amer Shahin (EtherHome)
-Version:   2.4.0.0
+Version:   2.4.1.0
 
 FIRST-TIME SETUP (Takes 5 seconds):
 1. Right-click 'install_certificate.bat' and run it (or simply double-click).

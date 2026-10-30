@@ -19,12 +19,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "EtherHome\0"
             VALUE "FileDescription",  "LightPDF - Ultra-Fast Minimalist Windows PDF Viewer\0"
-            VALUE "FileVersion",      "2.4.0.0\0"
+            VALUE "FileVersion",      "2.4.1.0\0"
             VALUE "InternalName",     "LightPDF\0"
             VALUE "LegalCopyright",   "Copyright (C) 2026 Ahmed Amer Shahin. All rights reserved.\0"
             VALUE "OriginalFilename", "LightPDF.exe\0"
             VALUE "ProductName",      "LightPDF\0"
-            VALUE "ProductVersion",   "2.4.0.0\0"
+            VALUE "ProductVersion",   "2.4.1.0\0"
         END
     END
     BLOCK "VarFileInfo"

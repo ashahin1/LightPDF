@@ -204,10 +204,60 @@ public:
      */
     static bool IsSafeExternalUri(std::wstring_view uri);
 
+    /**
+     * @brief Decompresses a raw DEFLATE or ZLIB byte stream into uncompressed bytes.
+     * @param inData Pointer to compressed input bytes.
+     * @param inSize Size of compressed input stream in bytes.
+     * @param outData Vector receiving decompressed stream bytes.
+     * @return true if stream decompressed successfully; false if truncated, corrupt, or exceeds 64 MB cap.
+     */
+    static bool InflateStream(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
+
+    /**
+     * @brief Decodes an ASCII85-encoded stream into raw bytes.
+     * @param inData Pointer to ASCII85 input bytes.
+     * @param inSize Size of ASCII85 input stream.
+     * @param outData Vector receiving decoded bytes.
+     * @return true on successful decode.
+     */
+    static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
+
+    /**
+     * @brief Parses PDF content stream operators (BT...ET, cm, q/Q, Do, text show) into structured page text.
+     * @param streamBytes Byte vector containing decoded PDF content stream.
+     * @param cropX0 Left coordinate of CropBox in PDF points.
+     * @param cropY0 Bottom coordinate of CropBox in PDF points.
+     * @param cropW Width of CropBox in PDF points.
+     * @param cropH Height of CropBox in PDF points.
+     * @param rotate Page rotation angle in degrees (0, 90, 180, 270).
+     * @param fonts Map of font resource names to font metrics.
+     * @param outPage Output page text and character rectangle container.
+     * @param xobjects Map of XObject resource names to PDF object IDs.
+     * @param initialCtm Initial current transformation matrix.
+     * @param recursionDepth Recursion depth for Form XObjects (max 4).
+     * @param localClip Optional clipping rectangle for Form XObject bounding boxes.
+     * @param pActiveForms Optional recursion chain tracker for cycle detection.
+     * @param pDoCount Optional cumulative Form XObject invocation counter.
+     */
+    void ParseContentStream(
+        const std::vector<uint8_t>& streamBytes,
+        float cropX0,
+        float cropY0,
+        float cropW,
+        float cropH,
+        int rotate,
+        const std::map<std::string, PdfFontInfo>& fonts,
+        PdfPageText& outPage,
+        const std::map<std::string, uint32_t>& xobjects = {},
+        Matrix2D initialCtm = Matrix2D::Identity(),
+        int recursionDepth = 0,
+        D2D1_RECT_F localClip = { -1e9f, -1e9f, 1e9f, 1e9f },
+        std::vector<uint32_t>* pActiveForms = nullptr,
+        uint32_t* pDoCount = nullptr
+    );
+
 private:
     // Stream decompressors & predictor decoding
-    static bool DecodeASCII85(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
-    static bool InflateStream(const uint8_t* inData, size_t inSize, std::vector<uint8_t>& outData);
     static bool DecodePredictor(const std::vector<uint8_t>& inData, int predictor, int columns, int colors, int bpc, std::vector<uint8_t>& outData);
 
     // Cross reference and object stream parsing
@@ -274,22 +324,6 @@ private:
     std::map<uint32_t, std::wstring> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) const;
     std::map<std::string, PdfFontInfo> ExtractPageFonts(const std::string& pageDict) const;
     std::map<std::string, uint32_t> ExtractPageXObjects(const std::string& pageDict) const;
-
-    // Parse stream content text operators (BT...ET, Tj, TJ, Tm, Td, cm, Do, etc.)
-    void ParseContentStream(
-        const std::vector<uint8_t>& streamBytes,
-        float cropX0,
-        float cropY0,
-        float cropW,
-        float cropH,
-        int rotate,
-        const std::map<std::string, PdfFontInfo>& fonts,
-        PdfPageText& outPage,
-        const std::map<std::string, uint32_t>& xobjects = {},
-        Matrix2D initialCtm = Matrix2D::Identity(),
-        int recursionDepth = 0,
-        D2D1_RECT_F localClip = { -1e9f, -1e9f, 1e9f, 1e9f }
-    );
 
     friend class PdfSearchableWriter;
 

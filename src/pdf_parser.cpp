@@ -18,11 +18,17 @@ namespace MiniZlib {
         size_t in_pos;
         uint32_t bit_buf;
         int bit_cnt;
+        bool hasOverrun = false;
 
-        BitStream(const uint8_t* data, size_t len) : in(data), in_len(len), in_pos(0), bit_buf(0), bit_cnt(0) {}
+        BitStream(const uint8_t* data, size_t len)
+            : in(data), in_len(len), in_pos(0), bit_buf(0), bit_cnt(0), hasOverrun(false) {}
 
         inline void fill_bits(int n) {
-            while (bit_cnt < n && in_pos < in_len) {
+            while (bit_cnt < n) {
+                if (in_pos >= in_len) {
+                    hasOverrun = true;
+                    break;
+                }
                 bit_buf |= ((uint32_t)in[in_pos++]) << bit_cnt;
                 bit_cnt += 8;
             }
@@ -30,16 +36,27 @@ namespace MiniZlib {
 
         inline uint32_t peek_bits(int n) {
             fill_bits(n);
+            if (bit_cnt < n) {
+                hasOverrun = true;
+            }
             return bit_buf & ((1U << n) - 1);
         }
 
         inline void consume_bits(int n) {
             bit_buf >>= n;
             bit_cnt -= n;
+            if (bit_cnt < 0) {
+                hasOverrun = true;
+                bit_cnt = 0;
+            }
         }
 
         inline uint32_t get_bits(int n) {
             fill_bits(n);
+            if (bit_cnt < n) {
+                hasOverrun = true;
+                return 0;
+            }
             uint32_t val = bit_buf & ((1U << n) - 1);
             bit_buf >>= n;
             bit_cnt -= n;
@@ -104,6 +121,7 @@ namespace MiniZlib {
 
         inline int decode(BitStream& bs) {
             uint32_t peek = bs.peek_bits(FAST_BITS);
+            if (bs.hasOverrun) return -1;
             uint16_t entry = fast_lut[peek];
             if (entry != 0xFFFF) {
                 int len = entry & 0x0F;
@@ -117,6 +135,7 @@ namespace MiniZlib {
             uint16_t index = 0;
             for (int len = 1; len <= 15; ++len) {
                 code |= (uint16_t)bs.get_bits(1);
+                if (bs.hasOverrun) return -1;
                 uint16_t count_len = count[len];
                 if (code < first + count_len) {
                     return symbol[index + (code - first)];
@@ -160,6 +179,8 @@ namespace MiniZlib {
     };
     static const uint8_t order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
 
+    constexpr size_t kMaxDecompressedStreamBytes = 64u * 1024u * 1024u; // 64 MB per stream cap (SEC-01)
+
     bool Decompress(const uint8_t* in_data, size_t in_size, std::vector<uint8_t>& out) {
         if (!in_data || in_size < 2) return false;
 
@@ -176,16 +197,21 @@ namespace MiniZlib {
         bool bfinal = false;
 
         while (!bfinal) {
+            if (bs.hasOverrun) return false;
             bfinal = bs.get_bits(1) != 0;
             int btype = bs.get_bits(2);
+            if (bs.hasOverrun) return false;
 
             if (btype == 0) { // Uncompressed block
                 bs.bit_buf = 0;
                 bs.bit_cnt = 0;
                 if (bs.in_pos + 4 > bs.in_len) return false;
-                uint16_t len = bs.in[bs.in_pos] | (bs.in[bs.in_pos + 1] << 8);
+                uint16_t len = (uint16_t)(bs.in[bs.in_pos] | (bs.in[bs.in_pos + 1] << 8));
+                uint16_t nlen = (uint16_t)(bs.in[bs.in_pos + 2] | (bs.in[bs.in_pos + 3] << 8));
                 bs.in_pos += 4;
+                if ((uint16_t)len != (uint16_t)(~nlen)) return false;
                 if (bs.in_pos + len > bs.in_len) return false;
+                if (out.size() + len > kMaxDecompressedStreamBytes) return false;
                 out.insert(out.end(), bs.in + bs.in_pos, bs.in + bs.in_pos + len);
                 bs.in_pos += len;
             } else if (btype == 1 || btype == 2) {
@@ -197,9 +223,11 @@ namespace MiniZlib {
                     int hlit = bs.get_bits(5) + 257;
                     int hdist = bs.get_bits(5) + 1;
                     int hclen = bs.get_bits(4) + 4;
+                    if (bs.hasOverrun) return false;
 
                     uint8_t code_lengths[19] = { 0 };
                     for (int i = 0; i < hclen; ++i) code_lengths[order[i]] = (uint8_t)bs.get_bits(3);
+                    if (bs.hasOverrun) return false;
 
                     Huffman code_huff;
                     code_huff.build(code_lengths, 19);
@@ -208,6 +236,7 @@ namespace MiniZlib {
                     int total = hlit + hdist;
                     int idx = 0;
                     while (idx < total) {
+                        if (bs.hasOverrun) return false;
                         int sym = code_huff.decode(bs);
                         if (sym < 16) {
                             lengths[idx++] = (uint8_t)sym;
@@ -226,14 +255,17 @@ namespace MiniZlib {
                             return false;
                         }
                     }
+                    if (bs.hasOverrun) return false;
                     lit_huff.build(lengths, hlit);
                     dist_huff.build(lengths + hlit, hdist);
                 }
 
                 while (true) {
+                    if (bs.hasOverrun) return false;
                     int sym = lit_huff.decode(bs);
-                    if (sym < 0 || sym > 285) return false;
+                    if (sym < 0 || sym > 285 || bs.hasOverrun) return false;
                     if (sym < 256) {
+                        if (out.size() >= kMaxDecompressedStreamBytes) return false;
                         out.push_back((uint8_t)sym);
                     } else if (sym == 256) {
                         break;
@@ -241,10 +273,12 @@ namespace MiniZlib {
                         int len_idx = sym - 257;
                         int length = len_base[len_idx] + bs.get_bits(len_extra[len_idx]);
                         int dist_sym = dist_huff.decode(bs);
-                        if (dist_sym < 0 || dist_sym >= 30) return false;
+                        if (dist_sym < 0 || dist_sym >= 30 || bs.hasOverrun) return false;
                         int distance = dist_base[dist_sym] + bs.get_bits(dist_extra[dist_sym]);
+                        if (bs.hasOverrun) return false;
 
-                        if ((size_t)distance > out.size()) return false;
+                        if ((size_t)distance > out.size() || distance <= 0) return false;
+                        if (out.size() + length > kMaxDecompressedStreamBytes) return false;
                         size_t src_offset = out.size() - distance;
                         size_t old_size = out.size();
                         out.resize(old_size + length);
@@ -1663,9 +1697,23 @@ bool PdfParser::IsSafeExternalUri(std::wstring_view uri) {
         }
         return true;
     };
-    return startsWithCI(uri, L"https://") ||
-           startsWithCI(uri, L"http://")  ||
-           startsWithCI(uri, L"mailto:");
+    if (startsWithCI(uri, L"https://") || startsWithCI(uri, L"http://")) {
+        return true;
+    }
+    if (startsWithCI(uri, L"mailto:")) {
+        // Block dangerous mailto parameters (attach=, attachment=) per SEC-15
+        std::wstring lower;
+        lower.reserve(uri.size());
+        for (wchar_t c : uri) {
+            lower.push_back(towlower(c));
+        }
+        if (lower.find(L"attach=") != std::wstring::npos ||
+            lower.find(L"attachment=") != std::wstring::npos) {
+            return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 void PdfParser::DetectPlaintextLinks(PdfPageText& pageText) {
@@ -2632,11 +2680,18 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
     }
 
     // 4. Decompress and parse all content streams in sequence
-    for (uint32_t cId : contentObjs) {
-        std::vector<uint8_t> streamBytes;
-        if (GetObjectStreamData(cId, streamBytes) && !streamBytes.empty()) {
-            ParseContentStream(streamBytes, x0, y0, cropW, cropH, rotate, fonts, outPage, xobjects);
+    try {
+        for (uint32_t cId : contentObjs) {
+            std::vector<uint8_t> streamBytes;
+            if (GetObjectStreamData(cId, streamBytes) && !streamBytes.empty()) {
+                ParseContentStream(streamBytes, x0, y0, cropW, cropH, rotate, fonts, outPage, xobjects);
+            }
         }
+    } catch (const std::bad_alloc&) {
+        outPage.chars.clear();
+        outPage.fullText.clear();
+        outPage.hasDigitalText = false;
+        return false;
     }
 
     NormalizeVisualArabic(outPage);
@@ -2726,9 +2781,20 @@ void PdfParser::ParseContentStream(
     const std::map<std::string, uint32_t>& xobjects,
     Matrix2D initialCtm,
     int recursionDepth,
-    D2D1_RECT_F localClip
+    D2D1_RECT_F localClip,
+    std::vector<uint32_t>* pActiveForms,
+    uint32_t* pDoCount
 ) {
     if (streamBytes.empty()) return;
+
+    std::vector<uint32_t> localActiveForms;
+    if (!pActiveForms) {
+        pActiveForms = &localActiveForms;
+    }
+    uint32_t localDoCount = 0;
+    if (!pDoCount) {
+        pDoCount = &localDoCount;
+    }
 
     const char* pStream = (const char*)streamBytes.data();
     size_t len = streamBytes.size();
@@ -2892,9 +2958,12 @@ void PdfParser::ParseContentStream(
         while (i < len && (pStream[i] == ' ' || pStream[i] == '\t' || pStream[i] == '\r' || pStream[i] == '\n')) i++;
         if (i >= len) break;
 
-        // Save graphics state 'q'
+        // Save graphics state 'q' (capped at 32 depth per ISO 32000-1 Annex C / SEC-07)
+        constexpr size_t kMaxGraphicsStateDepth = 32;
         if (pStream[i] == 'q' && (i + 1 >= len || pStream[i + 1] == ' ' || pStream[i + 1] == '\t' || pStream[i + 1] == '\r' || pStream[i + 1] == '\n')) {
-            ctmStack.push_back(ctm);
+            if (ctmStack.size() < kMaxGraphicsStateDepth) {
+                ctmStack.push_back(ctm);
+            }
             i++;
             continue;
         }
@@ -2949,8 +3018,9 @@ void PdfParser::ParseContentStream(
             continue;
         }
 
-        // XObject invocation: "/Name Do"
-        if (!inText && pStream[i] == '/' && recursionDepth < 4) {
+        // XObject invocation: "/Name Do" (SEC-11)
+        constexpr uint32_t kMaxFormXObjectInvocations = 1024;
+        if (!inText && pStream[i] == '/' && recursionDepth < 4 && *pDoCount < kMaxFormXObjectInvocations) {
             size_t nStart = i + 1;
             size_t nEnd = nStart;
             while (nEnd < len && pStream[nEnd] != ' ' && pStream[nEnd] != '\t' && pStream[nEnd] != '\r' && pStream[nEnd] != '\n' && pStream[nEnd] != '/') nEnd++;
@@ -2962,59 +3032,65 @@ void PdfParser::ParseContentStream(
                 auto itX = xobjects.find(xName);
                 if (itX != xobjects.end()) {
                     uint32_t xObjId = itX->second;
-                    std::string xDict = GetObjectString(xObjId);
-                    if (xDict.find("/Subtype /Form") != std::string::npos || xDict.find("/Subtype/Form") != std::string::npos) {
-                        // Check for Form /Matrix
-                        Matrix2D formMat = Matrix2D::Identity();
-                        size_t matPos = xDict.find("/Matrix");
-                        if (matPos != std::string::npos) {
-                            size_t b1 = xDict.find('[', matPos);
-                            size_t b2 = xDict.find(']', b1);
-                            if (b1 != std::string::npos && b2 != std::string::npos) {
-                                std::string mStr = xDict.substr(b1 + 1, b2 - b1 - 1);
-                                std::stringstream mss(mStr);
-                                float ma = 1, mb = 0, mc = 0, md = 1, me = 0, mf = 0;
-                                if (mss >> ma >> mb >> mc >> md >> me >> mf) {
-                                    formMat = Matrix2D{ ma, mb, mc, md, me, mf };
+                    // Cycle detection: skip if already active in current call chain
+                    if (std::find(pActiveForms->begin(), pActiveForms->end(), xObjId) == pActiveForms->end()) {
+                        std::string xDict = GetObjectString(xObjId);
+                        if (xDict.find("/Subtype /Form") != std::string::npos || xDict.find("/Subtype/Form") != std::string::npos) {
+                            // Check for Form /Matrix
+                            Matrix2D formMat = Matrix2D::Identity();
+                            size_t matPos = xDict.find("/Matrix");
+                            if (matPos != std::string::npos) {
+                                size_t b1 = xDict.find('[', matPos);
+                                size_t b2 = xDict.find(']', b1);
+                                if (b1 != std::string::npos && b2 != std::string::npos) {
+                                    std::string mStr = xDict.substr(b1 + 1, b2 - b1 - 1);
+                                    std::stringstream mss(mStr);
+                                    float ma = 1, mb = 0, mc = 0, md = 1, me = 0, mf = 0;
+                                    if (mss >> ma >> mb >> mc >> md >> me >> mf) {
+                                        formMat = Matrix2D{ ma, mb, mc, md, me, mf };
+                                    }
                                 }
                             }
-                        }
-                        Matrix2D formCtm = formMat.Multiply(ctm);
+                            Matrix2D formCtm = formMat.Multiply(ctm);
 
-                        // Read Form BBox if present
-                        D2D1_RECT_F formBBox = { -1e9f, -1e9f, 1e9f, 1e9f };
-                        size_t bbPos = xDict.find("/BBox");
-                        if (bbPos != std::string::npos) {
-                            size_t b1 = xDict.find('[', bbPos);
-                            size_t b2 = xDict.find(']', b1);
-                            if (b1 != std::string::npos && b2 != std::string::npos) {
-                                std::string bbStr = xDict.substr(b1 + 1, b2 - b1 - 1);
-                                std::stringstream bss(bbStr);
-                                float bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
-                                if (bss >> bx0 >> by0 >> bx1 >> by1) {
-                                    formBBox = D2D1::RectF(
-                                        std::min(bx0, bx1) - 1.0f,
-                                        std::min(by0, by1) - 1.0f,
-                                        std::max(bx0, bx1) + 1.0f,
-                                        std::max(by0, by1) + 1.0f
-                                    );
+                            // Read Form BBox if present
+                            D2D1_RECT_F formBBox = { -1e9f, -1e9f, 1e9f, 1e9f };
+                            size_t bbPos = xDict.find("/BBox");
+                            if (bbPos != std::string::npos) {
+                                size_t b1 = xDict.find('[', bbPos);
+                                size_t b2 = xDict.find(']', b1);
+                                if (b1 != std::string::npos && b2 != std::string::npos) {
+                                    std::string bbStr = xDict.substr(b1 + 1, b2 - b1 - 1);
+                                    std::stringstream bss(bbStr);
+                                    float bx0 = 0, by0 = 0, bx1 = 0, by1 = 0;
+                                    if (bss >> bx0 >> by0 >> bx1 >> by1) {
+                                        formBBox = D2D1::RectF(
+                                            std::min(bx0, bx1) - 1.0f,
+                                            std::min(by0, by1) - 1.0f,
+                                            std::max(bx0, bx1) + 1.0f,
+                                            std::max(by0, by1) + 1.0f
+                                        );
+                                    }
                                 }
                             }
-                        }
 
-                        // Inherit fonts and merge with Form XObject fonts
-                        auto formFonts = fonts;
-                        auto childFonts = ExtractPageFonts(xDict);
-                        for (auto& cf : childFonts) {
-                            formFonts[cf.first] = std::move(cf.second);
-                        }
+                            // Inherit fonts and merge with Form XObject fonts
+                            auto formFonts = fonts;
+                            auto childFonts = ExtractPageFonts(xDict);
+                            for (auto& cf : childFonts) {
+                                formFonts[cf.first] = std::move(cf.second);
+                            }
 
-                        // Child XObjects
-                        auto childXObjects = ExtractPageXObjects(xDict);
+                            // Child XObjects
+                            auto childXObjects = ExtractPageXObjects(xDict);
 
-                        std::vector<uint8_t> formStream;
-                        if (GetObjectStreamData(xObjId, formStream) && !formStream.empty()) {
-                            ParseContentStream(formStream, cropX0, cropY0, cropW, cropH, rotate, formFonts, outPage, childXObjects, formCtm, recursionDepth + 1, formBBox);
+                            std::vector<uint8_t> formStream;
+                            if (GetObjectStreamData(xObjId, formStream) && !formStream.empty()) {
+                                (*pDoCount)++;
+                                pActiveForms->push_back(xObjId);
+                                ParseContentStream(formStream, cropX0, cropY0, cropW, cropH, rotate, formFonts, outPage, childXObjects, formCtm, recursionDepth + 1, formBBox, pActiveForms, pDoCount);
+                                pActiveForms->pop_back();
+                            }
                         }
                     }
                 }

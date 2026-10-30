@@ -49,9 +49,6 @@ static std::wstring FindDictAsset(const wchar_t* subPath, bool checkExeRoot = fa
     std::wstring cand2 = exeDir + L"\\..\\" + subPath;
     if (GetFileAttributesW(cand2.c_str()) != INVALID_FILE_ATTRIBUTES) return cand2;
 
-    std::wstring cand3 = std::wstring(subPath);
-    if (GetFileAttributesW(cand3.c_str()) != INVALID_FILE_ATTRIBUTES) return cand3;
-
     if (checkExeRoot) {
         std::wstring fileName = PathUtils::GetFileName(subPath);
         std::wstring cand4 = exeDir + L"\\" + fileName;
@@ -179,6 +176,17 @@ bool DictionaryEngine::Initialize(const std::wstring& explicitPath) {
     m_indexRecords = (const DictRecord*)(m_mappedData + header->indexOffset);
     m_textPool = (const char*)(m_mappedData + header->textOffset);
 
+    // SEC-05: Single-pass validation of record offsets to prevent OOB reads
+    uint64_t textPoolSize = m_fileSize - header->textOffset;
+    for (uint32_t i = 0; i < m_entryCount; ++i) {
+        const auto& rec = m_indexRecords[i];
+        if ((uint64_t)rec.wordOffset + rec.wordLen > textPoolSize ||
+            (uint64_t)rec.defOffset + rec.defLen > textPoolSize) {
+            Close();
+            return false;
+        }
+    }
+
     // Load custom user terms
     LoadUserTerms(FindUserTermsFile());
 
@@ -226,11 +234,11 @@ std::wstring DictionaryEngine::Utf8ToUtf16(const char* utf8, size_t len) const {
 bool DictionaryEngine::BinarySearch(const std::string& targetLower, DictionaryResult& outResult) {
     if (!m_indexRecords || !m_textPool || m_entryCount == 0) return false;
 
-    int left = 0;
-    int right = (int)m_entryCount - 1;
+    size_t left = 0;
+    size_t right = m_entryCount - 1;
 
     while (left <= right) {
-        int mid = left + (right - left) / 2;
+        size_t mid = left + (right - left) / 2;
         const auto& rec = m_indexRecords[mid];
 
         const char* wordPtr = m_textPool + rec.wordOffset;
@@ -250,6 +258,7 @@ bool DictionaryEngine::BinarySearch(const std::string& targetLower, DictionaryRe
             outResult.category = (DictionaryCategory)rec.category;
             return true;
         } else if (cmp < 0) {
+            if (mid == 0) break;
             right = mid - 1;
         } else {
             left = mid + 1;

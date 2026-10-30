@@ -1522,3 +1522,88 @@ TEST_CASE("Settings: Registry Persistence, Theme Cycling, and Options Modal Hit-
         CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 1, 2)), winW, winH, dpi, 2) == OPT_HIT_CLEAR_RECENT);
     }
 }
+
+// ============================================================================
+// Security Hardening & Regression Suite (v2.4.1)
+// ============================================================================
+
+TEST_CASE("Security: Deflate Stream Overrun and Inflation Limits (SEC-01)") {
+    SUBCASE("Truncated Deflate Stream Safe Abort") {
+        // Truncated zlib header + cut off dynamic block
+        const uint8_t truncatedZlib[] = { 0x78, 0x9C, 0xED, 0xC1, 0x01, 0x01, 0x00, 0x00 };
+        std::vector<uint8_t> out;
+        bool res = PdfParser::InflateStream(truncatedZlib, sizeof(truncatedZlib), out);
+        CHECK_FALSE(res);
+    }
+
+    SUBCASE("Corrupt Stored Block LEN != ~NLEN Rejection") {
+        // Block type 0 (uncompressed) with mismatching LEN / NLEN
+        const uint8_t invalidStored[] = {
+            0x78, 0x01,
+            0x01,                   // BFINAL=1, BTYPE=00 (uncompressed)
+            0x04, 0x00,             // LEN = 4
+            0x00, 0x00,             // NLEN = 0 (invalid! must be ~LEN = 0xFFFB)
+            't', 'e', 's', 't'
+        };
+        std::vector<uint8_t> out;
+        bool res = PdfParser::InflateStream(invalidStored, sizeof(invalidStored), out);
+        CHECK_FALSE(res);
+    }
+}
+
+TEST_CASE("Security: External URI and Mailto Link Sanitization (SEC-15)") {
+    CHECK(PdfParser::IsSafeExternalUri(L"https://etherhome.com/research"));
+    CHECK(PdfParser::IsSafeExternalUri(L"http://example.org/doc.pdf"));
+    CHECK(PdfParser::IsSafeExternalUri(L"mailto:support@lightpdf.local"));
+    CHECK(PdfParser::IsSafeExternalUri(L"mailto:contact@lightpdf.local?subject=BugReport"));
+
+    // Blocked dangerous mailto parameters (attach / attachment injection)
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"mailto:attacker@evil.com?attach=C:\\Windows\\System32\\cmd.exe"));
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"mailto:attacker@evil.com?ATTACH=C:\\boot.ini"));
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"mailto:attacker@evil.com?attachment=C:\\Users\\Desktop\\file.txt"));
+
+    // Blocked unsafe protocols
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"file:///C:/Windows/System32/calc.exe"));
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"javascript:alert(1)"));
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"data:text/html,test"));
+    CHECK_FALSE(PdfParser::IsSafeExternalUri(L"cmd.exe"));
+}
+
+TEST_CASE("Security: Dictionary Isolation and Bounds Verification (SEC-06, SEC-05)") {
+    SUBCASE("Dictionary Asset Loading Never Resolves from CWD") {
+        // Verify FindDictionaryFile finds the valid assets directory or returns empty, never relative CWD
+        std::wstring dictPath = DictionaryEngine::FindDictionaryFile();
+        if (!dictPath.empty()) {
+            CHECK(dictPath.find(L"\\dict\\") != std::wstring::npos);
+        }
+    }
+
+    SUBCASE("Dictionary Binary Search Integer Bounds") {
+        DictionaryEngine engine;
+        std::wstring dictPath = DictionaryEngine::FindDictionaryFile();
+        if (!dictPath.empty() && engine.Initialize(dictPath)) {
+            DictionaryResult res;
+            CHECK(engine.Lookup(L"microkernel", res));
+            CHECK(!res.definition.empty());
+            CHECK_FALSE(engine.Lookup(L"nonexistent_term_xyz_12345", res));
+        }
+    }
+}
+
+TEST_CASE("Security: Graphics State 'q' Depth Limit and Form Cycle Breaker (SEC-07, SEC-11)") {
+    PdfParser parser;
+    PdfPageText pageText;
+    std::map<std::string, PdfFontInfo> fonts;
+    std::map<std::string, uint32_t> xobjects;
+
+    SUBCASE("Excessive 'q' Nesting Is Safely Clamped") {
+        std::vector<uint8_t> stream;
+        // Push 100 'q' operations (exceeding limit of 32) followed by 'Q' operations
+        for (int i = 0; i < 100; ++i) { stream.push_back('q'); stream.push_back(' '); }
+        for (int i = 0; i < 100; ++i) { stream.push_back('Q'); stream.push_back(' '); }
+
+        // Must parse safely without stack overflow or huge allocations
+        parser.ParseContentStream(stream, 0, 0, 612, 792, 0, fonts, pageText, xobjects);
+        CHECK(pageText.chars.empty());
+    }
+}

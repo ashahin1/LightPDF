@@ -185,7 +185,7 @@ bool TtsEngine::SpeakAsync(const std::wstring& text) {
     if (!m_pVoice) return false;
     m_paused = false;
 
-    HRESULT hr = m_pVoice->Speak(text.c_str(), SPF_ASYNC | SPF_PURGEBEFORESPEAK, NULL);
+    HRESULT hr = m_pVoice->Speak(text.c_str(), SPF_ASYNC | SPF_PURGEBEFORESPEAK | SPF_IS_NOT_XML, NULL);
     return SUCCEEDED(hr);
 }
 

@@ -14,6 +14,16 @@
 #include <algorithm>
 #include <cstdio>
 #include <cmath>
+#include <atomic>
+
+// Generate unpredictable temporary path in same directory to prevent symlink attacks (SEC-03)
+static std::wstring MakeUniqueTempPath(const std::wstring& targetPath) {
+    static std::atomic<uint32_t> s_tempCounter{ 0 };
+    uint32_t c = ++s_tempCounter;
+    DWORD pid = GetCurrentProcessId();
+    ULONGLONG ticks = GetTickCount64();
+    return targetPath + L"." + std::to_wstring(pid) + L"_" + std::to_wstring(ticks) + L"_" + std::to_wstring(c) + L".tmp";
+}
 
 static bool ParseBoxHelper(const std::string& dict, const std::string& key, float& rx0, float& ry0, float& rx1, float& ry1) {
     size_t pos = dict.find(key);
@@ -489,7 +499,7 @@ bool PdfSearchableWriter::WriteSearchablePdf(
 
     // 7. Write to destination file
     bool isOverwrite = (_wcsicmp(srcPdfPath.c_str(), dstPdfPath.c_str()) == 0);
-    std::wstring writeTarget = isOverwrite ? (srcPdfPath + L".tmp") : dstPdfPath;
+    std::wstring writeTarget = isOverwrite ? MakeUniqueTempPath(srcPdfPath) : dstPdfPath;
 
     if (progressCallback) progressCallback(0.9f, L"Writing searchable PDF...");
 

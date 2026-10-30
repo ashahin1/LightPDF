@@ -1,6 +1,6 @@
 Set-Location -Path $PSScriptRoot\..
 
-$tag = "v2.4.0"
+$tag = "v2.4.1"
 $zipName = "dist\LightPDF-$tag-windows-x64.zip"
 $tempDir = "bin\release_pkg"
 

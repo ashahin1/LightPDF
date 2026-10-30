@@ -246,10 +246,18 @@ struct DictionaryCardLayout {
 struct PasswordOverlayRenderInfo {
     bool visible = false;
     std::wstring fileName;
+    size_t passwordLength = 0;
     std::wstring passwordInput;
     std::wstring errorMessage;
     bool showPassword = false;
     int hoveredButton = 0; // 0: None, 1: Close(X), 2: Show/Hide, 3: Unlock, 4: Cancel
+
+    ~PasswordOverlayRenderInfo() {
+        if (!passwordInput.empty()) {
+            SecureZeroMemory(passwordInput.data(), passwordInput.size() * sizeof(wchar_t));
+            passwordInput.clear();
+        }
+    }
 };
 
 /**
