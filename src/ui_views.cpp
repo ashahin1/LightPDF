@@ -1,9 +1,41 @@
 #include "ui_views.hpp"
 #include "settings_controller.hpp"
+#include "common_utils.hpp"
 #include <algorithm>
 #include <cmath>
 
 namespace UIViews {
+
+namespace {
+inline void DrawModalCardChrome(
+    ID2D1DeviceContext* ctx,
+    float dipWidth,
+    float dipHeight,
+    const D2D1_RECT_F& card,
+    ID2D1Brush* brushBackdrop,
+    ID2D1Brush* brushShadow,
+    ID2D1Brush* brushCardBg,
+    ID2D1Brush* brushBorder,
+    float radius = 12.0f,
+    float borderWidth = 1.5f,
+    float shadowOffset = 6.0f
+) {
+    if (!ctx) return;
+    if (brushBackdrop) {
+        ctx->FillRectangle(D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight), brushBackdrop);
+    }
+    if (brushShadow) {
+        D2D1_RECT_F shadow = D2D1::RectF(card.left + shadowOffset, card.top + shadowOffset, card.right + shadowOffset + 2.0f, card.bottom + shadowOffset + 2.0f);
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(shadow, radius, radius), brushShadow);
+    }
+    if (brushCardBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(card, radius, radius), brushCardBg);
+    }
+    if (brushBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, radius, radius), brushBorder, borderWidth);
+    }
+}
+} // namespace
 
 // =========================================================================
 // 1. TabStrip View
@@ -453,28 +485,23 @@ void SearchBarView::Render(
 // 5. HelpOverlay View
 // =========================================================================
 int HelpOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipWidth = (float)width * dipScale;
     float dipHeight = (float)height * dipScale;
 
-    float px = (float)pt.x * dipScale;
-    float py = (float)pt.y * dipScale;
-
     D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F closeBtn = HelpOverlayLayout::GetCloseBtnRect(card);
-
-    if (px >= closeBtn.left && px <= closeBtn.right && py >= closeBtn.top && py <= closeBtn.bottom) {
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, HelpOverlayLayout::GetCloseBtnRect(card))) {
         return 100; // Close button
     }
 
     for (int i = 0; i < 5; ++i) {
-        D2D1_RECT_F tabRect = HelpOverlayLayout::GetCategoryTabRect(card, i);
-        if (px >= tabRect.left && px <= tabRect.right && py >= tabRect.top && py <= tabRect.bottom) {
+        if (DpiUtils::PointInRect(ptDip.x, ptDip.y, HelpOverlayLayout::GetCategoryTabRect(card, i))) {
             return i; // Category tab 0..4
         }
     }
 
-    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, card)) {
         return 999; // Inside card body
     }
 
@@ -490,21 +517,8 @@ void HelpOverlayView::Render(
 ) {
     if (!ctx) return;
 
-    // 1. Semi-transparent backdrop over entire window
-    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
-    ctx->FillRectangle(backdropRect, res.brushHelpBackdrop);
-
-    // 2. Centered Help Card
     D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_ROUNDED_RECT roundedCard = D2D1::RoundedRect(card, 12.0f, 12.0f);
-
-    // Drop shadow
-    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), res.brushPageShadow);
-
-    // Card background & crisp border
-    ctx->FillRoundedRectangle(roundedCard, res.brushHelpCardBg);
-    ctx->DrawRoundedRectangle(roundedCard, res.brushHelpCardBorder, 1.5f);
+    DrawModalCardChrome(ctx, dipWidth, dipHeight, card, res.brushHelpBackdrop, res.brushPageShadow, res.brushHelpCardBg, res.brushHelpCardBorder);
 
     // 3. Header: Title and Close Button [×]
     D2D1_RECT_F titleRect = D2D1::RectF(card.left, card.top + 14.0f, card.right, card.top + 38.0f);
@@ -775,33 +789,17 @@ void HelpOverlayView::Render(
 // 6. DocProperties View
 // =========================================================================
 int DocPropertiesView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipWidth = (float)width * dipScale;
     float dipHeight = (float)height * dipScale;
 
-    float px = (float)pt.x * dipScale;
-    float py = (float)pt.y * dipScale;
-
     D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F closeRect = DocumentPropertiesLayout::GetCloseBtnRect(card);
-    D2D1_RECT_F copyRect = DocumentPropertiesLayout::GetCopyBtnRect(card);
-    D2D1_RECT_F okRect = DocumentPropertiesLayout::GetOkBtnRect(card);
-
-    if (px >= closeRect.left && px <= closeRect.right && py >= closeRect.top && py <= closeRect.bottom) {
-        return 1; // Close button
-    }
-    if (px >= copyRect.left && px <= copyRect.right && py >= copyRect.top && py <= copyRect.bottom) {
-        return 2; // Copy All button
-    }
-    if (px >= okRect.left && px <= okRect.right && py >= okRect.top && py <= okRect.bottom) {
-        return 3; // OK button
-    }
-
-    if (px >= card.left && px <= card.right && py >= card.top && py <= card.bottom) {
-        return 0; // Inside card body
-    }
-
-    return -1; // Backdrop click (outside card)
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, DocumentPropertiesLayout::GetCloseBtnRect(card))) return 1;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, DocumentPropertiesLayout::GetCopyBtnRect(card))) return 2;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, DocumentPropertiesLayout::GetOkBtnRect(card))) return 3;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, card)) return 0;
+    return -1;
 }
 
 void DocPropertiesView::Render(
@@ -813,17 +811,8 @@ void DocPropertiesView::Render(
 ) {
     if (!ctx) return;
 
-    // 1. Semi-transparent backdrop
-    D2D1_RECT_F backdropRect = D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight);
-    ctx->FillRectangle(backdropRect, res.brushHelpBackdrop);
-
-    // 2. Card container & drop shadow
     D2D1_RECT_F card = DocumentPropertiesLayout::GetCardRect(dipWidth, dipHeight);
-    D2D1_RECT_F cardShadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(cardShadow, 12.0f, 12.0f), res.brushPageShadow);
-
-    ctx->FillRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushHelpCardBg);
-    ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushHelpCardBorder, 1.5f);
+    DrawModalCardChrome(ctx, dipWidth, dipHeight, card, res.brushHelpBackdrop, res.brushPageShadow, res.brushHelpCardBg, res.brushHelpCardBorder);
 
     // 3. Header
     D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 16.0f, card.right - 50.0f, card.top + 42.0f);
@@ -1190,26 +1179,21 @@ void PresenterBarView::Render(
 }
 
 int PresenterBarView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipW = (float)width * dipScale;
     float dipH = (float)height * dipScale;
 
     D2D1_RECT_F bar = PresenterBarLayout::GetBarRect(dipW, dipH);
-    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
+    if (!DpiUtils::PointInRect(ptDip.x, ptDip.y, bar)) {
         return -1;
     }
 
-    auto inRect = [&](const D2D1_RECT_F& r) {
-        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
-    };
-
-    if (inRect(PresenterBarLayout::GetPrevBtnRect(bar))) return 0;
-    if (inRect(PresenterBarLayout::GetNextBtnRect(bar))) return 1;
-    if (inRect(PresenterBarLayout::GetLaserBtnRect(bar))) return 2;
-    if (inRect(PresenterBarLayout::GetColorBtnRect(bar))) return 3;
-    if (inRect(PresenterBarLayout::GetExitBtnRect(bar))) return 4;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PresenterBarLayout::GetPrevBtnRect(bar))) return 0;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PresenterBarLayout::GetNextBtnRect(bar))) return 1;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PresenterBarLayout::GetLaserBtnRect(bar))) return 2;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PresenterBarLayout::GetColorBtnRect(bar))) return 3;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PresenterBarLayout::GetExitBtnRect(bar))) return 4;
 
     return 100; // Inside bar body
 }
@@ -1280,25 +1264,18 @@ void TtsBarView::Render(
 }
 
 int TtsBarView::HitTest(POINT pt, UINT width, [[maybe_unused]] UINT height, float dpi, float topOffset) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipW = (float)width * dipScale;
 
     D2D1_RECT_F bar = TtsBarLayout::GetBarRect(dipW, topOffset);
-    if (dipX < bar.left || dipX > bar.right || dipY < bar.top || dipY > bar.bottom) {
+    if (!DpiUtils::PointInRect(ptDip.x, ptDip.y, bar)) {
         return -1;
     }
 
-    auto inRect = [&](const D2D1_RECT_F& r) {
-        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
-    };
-
-    if (inRect(TtsBarLayout::GetBtnRect(bar, 0))) return 0;
-    if (inRect(TtsBarLayout::GetBtnRect(bar, 1))) return 1;
-    if (inRect(TtsBarLayout::GetBtnRect(bar, 2))) return 2;
-    if (inRect(TtsBarLayout::GetBtnRect(bar, 3))) return 3;
-    if (inRect(TtsBarLayout::GetBtnRect(bar, 4))) return 4;
+    for (int i = 0; i < 5; ++i) {
+        if (DpiUtils::PointInRect(ptDip.x, ptDip.y, TtsBarLayout::GetBtnRect(bar, i))) return i;
+    }
 
     return 100; // Inside bar body
 }
@@ -1534,24 +1511,8 @@ void PasswordOverlayView::Render(
 ) {
     if (!ctx || !info.visible) return;
 
-    // 1. Fullscreen Dimmed Backdrop
-    if (res.brushBackdrop) {
-        ctx->FillRectangle(D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight), res.brushBackdrop);
-    }
-
-    // 2. Centered Modal Card with Drop Shadow
     D2D1_RECT_F card = PasswordOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    if (res.brushPageShadow) {
-        D2D1_RECT_F shadow = D2D1::RectF(card.left + 3.0f, card.top + 4.0f, card.right + 4.0f, card.bottom + 6.0f);
-        ctx->FillRoundedRectangle(D2D1::RoundedRect(shadow, 10.0f, 10.0f), res.brushPageShadow);
-    }
-
-    if (res.brushCardBg) {
-        ctx->FillRoundedRectangle(D2D1::RoundedRect(card, 10.0f, 10.0f), res.brushCardBg);
-    }
-    if (res.brushBorder) {
-        ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, 10.0f, 10.0f), res.brushBorder, 1.0f);
-    }
+    DrawModalCardChrome(ctx, dipWidth, dipHeight, card, res.brushBackdrop, res.brushPageShadow, res.brushCardBg, res.brushBorder, 10.0f, 1.0f, 3.0f);
 
     // 3. Header Title: "Password Protected"
     D2D1_RECT_F titleRect = D2D1::RectF(card.left + 20.0f, card.top + 14.0f, card.right - 44.0f, card.top + 40.0f);
@@ -1664,26 +1625,21 @@ void PasswordOverlayView::Render(
 }
 
 int PasswordOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
-    float dipX = (float)pt.x * dipScale;
-    float dipY = (float)pt.y * dipScale;
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipW = (float)width * dipScale;
     float dipH = (float)height * dipScale;
 
     D2D1_RECT_F card = PasswordOverlayLayout::GetCardRect(dipW, dipH);
-    if (dipX < card.left || dipX > card.right || dipY < card.top || dipY > card.bottom) {
+    if (!DpiUtils::PointInRect(ptDip.x, ptDip.y, card)) {
         return -1; // Outside card
     }
 
-    auto inRect = [&](const D2D1_RECT_F& r) {
-        return dipX >= r.left && dipX <= r.right && dipY >= r.top && dipY <= r.bottom;
-    };
-
-    if (inRect(PasswordOverlayLayout::GetCloseBtnRect(card))) return 1;
-    if (inRect(PasswordOverlayLayout::GetToggleShowBtnRect(card))) return 2;
-    if (inRect(PasswordOverlayLayout::GetUnlockBtnRect(card))) return 3;
-    if (inRect(PasswordOverlayLayout::GetCancelBtnRect(card))) return 4;
-    if (inRect(PasswordOverlayLayout::GetInputBoxRect(card))) return 5;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PasswordOverlayLayout::GetCloseBtnRect(card))) return 1;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PasswordOverlayLayout::GetToggleShowBtnRect(card))) return 2;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PasswordOverlayLayout::GetUnlockBtnRect(card))) return 3;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PasswordOverlayLayout::GetCancelBtnRect(card))) return 4;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, PasswordOverlayLayout::GetInputBoxRect(card))) return 5;
 
     return 100; // Inside card body
 }
@@ -1693,19 +1649,18 @@ int PasswordOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
 // =========================================================================
 
 int OptionsOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi, int activeCategory) {
-    float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
-    float px = (float)pt.x * dipScale;
-    float py = (float)pt.y * dipScale;
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
     float dipW = (float)width * dipScale;
     float dipH = (float)height * dipScale;
 
     D2D1_RECT_F card = OptionsOverlayLayout::GetCardRect(dipW, dipH);
-    if (px < card.left || px > card.right || py < card.top || py > card.bottom) {
+    if (!DpiUtils::PointInRect(ptDip.x, ptDip.y, card)) {
         return OPT_HIT_OUTSIDE;
     }
 
     auto inRect = [&](const D2D1_RECT_F& r) {
-        return px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
+        return DpiUtils::PointInRect(ptDip.x, ptDip.y, r);
     };
 
     if (inRect(OptionsOverlayLayout::GetCloseBtnRect(card))) return OPT_HIT_CLOSE_BTN;
@@ -1755,23 +1710,8 @@ void OptionsOverlayView::Render(
 ) {
     if (!ctx || !info.visible) return;
 
-    // 1. Backdrop
-    if (res.brushBackdrop) {
-        ctx->FillRectangle(D2D1::RectF(0.0f, 0.0f, dipWidth, dipHeight), res.brushBackdrop);
-    }
-
-    // 2. Card & Shadow
     D2D1_RECT_F card = OptionsOverlayLayout::GetCardRect(dipWidth, dipHeight);
-    if (res.brushPageShadow) {
-        D2D1_RECT_F shadow = D2D1::RectF(card.left + 6.0f, card.top + 6.0f, card.right + 8.0f, card.bottom + 8.0f);
-        ctx->FillRoundedRectangle(D2D1::RoundedRect(shadow, 12.0f, 12.0f), res.brushPageShadow);
-    }
-    if (res.brushCardBg) {
-        ctx->FillRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushCardBg);
-    }
-    if (res.brushBorder) {
-        ctx->DrawRoundedRectangle(D2D1::RoundedRect(card, 12.0f, 12.0f), res.brushBorder, 1.5f);
-    }
+    DrawModalCardChrome(ctx, dipWidth, dipHeight, card, res.brushBackdrop, res.brushPageShadow, res.brushCardBg, res.brushBorder);
 
     // 3. Header Title & Close Button
     D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 14.0f, card.right - 50.0f, card.top + 40.0f);

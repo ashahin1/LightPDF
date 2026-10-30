@@ -1,4 +1,5 @@
 #include "dictionary_engine.hpp"
+#include "common_utils.hpp"
 #include <algorithm>
 #include <fstream>
 #include <sstream>
@@ -31,54 +32,35 @@ void DictionaryEngine::Close() {
     m_initialized = false;
 }
 
-std::wstring DictionaryEngine::FindDictionaryFile() {
+static std::wstring FindDictAsset(const wchar_t* subPath, bool checkExeRoot = false) {
     wchar_t exePath[MAX_PATH] = { 0 };
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring exeDir = PathUtils::GetDirectory(exePath);
+    if (exeDir.empty()) exeDir = L".";
 
-    std::wstring pathStr(exePath);
-    size_t lastSlash = pathStr.find_last_of(L"\\/");
-    std::wstring exeDir = (lastSlash != std::wstring::npos) ? pathStr.substr(0, lastSlash) : L".";
-
-    // 1. Check exeDir\dict\en-ar.dat
-    std::wstring cand1 = exeDir + L"\\dict\\en-ar.dat";
+    std::wstring cand1 = exeDir + L"\\" + subPath;
     if (GetFileAttributesW(cand1.c_str()) != INVALID_FILE_ATTRIBUTES) return cand1;
 
-    // 2. Check exeDir\..\dict\en-ar.dat (when running from bin/)
-    std::wstring cand2 = exeDir + L"\\..\\dict\\en-ar.dat";
+    std::wstring cand2 = exeDir + L"\\..\\" + subPath;
     if (GetFileAttributesW(cand2.c_str()) != INVALID_FILE_ATTRIBUTES) return cand2;
 
-    // 3. Check current working directory dict\en-ar.dat
-    std::wstring cand3 = L"dict\\en-ar.dat";
+    std::wstring cand3 = std::wstring(subPath);
     if (GetFileAttributesW(cand3.c_str()) != INVALID_FILE_ATTRIBUTES) return cand3;
 
-    // 4. Check en-ar.dat in exe directory
-    std::wstring cand4 = exeDir + L"\\en-ar.dat";
-    if (GetFileAttributesW(cand4.c_str()) != INVALID_FILE_ATTRIBUTES) return cand4;
-
+    if (checkExeRoot) {
+        std::wstring fileName = PathUtils::GetFileName(subPath);
+        std::wstring cand4 = exeDir + L"\\" + fileName;
+        if (GetFileAttributesW(cand4.c_str()) != INVALID_FILE_ATTRIBUTES) return cand4;
+    }
     return L"";
 }
 
+std::wstring DictionaryEngine::FindDictionaryFile() {
+    return FindDictAsset(L"dict\\en-ar.dat", true);
+}
+
 std::wstring DictionaryEngine::FindUserTermsFile() {
-    wchar_t exePath[MAX_PATH] = { 0 };
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-
-    std::wstring pathStr(exePath);
-    size_t lastSlash = pathStr.find_last_of(L"\\/");
-    std::wstring exeDir = (lastSlash != std::wstring::npos) ? pathStr.substr(0, lastSlash) : L".";
-
-    // 1. Check exeDir\dict\user_terms.txt
-    std::wstring cand1 = exeDir + L"\\dict\\user_terms.txt";
-    if (GetFileAttributesW(cand1.c_str()) != INVALID_FILE_ATTRIBUTES) return cand1;
-
-    // 2. Check exeDir\..\dict\user_terms.txt
-    std::wstring cand2 = exeDir + L"\\..\\dict\\user_terms.txt";
-    if (GetFileAttributesW(cand2.c_str()) != INVALID_FILE_ATTRIBUTES) return cand2;
-
-    // 3. Check current working directory dict\user_terms.txt
-    std::wstring cand3 = L"dict\\user_terms.txt";
-    if (GetFileAttributesW(cand3.c_str()) != INVALID_FILE_ATTRIBUTES) return cand3;
-
-    return L"";
+    return FindDictAsset(L"dict\\user_terms.txt", false);
 }
 
 void DictionaryEngine::LoadUserTerms(const std::wstring& userTermsPath) {
@@ -228,21 +210,12 @@ std::wstring DictionaryEngine::CleanQuery(const std::wstring& rawQuery) const {
 }
 
 std::string DictionaryEngine::Utf16ToUtf8(const std::wstring& wstr) const {
-    if (wstr.empty()) return "";
-    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
-    if (len <= 0) return "";
-    std::string str(len, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), &str[0], len, nullptr, nullptr);
-    return str;
+    return StringUtils::ToUtf8(wstr);
 }
 
 std::wstring DictionaryEngine::Utf8ToUtf16(const char* utf8, size_t len) const {
     if (!utf8 || len == 0) return L"";
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, nullptr, 0);
-    if (wlen <= 0) return L"";
-    std::wstring wstr(wlen, 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, &wstr[0], wlen);
-    return wstr;
+    return StringUtils::ToUtf16(std::string_view(utf8, len));
 }
 
 bool DictionaryEngine::BinarySearch(const std::string& targetLower, DictionaryResult& outResult) {

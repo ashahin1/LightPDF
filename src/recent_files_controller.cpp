@@ -4,6 +4,7 @@
  */
 
 #include "recent_files_controller.hpp"
+#include "common_utils.hpp"
 #include <cwchar>
 
 RecentFilesController::RecentFilesController(const std::wstring& regSubKey)
@@ -13,22 +14,11 @@ RecentFilesController::RecentFilesController(const std::wstring& regSubKey)
 }
 
 std::wstring RecentFilesController::NormalizePath(const std::wstring& path) {
-    if (path.empty()) return L"";
-
-    wchar_t fullPath[MAX_PATH * 2] = { 0 };
-    DWORD len = GetFullPathNameW(path.c_str(), static_cast<DWORD>(_countof(fullPath)), fullPath, nullptr);
-    if (len > 0 && len < static_cast<DWORD>(_countof(fullPath))) {
-        return std::wstring(fullPath, len);
-    }
-    return path;
+    return PathUtils::NormalizePath(path);
 }
 
 std::wstring RecentFilesController::ExtractFileName(const std::wstring& path) {
-    size_t lastSlash = path.find_last_of(L"\\/");
-    if (lastSlash != std::wstring::npos && lastSlash + 1 < path.length()) {
-        return path.substr(lastSlash + 1);
-    }
-    return path;
+    return PathUtils::GetFileName(path);
 }
 
 void RecentFilesController::LoadFromRegistry() {

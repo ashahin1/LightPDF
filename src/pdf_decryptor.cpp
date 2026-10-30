@@ -5,6 +5,7 @@
 
 #include "pdf_decryptor.hpp"
 #include "pdf_parser.hpp"
+#include "common_utils.hpp"
 #include <bcrypt.h>
 #include <algorithm>
 #include <fstream>
@@ -27,10 +28,10 @@ static const uint8_t s_passwordPadding[32] = {
 // Cryptographic Helper Functions
 // ============================================================================
 
-static std::vector<uint8_t> ComputeMD5(const uint8_t* data, size_t len) {
-    std::vector<uint8_t> digest(16, 0);
+static std::vector<uint8_t> ComputeBCryptHash(LPCWSTR algId, size_t digestSize, const uint8_t* data, size_t len) {
+    std::vector<uint8_t> digest(digestSize, 0);
     BCRYPT_ALG_HANDLE hAlg = NULL;
-    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_MD5_ALGORITHM, NULL, 0) == 0) {
+    if (BCryptOpenAlgorithmProvider(&hAlg, algId, NULL, 0) == 0) {
         BCRYPT_HASH_HANDLE hHash = NULL;
         if (BCryptCreateHash(hAlg, &hHash, NULL, 0, NULL, 0, 0) == 0) {
             BCryptHashData(hHash, (PUCHAR)data, (ULONG)len, 0);
@@ -42,19 +43,12 @@ static std::vector<uint8_t> ComputeMD5(const uint8_t* data, size_t len) {
     return digest;
 }
 
+static std::vector<uint8_t> ComputeMD5(const uint8_t* data, size_t len) {
+    return ComputeBCryptHash(BCRYPT_MD5_ALGORITHM, 16, data, len);
+}
+
 static std::vector<uint8_t> ComputeSHA256(const uint8_t* data, size_t len) {
-    std::vector<uint8_t> digest(32, 0);
-    BCRYPT_ALG_HANDLE hAlg = NULL;
-    if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, NULL, 0) == 0) {
-        BCRYPT_HASH_HANDLE hHash = NULL;
-        if (BCryptCreateHash(hAlg, &hHash, NULL, 0, NULL, 0, 0) == 0) {
-            BCryptHashData(hHash, (PUCHAR)data, (ULONG)len, 0);
-            BCryptFinishHash(hHash, digest.data(), (ULONG)digest.size(), 0);
-            BCryptDestroyHash(hHash);
-        }
-        BCryptCloseAlgorithmProvider(hAlg, 0);
-    }
-    return digest;
+    return ComputeBCryptHash(BCRYPT_SHA256_ALGORITHM, 32, data, len);
 }
 
 static void Rc4Crypt(const uint8_t* key, size_t keyLen, const uint8_t* in, size_t inLen, uint8_t* out) {
@@ -496,12 +490,7 @@ PdfDecryptResult PdfDecryptor::DecryptAndSave(
     }
 
     // Convert password wstring to utf8 string
-    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, password.c_str(), (int)password.size(), NULL, 0, NULL, NULL);
-    std::string passUtf8;
-    if (utf8Len > 0) {
-        passUtf8.resize(utf8Len);
-        WideCharToMultiByte(CP_UTF8, 0, password.c_str(), (int)password.size(), &passUtf8[0], utf8Len, NULL, NULL);
-    }
+    std::string passUtf8 = StringUtils::ToUtf8(password);
 
     std::vector<uint8_t> fek = DeriveFileKey(info, passUtf8);
     if (fek.empty()) {

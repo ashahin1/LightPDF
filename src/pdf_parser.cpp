@@ -2045,35 +2045,24 @@ std::map<uint32_t, std::wstring> PdfParser::ParseToUnicodeCMap(const std::vector
     return cmap;
 }
 
+std::string PdfParser::ResolvePageResources(const std::string& pageDict) const {
+    std::string resDict;
+    WalkPageHierarchy(pageDict, [this, &resDict](const std::string& dict) {
+        uint32_t resObj = 0;
+        if (FindIndirectRef(dict, "/Resources", resObj)) {
+            resDict = GetObjectString(resObj);
+            return true;
+        }
+        resDict = ResolveDict(dict, "/Resources");
+        return !resDict.empty();
+    });
+    return resDict;
+}
+
 std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string& pageDict) const {
     std::map<std::string, PdfFontInfo> fonts;
 
-    std::string resDict;
-    uint32_t resObj = 0;
-    if (FindIndirectRef(pageDict, "/Resources", resObj)) {
-        resDict = GetObjectString(resObj);
-    } else {
-        resDict = ResolveDict(pageDict, "/Resources");
-        if (resDict.empty()) {
-            uint32_t curParent = 0;
-            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
-                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
-                    std::string parentStr = GetObjectString(curParent);
-                    if (FindIndirectRef(parentStr, "/Resources", resObj)) {
-                        resDict = GetObjectString(resObj);
-                        break;
-                    } else {
-                        resDict = ResolveDict(parentStr, "/Resources");
-                        if (!resDict.empty()) break;
-                    }
-                    uint32_t nextParent = 0;
-                    if (!FindIndirectRef(parentStr, "/Parent", nextParent)) break;
-                    curParent = nextParent;
-                }
-            }
-        }
-    }
-
+    std::string resDict = ResolvePageResources(pageDict);
     if (resDict.empty()) return fonts;
 
     std::string fontDict;
@@ -2351,32 +2340,7 @@ std::map<std::string, PdfFontInfo> PdfParser::ExtractPageFonts(const std::string
 std::map<std::string, uint32_t> PdfParser::ExtractPageXObjects(const std::string& pageDict) const {
     std::map<std::string, uint32_t> xobjects;
 
-    std::string resDict;
-    uint32_t resObj = 0;
-    if (FindIndirectRef(pageDict, "/Resources", resObj)) {
-        resDict = GetObjectString(resObj);
-    } else {
-        resDict = ResolveDict(pageDict, "/Resources");
-        if (resDict.empty()) {
-            uint32_t curParent = 0;
-            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
-                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
-                    std::string parentStr = GetObjectString(curParent);
-                    if (FindIndirectRef(parentStr, "/Resources", resObj)) {
-                        resDict = GetObjectString(resObj);
-                        break;
-                    } else {
-                        resDict = ResolveDict(parentStr, "/Resources");
-                        if (!resDict.empty()) break;
-                    }
-                    uint32_t nextParent = 0;
-                    if (!FindIndirectRef(parentStr, "/Parent", nextParent)) break;
-                    curParent = nextParent;
-                }
-            }
-        }
-    }
-
+    std::string resDict = ResolvePageResources(pageDict);
     if (resDict.empty()) return xobjects;
 
     std::string xobjDict;
@@ -2592,22 +2556,9 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
         return false;
     };
 
-    if (!parseBox(pageDict, "/CropBox", x0, y0, x1, y1)) {
-        if (!parseBox(pageDict, "/MediaBox", x0, y0, x1, y1)) {
-            uint32_t curParent = 0;
-            if (FindIndirectRef(pageDict, "/Parent", curParent)) {
-                for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
-                    std::string parentDict = GetObjectString(curParent);
-                    if (parseBox(parentDict, "/CropBox", x0, y0, x1, y1) || parseBox(parentDict, "/MediaBox", x0, y0, x1, y1)) {
-                        break;
-                    }
-                    uint32_t nextParent = 0;
-                    if (!FindIndirectRef(parentDict, "/Parent", nextParent)) break;
-                    curParent = nextParent;
-                }
-            }
-        }
-    }
+    WalkPageHierarchy(pageDict, [&](const std::string& dict) {
+        return parseBox(dict, "/CropBox", x0, y0, x1, y1) || parseBox(dict, "/MediaBox", x0, y0, x1, y1);
+    });
 
     float cropW = std::max(1.0f, x1 - x0);
     float cropH = std::max(1.0f, y1 - y0);
@@ -2628,18 +2579,9 @@ bool PdfParser::ExtractPageText(uint32_t pageIndex, PdfPageText& outPage) {
         return false;
     };
 
-    if (!parseRotate(pageDict, rotate)) {
-        uint32_t curParent = 0;
-        if (FindIndirectRef(pageDict, "/Parent", curParent)) {
-            for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
-                std::string parentDict = GetObjectString(curParent);
-                if (parseRotate(parentDict, rotate)) break;
-                uint32_t nextParent = 0;
-                if (!FindIndirectRef(parentDict, "/Parent", nextParent)) break;
-                curParent = nextParent;
-            }
-        }
-    }
+    WalkPageHierarchy(pageDict, [&](const std::string& dict) {
+        return parseRotate(dict, rotate);
+    });
 
     outPage.rotation = rotate;
     float dispW = cropW * PDF_POINT_TO_DIP;

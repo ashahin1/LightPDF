@@ -244,6 +244,23 @@ private:
     bool GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const;
     bool FindIndirectRef(const std::string& dictStr, const std::string& key, uint32_t& outObjNum) const;
     std::string ResolveDict(const std::string& parentDict, const std::string& key) const;
+    std::string ResolvePageResources(const std::string& pageDict) const;
+
+    template <typename Fn>
+    bool WalkPageHierarchy(const std::string& pageDict, Fn&& fn) const {
+        if (fn(pageDict)) return true;
+        uint32_t curParent = 0;
+        if (FindIndirectRef(pageDict, "/Parent", curParent)) {
+            for (int depth = 0; depth < 5 && curParent > 0; ++depth) {
+                std::string parentDict = GetObjectString(curParent);
+                if (fn(parentDict)) return true;
+                uint32_t nextParent = 0;
+                if (!FindIndirectRef(parentDict, "/Parent", nextParent)) break;
+                curParent = nextParent;
+            }
+        }
+        return false;
+    }
 
     // Font and XObject parsing
     std::map<uint32_t, std::wstring> ParseToUnicodeCMap(const std::vector<uint8_t>& streamData) const;

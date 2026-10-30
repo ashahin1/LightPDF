@@ -101,6 +101,15 @@ public:
     bool CopySelectionToClipboard(HWND hwnd, DocumentTab* pTab);
 
     /**
+     * @brief Expands selection to the entire word enclosing hitChar.
+     * @param pTab Target document tab.
+     * @param pageIndex 0-based page index.
+     * @param hitChar 0-based character index within page text.
+     * @return true if a word was selected.
+     */
+    bool SelectWordAtChar(DocumentTab* pTab, uint32_t pageIndex, size_t hitChar);
+
+    /**
      * @brief Retrieves selected text string and computes screen anchor rectangle for dictionary card positioning.
      * @param pTab Target document tab.
      * @param dpi Monitor DPI.

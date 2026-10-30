@@ -1,4 +1,5 @@
 #include "selection_controller.hpp"
+#include "common_utils.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -393,25 +394,36 @@ bool SelectionController::CopySelectionToClipboard(HWND hwnd, DocumentTab* pTab)
     }
 
     if (result.empty()) return false;
+    return ClipboardUtils::SetText(hwnd, result);
+}
 
-    if (OpenClipboard(hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (result.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, result.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            } else {
-                GlobalFree(hMem);
-            }
-        }
-        CloseClipboard();
-        return true;
+bool SelectionController::SelectWordAtChar(DocumentTab* pTab, uint32_t pageIndex, size_t hitChar) {
+    if (!pTab) return false;
+    auto pageText = GetOrExtractPageText(pTab, pageIndex);
+    if (!pageText || hitChar >= pageText->chars.size()) return false;
+
+    auto isWordChar = [](wchar_t c) {
+        return iswalnum(c) || c == L'_';
+    };
+
+    size_t wStart = hitChar;
+    while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
+        wStart--;
     }
-    return false;
+    size_t wEnd = hitChar;
+    while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
+        wEnd++;
+    }
+
+    if (wEnd <= wStart) return false;
+
+    pTab->selection.active = true;
+    pTab->selection.isDragging = false;
+    pTab->selection.startPage = pageIndex;
+    pTab->selection.startIndex = wStart;
+    pTab->selection.endPage = pageIndex;
+    pTab->selection.endIndex = wEnd;
+    return true;
 }
 
 std::wstring SelectionController::GetSelectedWordOrText(
@@ -549,23 +561,5 @@ bool SelectionController::HitTestDictionaryCard(POINT pt, float dpi) const {
 bool SelectionController::CopyDictionaryDefinitionToClipboard(HWND hwnd) {
     if (!m_dictCardInfo.visible || m_dictCardInfo.definition.empty()) return false;
     std::wstring text = m_dictCardInfo.word + L" \x2014 " + m_dictCardInfo.definition;
-
-    if (OpenClipboard(hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, text.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            } else {
-                GlobalFree(hMem);
-            }
-        }
-        CloseClipboard();
-        return true;
-    }
-    return false;
+    return ClipboardUtils::SetText(hwnd, text);
 }

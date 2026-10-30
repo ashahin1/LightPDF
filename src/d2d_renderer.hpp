@@ -621,7 +621,6 @@ public:
 
     void InvalidatePageCache() {
         std::lock_guard<std::mutex> lock(m_renderMutex);
-        m_pageCache = PageBitmapCache();
         m_continuousPageCache.clear();
     }
 
@@ -630,6 +629,7 @@ private:
     bool CreateDeviceResources();
     bool CreateWindowSizeDependentResources();
     void DiscardDeviceResources();
+    void EndDrawAndPresent();
     void DrawHelpOverlay(const HelpOverlayRenderInfo& help);
     void DrawTabBar(const std::vector<TabRenderInfo>& tabs, bool isAddHovered);
     void DrawScrollbar(const ScrollbarRenderInfo& scrollbar);
@@ -802,10 +802,7 @@ private:
         ComPtr<ID2D1Bitmap1>& outBitmap
     );
 
-    // Fast Page Bitmap Cache for zero-cost pan & UI hover blits (single page mode)
-    PageBitmapCache m_pageCache;
-
-    // Multi-page LRU Bitmap Cache for smooth continuous scroll (up to 8 pages)
+    // Multi-page LRU Bitmap Cache for smooth continuous and single-page viewing (up to 8 pages)
     static constexpr size_t MAX_CONTINUOUS_CACHED_PAGES = 8;
     std::vector<PageBitmapCache> m_continuousPageCache;
     uint64_t m_continuousCacheClock = 0;

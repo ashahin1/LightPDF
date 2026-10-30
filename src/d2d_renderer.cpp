@@ -83,6 +83,49 @@ void D2DRenderer::Resize(UINT width, UINT height) {
     CreateWindowSizeDependentResources();
 }
 
+namespace {
+bool CreateFormat(
+    IDWriteFactory* factory,
+    ComPtr<IDWriteTextFormat>& outFormat,
+    const wchar_t* fontName,
+    float sizeDip,
+    DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_FONT_STYLE style = DWRITE_FONT_STYLE_NORMAL,
+    DWRITE_TEXT_ALIGNMENT textAlign = DWRITE_TEXT_ALIGNMENT_LEADING,
+    DWRITE_PARAGRAPH_ALIGNMENT paraAlign = DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+    bool noWrap = false,
+    bool ellipsis = false,
+    const wchar_t* locale = L"en-us"
+) {
+    if (!factory) return false;
+    HRESULT hr = factory->CreateTextFormat(
+        fontName,
+        nullptr,
+        weight,
+        style,
+        DWRITE_FONT_STRETCH_NORMAL,
+        sizeDip,
+        locale,
+        &outFormat
+    );
+    if (FAILED(hr)) return false;
+
+    outFormat->SetTextAlignment(textAlign);
+    outFormat->SetParagraphAlignment(paraAlign);
+    if (noWrap) {
+        outFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
+    if (ellipsis) {
+        DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        ComPtr<IDWriteInlineObject> inlineEllipsis;
+        if (SUCCEEDED(factory->CreateEllipsisTrimmingSign(outFormat.Get(), &inlineEllipsis))) {
+            outFormat->SetTrimming(&trimming, inlineEllipsis.Get());
+        }
+    }
+    return true;
+}
+} // namespace
+
 bool D2DRenderer::CreateDeviceIndependentResources() {
     D2D1_FACTORY_OPTIONS options = {};
     HRESULT hr = D2D1CreateFactory(
@@ -100,461 +143,48 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     );
     if (FAILED(hr)) return false;
 
-    // HUD Text Format: Segoe UI, 12pt, Semi-Bold
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        13.0f,
-        L"en-us",
-        &m_textFormatHud
-    );
-    if (FAILED(hr)) return false;
+    // HUD & Screen Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHud, L"Segoe UI", 13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatBlank, L"Segoe UI", 16.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
-    m_textFormatHud->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatHud->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // Help Overlay Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpTitle, L"Segoe UI", 17.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_NEAR)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpSub, L"Segoe UI", 11.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_NEAR)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpKey, L"Consolas", 12.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpDesc, L"Segoe UI", 12.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpSection, L"Segoe UI", 11.5f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpColKey, L"Consolas", 10.5f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, true, true)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpColDesc, L"Segoe UI", 10.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, true, true)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpSingleKey, L"Consolas", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    m_textFormatHelpSingleDesc = m_textFormatHelpDesc;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpFooterLeft, L"Segoe UI", 10.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatHelpFooterRight, L"Segoe UI", 10.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
-    // Blank screen message format: Segoe UI, 16pt, Regular
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        16.0f,
-        L"en-us",
-        &m_textFormatBlank
-    );
-    if (FAILED(hr)) return false;
+    // Tab Bar & Navigation Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatTab, L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, true, true)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatTabClose, L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatTabAdd, L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatGoToPageInput, L"Segoe UI", 20.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
-    m_textFormatBlank->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatBlank->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // Search Bar Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatSearchInput, L"Segoe UI", 12.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, true, false)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatSearchBadge, L"Segoe UI", 11.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    m_textFormatSearchBtn = m_textFormatSearchBadge;
 
-    // Help Title: Segoe UI, 17pt, Bold
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        17.0f,
-        L"en-us",
-        &m_textFormatHelpTitle
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpTitle->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    // Properties Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatPropsLabel, L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatPropsSection, L"Segoe UI", 13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
-    // Help Subtitle: Segoe UI, 11pt, Regular
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.5f,
-        L"en-us",
-        &m_textFormatHelpSub
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpSub->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    // Dictionary Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatDictWord, L"Segoe UI", 14.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatDictTag, L"Segoe UI", 10.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatDictDef, L"Segoe UI", 13.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR, false, false, L"ar-sa")) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatDictHint, L"Segoe UI", 9.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
-    // Help Keys: Consolas, 12pt, Bold, Right-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Consolas",
-        nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatHelpKey
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-    m_textFormatHelpKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Descriptions: Segoe UI, 12pt, Regular, Left-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.5f,
-        L"en-us",
-        &m_textFormatHelpDesc
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatHelpDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Section Format: Segoe UI, 11.5pt, Bold, Left-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.5f,
-        L"en-us",
-        &m_textFormatHelpSection
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpSection->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatHelpSection->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Column Key: Consolas, 10.5pt, Bold, Right-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Consolas",
-        nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        10.5f,
-        L"en-us",
-        &m_textFormatHelpColKey
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpColKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-    m_textFormatHelpColKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    m_textFormatHelpColKey->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    {
-        DWRITE_TRIMMING trim = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-        ComPtr<IDWriteInlineObject> inlineEllipsis;
-        m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatHelpColKey.Get(), &inlineEllipsis);
-        m_textFormatHelpColKey->SetTrimming(&trim, inlineEllipsis.Get());
-    }
-
-    // Help Column Description: Segoe UI, 10.5pt, Regular, Left-aligned with ellipsis trimming
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        10.5f,
-        L"en-us",
-        &m_textFormatHelpColDesc
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpColDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatHelpColDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    m_textFormatHelpColDesc->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    {
-        DWRITE_TRIMMING trim = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-        ComPtr<IDWriteInlineObject> inlineEllipsis;
-        m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatHelpColDesc.Get(), &inlineEllipsis);
-        m_textFormatHelpColDesc->SetTrimming(&trim, inlineEllipsis.Get());
-    }
-
-    // Help Single-Category Key: Consolas, 12.0pt, Semi-Bold, Centered
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Consolas",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatHelpSingleKey
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpSingleKey->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatHelpSingleKey->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Single-Category Description: Segoe UI, 12.5pt, Regular, Left-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.5f,
-        L"en-us",
-        &m_textFormatHelpSingleDesc
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpSingleDesc->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatHelpSingleDesc->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Footer Left: Segoe UI, 10.5pt, Regular, Left-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        10.5f,
-        L"en-us",
-        &m_textFormatHelpFooterLeft
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpFooterLeft->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatHelpFooterLeft->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Help Footer Right: Segoe UI, 10.5pt, Regular, Right-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        10.5f,
-        L"en-us",
-        &m_textFormatHelpFooterRight
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatHelpFooterRight->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-    m_textFormatHelpFooterRight->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Tab Text Format: Segoe UI, 12pt, Regular, Left-aligned, Trimming with ellipsis
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatTab
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatTab->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatTab->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    m_textFormatTab->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-    DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-    ComPtr<IDWriteInlineObject> inlineObject;
-    m_dwriteFactory->CreateEllipsisTrimmingSign(m_textFormatTab.Get(), &inlineObject);
-    m_textFormatTab->SetTrimming(&trimming, inlineObject.Get());
-
-    // Tab Close Button Format: Segoe UI, 12pt, Normal, Centered
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatTabClose
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatTabClose->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatTabClose->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Tab Add Button Format: Segoe UI, 14pt, Normal, Centered
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        14.0f,
-        L"en-us",
-        &m_textFormatTabAdd
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatTabAdd->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatTabAdd->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Go to Page input text format: Segoe UI, 20pt, Semi-Bold, Centered
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        20.0f,
-        L"en-us",
-        &m_textFormatGoToPageInput
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatGoToPageInput->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatGoToPageInput->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Search Bar Input Format: Segoe UI, 12.5pt, Regular
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.5f,
-        L"en-us",
-        &m_textFormatSearchInput
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatSearchInput->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatSearchInput->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    m_textFormatSearchInput->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-    // Search Bar Badge Format: Segoe UI, 11.5pt, Semi-Bold
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.5f,
-        L"en-us",
-        &m_textFormatSearchBadge
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatSearchBadge->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatSearchBadge->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Search Bar Button Format: Segoe UI, 11.5pt, Semi-Bold
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.5f,
-        L"en-us",
-        &m_textFormatSearchBtn
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatSearchBtn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatSearchBtn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Document Properties Label Format: Segoe UI, 12pt, Semi-Bold, Right-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatPropsLabel
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatPropsLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-    m_textFormatPropsLabel->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Document Properties Section Format: Segoe UI, 13pt, Semi-Bold, Left-aligned
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        13.0f,
-        L"en-us",
-        &m_textFormatPropsSection
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatPropsSection->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatPropsSection->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Dictionary Card Word Format: Segoe UI, 14.5pt, Semi-Bold, Leading
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        14.5f,
-        L"en-us",
-        &m_textFormatDictWord
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatDictWord->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatDictWord->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Dictionary Card Category Tag Format: Segoe UI, 10.0pt, Bold, Center
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        10.0f,
-        L"en-us",
-        &m_textFormatDictTag
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatDictTag->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatDictTag->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Dictionary Card Definition Format: Segoe UI, 13.0pt, Regular, Leading
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        13.0f,
-        L"ar-sa",
-        &m_textFormatDictDef
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatDictDef->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatDictDef->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    m_textFormatDictDef->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-
-    // Dictionary Card Hint Format: Segoe UI, 9.5pt, Regular, Leading
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        9.5f,
-        L"en-us",
-        &m_textFormatDictHint
-    );
-    m_textFormatDictHint->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_textFormatDictHint->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Presenter Bar Text Format: Segoe UI, 12.0pt, Semi-Bold, Center
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatPresenter
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatPresenter->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatPresenter->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Read Aloud Bar Format: Segoe UI, 12.0pt, Semi-Bold, Center
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        12.0f,
-        L"en-us",
-        &m_textFormatTtsBar
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatTtsBar->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatTtsBar->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-
-    // Read Aloud Speed Format: Segoe UI, 11.0pt, Medium, Center
-    hr = m_dwriteFactory->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_MEDIUM,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.0f,
-        L"en-us",
-        &m_textFormatTtsSpeed
-    );
-    if (FAILED(hr)) return false;
-    m_textFormatTtsSpeed->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_textFormatTtsSpeed->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    // Presenter & TTS Formats
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatPresenter, L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    m_textFormatTtsBar = m_textFormatPresenter;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatTtsSpeed, L"Segoe UI", 11.0f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
     hr = CoCreateInstance(
         CLSID_WICImagingFactory,
@@ -832,7 +462,6 @@ void D2DRenderer::DiscardDeviceResources() {
     m_brushTtsBarBtnHover = nullptr;
     m_brushTtsBarBtnActive = nullptr;
     m_colorMatrixEffect = nullptr;
-    m_pageCache = PageBitmapCache();
     m_continuousPageCache.clear();
     m_printRenderTexture = nullptr;
     m_printStagingTexture = nullptr;
@@ -907,6 +536,22 @@ void D2DRenderer::DrawPageBitmapWithTheme(ID2D1Bitmap1* pBitmap, const D2D1_RECT
     m_colorMatrixEffect->SetInput(0, nullptr);
 }
 
+void D2DRenderer::EndDrawAndPresent() {
+    HRESULT hr = m_d2dContext->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        DiscardDeviceResources();
+        CreateDeviceResources();
+        CreateWindowSizeDependentResources();
+    } else {
+        HRESULT hrPres = m_swapChain->Present(1, 0);
+        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
+            DiscardDeviceResources();
+            CreateDeviceResources();
+            CreateWindowSizeDependentResources();
+        }
+    }
+}
+
 void D2DRenderer::RenderBlank(
     const std::wstring& message,
     const HelpOverlayRenderInfo& help,
@@ -978,19 +623,7 @@ void D2DRenderer::RenderBlank(
 
     DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
-    HRESULT hr = m_d2dContext->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
-        DiscardDeviceResources();
-        CreateDeviceResources();
-        CreateWindowSizeDependentResources();
-    } else {
-        HRESULT hrPres = m_swapChain->Present(1, 0);
-        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
-            DiscardDeviceResources();
-            CreateDeviceResources();
-            CreateWindowSizeDependentResources();
-        }
-    }
+    EndDrawAndPresent();
 }
 
 bool D2DRenderer::RasterizePageViaStream(
@@ -1106,10 +739,8 @@ void D2DRenderer::RenderPage(
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
-    std::lock_guard<std::mutex> lock(m_renderMutex);
-
     if (!page) {
-        // Fallback: If page could not be retrieved, clear to dark background and render friendly message
+        std::lock_guard<std::mutex> lock(m_renderMutex);
         m_d2dContext->BeginDraw();
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
@@ -1132,266 +763,46 @@ void D2DRenderer::RenderPage(
         }
 
         DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
-
-        HRESULT hr = m_d2dContext->EndDraw();
-        if (hr == D2DERR_RECREATE_TARGET) {
-            DiscardDeviceResources();
-            CreateDeviceResources();
-            CreateWindowSizeDependentResources();
-        } else {
-            HRESULT hrPres = m_swapChain->Present(1, 0);
-            if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
-                DiscardDeviceResources();
-                CreateDeviceResources();
-                CreateWindowSizeDependentResources();
-            }
-        }
+        EndDrawAndPresent();
         return;
     }
 
-    float topOffset = (tabs.size() > 1) ? 34.0f : 0.0f;
-    float pageY = offsetY + topOffset;
+    std::vector<ContinuousPageInfo> visiblePages;
+    ContinuousPageInfo info;
+    info.page = page;
+    info.pageSize = pageSize;
+    info.xOffset = offsetX;
+    info.yOffset = offsetY;
+    info.pageIndex = currentPageIndex;
+    info.hasType3Font = hasType3Font;
+    visiblePages.push_back(std::move(info));
 
-    float destW = pageSize.width * zoom;
-    float destH = pageSize.height * zoom;
-    UINT32 renderW = (UINT32)std::max(1.0f, std::round(destW));
-    UINT32 renderH = (UINT32)std::max(1.0f, std::round(destH));
-
-    // Check if we have a valid cached bitmap for this page and zoom
-    bool needRasterize = !m_pageCache.bitmap ||
-                         m_pageCache.pageIndex != currentPageIndex ||
-                         std::abs(m_pageCache.zoom - zoom) > 0.0001f ||
-                         m_pageCache.pixelW != renderW ||
-                         m_pageCache.pixelH != renderH;
-
-    if (needRasterize && renderW > 0 && renderH > 0) {
-        if (hasType3Font) {
-            ComPtr<ID2D1Bitmap1> pageBitmap;
-            if (RasterizePageViaStream(page, renderW, renderH, pageBitmap) && pageBitmap) {
-                m_pageCache.bitmap = pageBitmap;
-                m_pageCache.pageIndex = currentPageIndex;
-                m_pageCache.zoom = zoom;
-                m_pageCache.pixelW = renderW;
-                m_pageCache.pixelH = renderH;
-            }
-        } else if (m_pdfRenderer) {
-            D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
-                D2D1_BITMAP_OPTIONS_TARGET,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-                m_dpi, m_dpi
-            );
-            D2D1_SIZE_U pixelSize = D2D1::SizeU(renderW, renderH);
-
-            ComPtr<ID2D1Bitmap1> pageBitmap;
-            HRESULT hrBmp = m_d2dContext->CreateBitmap(
-                pixelSize,
-                nullptr,
-                0,
-                &bp,
-                &pageBitmap
-            );
-
-            if (SUCCEEDED(hrBmp) && pageBitmap) {
-                m_d2dContext->SetTarget(pageBitmap.Get());
-                m_d2dContext->BeginDraw();
-                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-                m_d2dContext->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-
-                PDF_RENDER_PARAMS params = {};
-                params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-                params.DestinationWidth = renderW;
-                params.DestinationHeight = renderH;
-                params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-                params.IgnoreHighContrast = FALSE;
-
-                m_pdfRenderer->RenderPageToDeviceContext(
-                    (IUnknown*)winrt::get_abi(page),
-                    m_d2dContext.Get(),
-                    &params
-                );
-
-                m_d2dContext->EndDraw();
-
-                m_pageCache.bitmap = pageBitmap;
-                m_pageCache.pageIndex = currentPageIndex;
-                m_pageCache.zoom = zoom;
-                m_pageCache.pixelW = renderW;
-                m_pageCache.pixelH = renderH;
-
-                // Restore screen target bitmap
-                m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
-            }
-        }
-    }
-
-    m_d2dContext->BeginDraw();
-    m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    m_d2dContext->Clear(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f));
-
-    // 1. Draw Page Drop Shadow
-    D2D1_RECT_F shadowRect = D2D1::RectF(
-        offsetX + 4.0f,
-        pageY + 4.0f,
-        offsetX + destW + 5.0f,
-        pageY + destH + 5.0f
+    RenderContinuous(
+        visiblePages,
+        zoom,
+        currentPageIndex,
+        totalPages,
+        zoomModeText,
+        false,
+        help,
+        tabs,
+        isAddHovered,
+        scrollbar,
+        showGoToPage,
+        goToPageBuffer,
+        searchBar,
+        highlights,
+        docProps,
+        selectionSpans,
+        dictCard,
+        laser,
+        presenterBar,
+        ttsBar,
+        pRecent,
+        pPasswordOverlay,
+        pLinkHover,
+        pOptionsOverlay
     );
-    m_d2dContext->FillRoundedRectangle(
-        D2D1::RoundedRect(shadowRect, 2.0f, 2.0f),
-        m_brushPageShadow.Get()
-    );
-
-    // 2. Draw Page Background (Theme-aware)
-    D2D1_RECT_F pageRect = D2D1::RectF(
-        offsetX,
-        pageY,
-        offsetX + destW,
-        pageY + destH
-    );
-    ID2D1SolidColorBrush* pBgBrush = m_brushPageBg.Get();
-    if (m_pageTheme == PageTheme::Night && m_brushThemeNightBg) {
-        pBgBrush = m_brushThemeNightBg.Get();
-    } else if (m_pageTheme == PageTheme::Sepia && m_brushThemeSepiaBg) {
-        pBgBrush = m_brushThemeSepiaBg.Get();
-    }
-    m_d2dContext->FillRectangle(pageRect, pBgBrush);
-
-    // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
-    if (m_pageCache.bitmap && m_pageCache.pageIndex == currentPageIndex) {
-        DrawPageBitmapWithTheme(m_pageCache.bitmap.Get(), pageRect);
-    } else if (!hasType3Font && m_pdfRenderer) {
-        PDF_RENDER_PARAMS params = {};
-        params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-        params.DestinationWidth = renderW;
-        params.DestinationHeight = renderH;
-        params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-        params.IgnoreHighContrast = FALSE;
-
-        m_d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(offsetX, pageY));
-        m_pdfRenderer->RenderPageToDeviceContext(
-            (IUnknown*)winrt::get_abi(page),
-            m_d2dContext.Get(),
-            &params
-        );
-        m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
-    }
-
-    // 3a. Draw Text Selection Highlights over page
-    for (const auto& span : selectionSpans) {
-        if (span.pageIndex == currentPageIndex) {
-            for (const auto& pr : span.rects) {
-                float hx = offsetX + pr.left * zoom;
-                float hy = pageY + pr.top * zoom;
-                float hw = (pr.right - pr.left) * zoom;
-                float hh = (pr.bottom - pr.top) * zoom;
-                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-                if (span.isTtsHighlight && m_brushTtsHighlight) {
-                    m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 3.0f, 3.0f), m_brushTtsHighlight.Get());
-                } else if (m_brushTextSelection) {
-                    m_d2dContext->FillRectangle(r, m_brushTextSelection.Get());
-                }
-            }
-        }
-    }
-
-    // 3b. Draw Search Match Highlights over page (O(log N) lookup)
-    struct HighlightPageComp {
-        bool operator()(const SearchHighlight& a, uint32_t page) const { return a.pageIndex < page; }
-        bool operator()(uint32_t page, const SearchHighlight& a) const { return page < a.pageIndex; }
-    };
-    auto hlRange = std::equal_range(highlights.begin(), highlights.end(), currentPageIndex, HighlightPageComp{});
-    for (auto it = hlRange.first; it != hlRange.second; ++it) {
-        const auto& hl = *it;
-        auto drawBox = [&](const D2D1_RECT_F& pr) {
-            float hx = offsetX + pr.left * zoom;
-            float hy = pageY + pr.top * zoom;
-            float hw = (pr.right - pr.left) * zoom;
-            float hh = (pr.bottom - pr.top) * zoom;
-            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-            if (hl.isActive) {
-                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
-                m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
-            } else {
-                m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchHighlight.Get());
-            }
-        };
-
-        if (!hl.rects.empty()) {
-            for (const auto& lr : hl.rects) drawBox(lr);
-        } else {
-            drawBox(hl.pageRect);
-        }
-    }
-
-    // 3c. Draw Link Hover Highlight
-    if (pLinkHover && pLinkHover->active && pLinkHover->pageIndex == currentPageIndex) {
-        float hx = offsetX + pLinkHover->pageRect.left * zoom;
-        float hy = pageY + pLinkHover->pageRect.top * zoom;
-        float hw = (pLinkHover->pageRect.right - pLinkHover->pageRect.left) * zoom;
-        float hh = (pLinkHover->pageRect.bottom - pLinkHover->pageRect.top) * zoom;
-        D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
-        D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 2.0f, 2.0f);
-        if (m_brushTextSelection) {
-            m_d2dContext->FillRoundedRectangle(rr, m_brushTextSelection.Get());
-        }
-        if (m_brushTabAccent) {
-            m_d2dContext->DrawLine(D2D1::Point2F(r.left, r.bottom), D2D1::Point2F(r.right, r.bottom), m_brushTabAccent.Get(), 1.2f);
-        }
-    }
-
-    // 4. Draw 1px crisp outline around page (Theme-aware)
-    ID2D1SolidColorBrush* pBorderBrush = (m_pageTheme == PageTheme::Night && m_brushThemeNightBorder) ?
-        m_brushThemeNightBorder.Get() : m_brushPageBorder.Get();
-    m_d2dContext->DrawRectangle(pageRect, pBorderBrush, 1.0f);
-
-    // 5. Draw Sleek Minimalist HUD Pill (bottom-center)
-    float dipWidth = m_width * (96.0f / m_dpi);
-    float dipHeight = m_height * (96.0f / m_dpi);
-
-    wchar_t hudText[128];
-    int zoomPct = (int)std::round(zoom * 100.0f);
-    if (!zoomModeText.empty()) {
-        swprintf_s(hudText, L"%u / %u  \x2022  %d%% (%s)", currentPageIndex + 1, totalPages, zoomPct, zoomModeText.c_str());
-    } else {
-        swprintf_s(hudText, L"%u / %u  \x2022  %d%%", currentPageIndex + 1, totalPages, zoomPct);
-    }
-
-    float pillWidth = 190.0f;
-    if (!zoomModeText.empty()) pillWidth = 240.0f;
-    float pillHeight = 32.0f;
-    float pillLeft = (dipWidth - pillWidth) * 0.5f;
-    float pillTop = dipHeight - pillHeight - 16.0f;
-
-    if (pillLeft > 0.0f && pillTop > 0.0f) {
-        D2D1_RECT_F pillRect = D2D1::RectF(pillLeft, pillTop, pillLeft + pillWidth, pillTop + pillHeight);
-        D2D1_ROUNDED_RECT roundedPill = D2D1::RoundedRect(pillRect, 16.0f, 16.0f);
-
-        m_d2dContext->FillRoundedRectangle(roundedPill, m_brushHudBg.Get());
-        m_d2dContext->DrawRoundedRectangle(roundedPill, m_brushHudBorder.Get(), 1.0f);
-        m_d2dContext->DrawText(
-            hudText,
-            (UINT32)wcslen(hudText),
-            m_textFormatHud.Get(),
-            pillRect,
-            m_brushHudText.Get()
-        );
-    }
-
-    // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
-
-    HRESULT hr = m_d2dContext->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
-        DiscardDeviceResources();
-        CreateDeviceResources();
-        CreateWindowSizeDependentResources();
-    } else {
-        HRESULT hrPres = m_swapChain->Present(1, 0);
-        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
-            DiscardDeviceResources();
-            CreateDeviceResources();
-            CreateWindowSizeDependentResources();
-        }
-    }
 }
 
 void D2DRenderer::RenderContinuous(
@@ -1662,8 +1073,9 @@ void D2DRenderer::RenderContinuous(
         swprintf_s(hudText, L"%u / %u  \x2022  %d%%%s", currentPageIndex + 1, totalPages, zoomPct, isContinuous ? L"  \x2022  Continuous" : L"");
     }
 
-    float pillWidth = 280.0f;
-    if (!zoomModeText.empty()) pillWidth = 330.0f;
+    float pillWidth = isContinuous
+        ? (!zoomModeText.empty() ? 330.0f : 280.0f)
+        : (!zoomModeText.empty() ? 240.0f : 190.0f);
     float pillHeight = 32.0f;
     float pillLeft = (dipWidth - pillWidth) * 0.5f;
     float pillTop = dipHeight - pillHeight - 16.0f;
@@ -1686,19 +1098,7 @@ void D2DRenderer::RenderContinuous(
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
     DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
 
-    HRESULT hr = m_d2dContext->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) {
-        DiscardDeviceResources();
-        CreateDeviceResources();
-        CreateWindowSizeDependentResources();
-    } else {
-        HRESULT hrPres = m_swapChain->Present(1, 0);
-        if (hrPres == DXGI_ERROR_DEVICE_REMOVED || hrPres == DXGI_ERROR_DEVICE_RESET) {
-            DiscardDeviceResources();
-            CreateDeviceResources();
-            CreateWindowSizeDependentResources();
-        }
-    }
+    EndDrawAndPresent();
 }
 
 void D2DRenderer::DrawOverlays(
