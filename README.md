@@ -121,7 +121,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **880 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **1,008 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
@@ -135,7 +135,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 ### ⚡ Ultra-Fast Hardware-Accelerated Engine
 - **Instant Launch**: Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader.
-- **Sub-Megabyte Footprint**: Single **880 KB** standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
+- **Sub-Megabyte Footprint**: Single **1,000 KB** (1,008 KB signed) standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
 - **GPU Hardware Rendering**: Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard model.
 - **Chromeless Design**: No toolbars, ribbons, side panels, or telemetry &mdash; pure focus on your document.
 - **HiDPI Native**: Full PerMonitorV2 DPI awareness &mdash; razor-sharp on 4K, 8K, and mixed-scaling multi-monitor environments.
@@ -153,13 +153,13 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Full Rotation & Geometry Mapping**: Maps coordinates from bottom-left PDF point space to top-left Direct2D DIP space across CropBox/MediaBox offsets and all rotations (0°, 90°, 180°, 270°).
 - **Smart URL & Email Auto-Detection**: Scans digital text and OCR layers for `https://`, `http://`, `www.`, and `mailto:` links, unifying glyph bounding boxes across multi-line wraps with automatic `/Annots` de-duplication.
 - **Sleek Bottom-Left Preview Pill**: Hovering reveals an `IDC_HAND` cursor, subtle on-page highlight + accent underline, and a floating URL preview status pill dynamically constrained so it never collides with the centered HUD pill.
-- **Strict Scheme Whitelisting**: Strictly restricts external launching to `https://`, `http://`, and `mailto:` &mdash; blocking dangerous schemes (`file:`, `javascript:`, `cmd:`, `powershell:`, and UNC paths).
+- **Strict Scheme & Parameter Whitelisting**: Strictly restricts external launching to `https://`, `http://`, and safe `mailto:` links &mdash; blocking dangerous schemes (`file:`, `javascript:`, `cmd:`, `powershell:`, and UNC paths) and stripping malicious `attach=` / `attachment=` query parameters.
 
 ### 🔒 Password-Protected PDFs & Decrypted Copy Export
 - **Fast Encrypted Document Handling**: Native detection and unlocking of password-protected PDF files using `Windows.Data.Pdf`.
 - **Sleek Direct2D Modal Prompt**: Dark glass card with masked password input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), and error shake feedback.
-- **Zero RAM Plaintext Residue**: Clears password buffers immediately using `SecureZeroMemory` after authentication.
-- **Lossless Decrypted Copy Export**: Once unlocked, press `Ctrl+S` / `Ctrl+Shift+S` to export an unencrypted, password-free PDF copy without re-rendering or image recompression. Built on Windows CNG (`bcrypt.dll`), supporting Standard Security Handler Algorithm 2 (RC4-128, AES-128) and Algorithm 5 (AES-256) with automatic cross-reference reconstruction.
+- **Zero RAM Plaintext Residue**: Clears all transient memory using `SecureZeroMemory` upon password submission, cancellation, or modal dismissal; renders masked dots from character lengths without copying plaintext across UI redraw frames.
+- **Lossless Decrypted Copy Export**: Once unlocked, press `Ctrl+S` / `Ctrl+Shift+S` to export an unencrypted, password-free PDF copy without re-rendering or image recompression. Built on Windows CNG (`bcrypt.dll`), supporting Standard Security Handler Algorithm 2 (RC4-128, AES-128) and Algorithm 5 (AES-256) with automatic cross-reference reconstruction, non-stream string decryption (ISO 32000-1 §7.6.2), and verified atomic file replacement with automatic failure rollback.
 - **On-Demand OCR Fallback**: Enables full text selection, offline dictionary lookup, and search even on encrypted PDFs whose security flags disable standard digital text extraction.
 
 ### 🖱️ Smart Context-Sensitive Right-Click Menus
@@ -395,15 +395,15 @@ build.bat /clean     :: Clean build artifacts
 | **Single File Modified** | 106.75 s | **13.17 s** | **8× faster** |
 | **Full Clean Rebuild** | 106.75 s | **21.39 s** | **5× faster** |
 
-Output: `bin\LightPDF.exe` (**880 KB** unsigned / **~881 KB** signed)
+Output: `bin\LightPDF.exe` (**1,000.5 KB** unsigned / **1,007.5 KB** signed Authenticode)
 
 ### Compiler & Linker Flags
 
 ```
-/MP /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4
+/MP /O2 /MT /std:c++20 /GL /Gy /Gw /EHsc /utf-8 /permissive- /DNOMINMAX /W4 /guard:cf
 /Yu"pch.hpp" /FI"pch.hpp" /Fp"bin\obj\pch.pch"
 /Fo"bin\obj/" /Fd"bin\obj/"
-/link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS
+/link /LTCG /OPT:REF /OPT:ICF /GUARD:CF /CETCOMPAT /SUBSYSTEM:WINDOWS
       /MANIFEST:EMBED /MANIFESTINPUT:resources\app.manifest
 ```
 
@@ -417,6 +417,8 @@ Output: `bin\LightPDF.exe` (**880 KB** unsigned / **~881 KB** signed)
 | `/GL` + `/LTCG` | Whole-program link-time code generation for maximum inter-procedural inlining |
 | `/OPT:REF` + `/OPT:ICF` | Dead-code elimination and identical COMDAT folding for minimal binary size |
 | `/Gy` + `/Gw` | Function-level and global data-level linking for granular dead-code removal |
+| `/guard:cf` + `/GUARD:CF` | Control Flow Guard (CFG) &mdash; compiler instrumentation and linker bitmap verifying indirect call targets |
+| `/CETCOMPAT` | Shadow Stack compatibility &mdash; marks PE image compatible with hardware Control-flow Enforcement Technology |
 
 ---
 
@@ -431,17 +433,18 @@ tests\run_tests.bat
 
 ```
 ===============================================================================
-[LightPDF Test Runner] Executing 26 test cases...
+[LightPDF Test Runner] Executing 31 test cases...
 ===============================================================================
-  Test Cases: 26 passed | 0 failed | 26 total
-  Assertions: 388 passed | 0 failed | 388 total
-  Elapsed:    ~3.8 s
+  Test Cases: 31 passed | 0 failed | 31 total
+  Assertions: 451 passed | 0 failed | 451 total
+  Elapsed:    ~3.2 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
 ```
 
 The test suite exercises all critical components:
 - **PDF Core Parser & Streams**: Incremental xref `/Prev` traversal, stream decompression (Flate / ASCII85), and font dictionary extraction.
+- **Security & Hardening Defenses**: MiniZlib 64 MB decompression limit & BitStream EOF overrun protection (SEC-01), Form XObject cycle breaker & per-page operator limits (SEC-11), safe external URI & mailto parameter sanitization (SEC-15), dictionary CWD isolation & record offset bounds validation (SEC-06, SEC-05), graphics state `q` stack clamping (SEC-07), and non-stream string decryption (SEC-12).
 - **CMap & Font Metrics**: Composite Type 0 fonts, CIDFontType2, and Adobe UCS `/ToUnicode` mapping.
 - **Multilingual Search**: Arabic diacritic stripping, Alef/Taa Marbuta normalization, Eastern-to-Western Arabic numeral normalization, and bidirectional text matching.
 - **Interactive Hyperlinks**: ISO 32000-1 `/Annots` parsing (`/URI`, `/GoTo`), plaintext URL regex extraction, single/continuous hit-testing, and navigation history stacks.
@@ -466,12 +469,12 @@ tools\sign.bat
 
 This automatically:
 - Creates a dedicated 5-year Authenticode Code Signing certificate for `Ahmed Amer Shahin (EtherHome)` (if not already present).
-- Digitally signs `bin\LightPDF.exe` with SHA-256 Authenticode.
+- Digitally signs `bin\LightPDF.exe` with SHA-256 Authenticode and an RFC 3161 timestamp (DigiCert), ensuring the signature remains trusted even after certificate expiration.
 - Prepares a self-contained distribution bundle in `dist\`.
 
 ### 2. Share `dist\` with Colleagues
 Zip or share the generated `dist\` folder with your colleagues:
-1. They run `install_certificate.bat` **once** (registers the certificate into their Windows Trusted Publishers store and clears Internet download flags).
+1. They run `install_certificate.bat` **once** (registers the certificate into their Windows Trusted Publishers store and clears Internet download flags). A companion `uninstall_certificate.bat` is also provided to cleanly unregister the certificate at any time.
 2. They launch `LightPDF.exe` immediately with zero SmartScreen or Defender warnings!
 
 ---
@@ -506,7 +509,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~944 KB standalone binary (zero external DLLs, <1 MB budget)
+│   ├── LightPDF.exe              # ~1,000 KB standalone binary (1,000.5 KB unsigned / 1,007.5 KB signed Authenticode, zero DLLs)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -516,7 +519,7 @@ LightPDF/
 ├── resources/
 │   ├── app.ico                   # Multi-resolution icon (16×16 → 256×256)
 │   ├── app.rc                    # Windows resource script (App Icon + VS_VERSION_INFO)
-│   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility manifest
+│   └── app.manifest              # PerMonitorV2 + Win10/11 compatibility + asInvoker security manifest
 ├── src/
 │   ├── pch.hpp/.cpp              # Precompiled header (Win32, Direct2D, WinRT, STL) for ~5x faster incremental builds
 │   ├── main.cpp                  # Process entry, CLI parsing, single-instance mutex
@@ -545,7 +548,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (27 test cases, 433 assertions, <5s runtime)
+│   ├── unified_tests.cpp         # Complete test suite (31 test cases, 451 assertions, <4s runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
