@@ -3,8 +3,8 @@
 #include "ui_views.hpp"
 #include <cmath>
 
-// Direct2D Color Matrix Effect CLSID {92181405-A903-4704-8B65-5D1436512B1B}
-EXTERN_C const GUID CLSID_D2D1ColorMatrix = { 0x92181405, 0xa903, 0x4704, { 0x8b, 0x65, 0x5d, 0x14, 0x36, 0x51, 0x2b, 0x1b } };
+// Direct2D Color Matrix Effect CLSID {921F03D6-641C-47DF-852D-B4BB6153AE11}
+EXTERN_C const GUID CLSID_D2D1ColorMatrix = { 0x921F03D6, 0x641C, 0x47DF, { 0x85, 0x2D, 0xB4, 0xBB, 0x61, 0x53, 0xAE, 0x11 } };
 #include <algorithm>
 #include <shcore.h>
 #include <winrt/Windows.Foundation.h>
@@ -612,8 +612,11 @@ bool D2DRenderer::CreateDeviceResources() {
     // Create Brushes
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.12f, 1.0f), &m_brushBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &m_brushPageBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.11f, 0.12f, 0.14f, 1.0f), &m_brushThemeNightBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.96f, 0.91f, 0.81f, 1.0f), &m_brushThemeSepiaBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.40f), &m_brushPageShadow);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.15f), &m_brushPageBorder);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), &m_brushThemeNightBorder);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.14f, 0.14f, 0.14f, 0.90f), &m_brushHudBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.35f, 0.35f, 0.60f), &m_brushHudBorder);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.92f, 0.92f, 1.0f), &m_brushHudText);
@@ -768,8 +771,11 @@ void D2DRenderer::DiscardDeviceResources() {
     m_d2dTargetBitmap = nullptr;
     m_brushBg = nullptr;
     m_brushPageBg = nullptr;
+    m_brushThemeNightBg = nullptr;
+    m_brushThemeSepiaBg = nullptr;
     m_brushPageShadow = nullptr;
     m_brushPageBorder = nullptr;
+    m_brushThemeNightBorder = nullptr;
     m_brushHudBg = nullptr;
     m_brushHudBorder = nullptr;
     m_brushHudText = nullptr;
@@ -1234,14 +1240,20 @@ void D2DRenderer::RenderPage(
         m_brushPageShadow.Get()
     );
 
-    // 2. Draw Page Background (pure white)
+    // 2. Draw Page Background (Theme-aware)
     D2D1_RECT_F pageRect = D2D1::RectF(
         offsetX,
         pageY,
         offsetX + destW,
         pageY + destH
     );
-    m_d2dContext->FillRectangle(pageRect, m_brushPageBg.Get());
+    ID2D1SolidColorBrush* pBgBrush = m_brushPageBg.Get();
+    if (m_pageTheme == PageTheme::Night && m_brushThemeNightBg) {
+        pBgBrush = m_brushThemeNightBg.Get();
+    } else if (m_pageTheme == PageTheme::Sepia && m_brushThemeSepiaBg) {
+        pBgBrush = m_brushThemeSepiaBg.Get();
+    }
+    m_d2dContext->FillRectangle(pageRect, pBgBrush);
 
     // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
     if (m_pageCache.bitmap && m_pageCache.pageIndex == currentPageIndex) {
@@ -1326,8 +1338,10 @@ void D2DRenderer::RenderPage(
         }
     }
 
-    // 4. Draw 1px crisp outline around page
-    m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
+    // 4. Draw 1px crisp outline around page (Theme-aware)
+    ID2D1SolidColorBrush* pBorderBrush = (m_pageTheme == PageTheme::Night && m_brushThemeNightBorder) ?
+        m_brushThemeNightBorder.Get() : m_brushPageBorder.Get();
+    m_d2dContext->DrawRectangle(pageRect, pBorderBrush, 1.0f);
 
     // 5. Draw Sleek Minimalist HUD Pill (bottom-center)
     float dipWidth = m_width * (96.0f / m_dpi);
@@ -1522,14 +1536,20 @@ void D2DRenderer::RenderContinuous(
             m_brushPageShadow.Get()
         );
 
-        // 2. Draw Page Background (pure white)
+        // 2. Draw Page Background (Theme-aware)
         D2D1_RECT_F pageRect = D2D1::RectF(
             pageX,
             pageY,
             pageX + destW,
             pageY + destH
         );
-        m_d2dContext->FillRectangle(pageRect, m_brushPageBg.Get());
+        ID2D1SolidColorBrush* pBgBrush = m_brushPageBg.Get();
+        if (m_pageTheme == PageTheme::Night && m_brushThemeNightBg) {
+            pBgBrush = m_brushThemeNightBg.Get();
+        } else if (m_pageTheme == PageTheme::Sepia && m_brushThemeSepiaBg) {
+            pBgBrush = m_brushThemeSepiaBg.Get();
+        }
+        m_d2dContext->FillRectangle(pageRect, pBgBrush);
 
         // 3. Render PDF Content (Fast hardware bitblt or fallback direct render)
         ID2D1Bitmap1* pCachedBmp = nullptr;
@@ -1624,8 +1644,10 @@ void D2DRenderer::RenderContinuous(
             }
         }
 
-        // 4. Draw 1px crisp outline around page
-        m_d2dContext->DrawRectangle(pageRect, m_brushPageBorder.Get(), 1.0f);
+        // 4. Draw 1px crisp outline around page (Theme-aware)
+        ID2D1SolidColorBrush* pBorderBrush = (m_pageTheme == PageTheme::Night && m_brushThemeNightBorder) ?
+            m_brushThemeNightBorder.Get() : m_brushPageBorder.Get();
+        m_d2dContext->DrawRectangle(pageRect, pBorderBrush, 1.0f);
     }
 
     // 5. Draw Sleek Minimalist HUD Pill (bottom-center)

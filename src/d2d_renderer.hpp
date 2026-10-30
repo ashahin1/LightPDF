@@ -699,8 +699,11 @@ private:
     // Brushes
     ComPtr<ID2D1SolidColorBrush> m_brushBg;
     ComPtr<ID2D1SolidColorBrush> m_brushPageBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushThemeNightBg;
+    ComPtr<ID2D1SolidColorBrush> m_brushThemeSepiaBg;
     ComPtr<ID2D1SolidColorBrush> m_brushPageShadow;
     ComPtr<ID2D1SolidColorBrush> m_brushPageBorder;
+    ComPtr<ID2D1SolidColorBrush> m_brushThemeNightBorder;
     ComPtr<ID2D1SolidColorBrush> m_brushHudBg;
     ComPtr<ID2D1SolidColorBrush> m_brushHudBorder;
     ComPtr<ID2D1SolidColorBrush> m_brushHudText;
