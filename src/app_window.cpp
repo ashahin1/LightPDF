@@ -1,6 +1,7 @@
 #include "app_window.hpp"
 #include "pdf_parser.hpp"
 #include "pdf_decryptor.hpp"
+#include "common_utils.hpp"
 #include <windowsx.h>
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -592,124 +593,8 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
         float dipY = (float)pt.y * dipScale;
         float topOffset = GetTopOffset();
 
-        // 000. If Password Overlay is open, handle button clicks
-        if (msg == WM_LBUTTONDOWN && m_showPasswordOverlay) {
-            int pwdHit = m_renderer.HitTestPasswordOverlay(pt);
-            if (pwdHit == 1 || pwdHit == 4 || pwdHit == -1) {
-                CancelPasswordPrompt();
-                return 0;
-            } else if (pwdHit == 2) {
-                m_passwordShowPlain = !m_passwordShowPlain;
-                Render();
-                return 0;
-            } else if (pwdHit == 3) {
-                SubmitPasswordPrompt();
-                return 0;
-            }
-            return 0;
-        }
-
-        // 00. If Read Aloud bar is active, handle button clicks
-        if (msg == WM_LBUTTONDOWN && m_readAloudController.IsActive()) {
-            int ttsHit = m_renderer.HitTestTtsBar(pt, m_tabController.GetTabCount() > 1);
-            if (ttsHit >= 0 && ttsHit <= 4) {
-                switch (ttsHit) {
-                case 0: m_readAloudController.SkipBackward(); break;
-                case 1:
-                    m_readAloudController.TogglePause();
-                    ShowToast(m_readAloudController.IsPaused() ? L"⏸ Paused" : L"▶ Resumed");
-                    break;
-                case 2: m_readAloudController.SkipForward(); break;
-                case 3:
-                    m_readAloudController.SpeedUp();
-                    ShowToast(L"Speed: " + m_readAloudController.GetRateLabel());
-                    break;
-                case 4: StopReadAloud(); break;
-                }
-                Render();
-                return 0;
-            } else if (ttsHit == 100) {
-                return 0; // Clicked on bar body
-            }
-        }
-
-        // 0a. If Presenter Bar is visible in fullscreen, handle button clicks
-        if (msg == WM_LBUTTONDOWN && m_isFullscreen && m_showPresenterBar) {
-            int presHit = m_renderer.HitTestPresenterBar(pt);
-            if (presHit >= 0 && presHit <= 4) {
-                switch (presHit) {
-                case 0: PrevPage(); break;
-                case 1: NextPage(); break;
-                case 2: ToggleLaserPointer(); break;
-                case 3: CycleLaserColor(); break;
-                case 4: ToggleFullscreen(); break;
-                }
-                return 0;
-            } else if (presHit == 100) {
-                return 0; // Clicked on bar body
-            }
-        }
-
-        // 00c. If Options Overlay is open, handle clicks
-        if (m_showOptions) {
-            if (msg == WM_LBUTTONDOWN) {
-                int optHit = m_renderer.HitTestOptionsOverlay(pt, m_optionsActiveCategory);
-                HandleOptionsClick(optHit);
-            }
-            return 0;
-        }
-
-        // 0. If Document Properties is open, handle clicks
-        if (m_showProperties) {
-            int propHit = m_renderer.HitTestDocumentProperties(pt);
-            if (propHit == 1 || propHit == 3 || propHit == -1) {
-                CloseDocumentProperties();
-                return 0;
-            } else if (propHit == 2) {
-                CopyPropertiesToClipboard();
-                return 0;
-            }
-            return 0;
-        }
-
-        // 0b. If Dictionary Card is open and clicked outside, dismiss it
-        if (m_selectionController.IsDictCardVisible() && !HitTestDictionaryCard(pt)) {
-            DismissDictionaryCard();
-        }
-
-        // 0c. If Quick Switcher (Ctrl+H) is open, handle clicks
-        if (m_recentController.IsSwitcherOpen()) {
-            if (msg == WM_LBUTTONDOWN) {
-                float dipW = (float)m_renderer.GetWidth() * dipScale;
-                float dipH = (float)m_renderer.GetHeight() * dipScale;
-                bool outCardClicked = false;
-                int hit = RecentFilesController::HitTestSwitcher(
-                    D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outCardClicked);
-                if (!outCardClicked) {
-                    m_recentController.CloseSwitcher();
-                    Render();
-                    return 0;
-                } else if (hit >= 0) {
-                    m_recentController.CloseSwitcher();
-                    OpenRecentFile(static_cast<size_t>(hit));
-                    return 0;
-                }
-            }
-            return 0;
-        }
-
-        // 1. If Go to Page overlay is open, click outside closes it
-        if (m_showGoToPage) {
-            float dipW = (float)m_renderer.GetWidth() * dipScale;
-            float dipH = (float)m_renderer.GetHeight() * dipScale;
-            float cardW = 320.0f;
-            float cardH = 150.0f;
-            float cardX = (dipW - cardW) * 0.5f;
-            float cardY = (dipH - cardH) * 0.5f;
-            if (dipX < cardX || dipX > cardX + cardW || dipY < cardY || dipY > cardY + cardH) {
-                m_showGoToPage = false;
-                Render();
-            }
+        // Route click to active modal overlay if any
+        if (HandleModalMouseDown(msg, pt, dipScale, dipX, dipY)) {
             return 0;
         }
 
@@ -1325,37 +1210,16 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 size_t hitChar = 0;
                 bool afterChar = false;
                 if (HitTestPageText(pt, hitPage, hitChar, afterChar)) {
-                    auto pageText = GetOrExtractPageText(pTab, hitPage);
-                    if (pageText && hitChar < pageText->chars.size()) {
-                        auto isWordChar = [](wchar_t c) {
-                            return iswalnum(c) || c == L'_';
-                        };
-                        size_t wStart = hitChar;
-                        while (wStart > 0 && isWordChar(pageText->chars[wStart - 1].ch)) {
-                            wStart--;
-                        }
-                        size_t wEnd = hitChar;
-                        while (wEnd < pageText->chars.size() && isWordChar(pageText->chars[wEnd].ch)) {
-                            wEnd++;
-                        }
-                        if (wEnd > wStart) {
-                            pTab->selection.active = true;
-                            pTab->selection.isDragging = false;
-                            pTab->selection.startPage = hitPage;
-                            pTab->selection.startIndex = wStart;
-                            pTab->selection.endPage = hitPage;
-                            pTab->selection.endIndex = wEnd;
-
-                            if (m_settingsController.Get().doubleClickLookup) {
-                                D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
-                                std::wstring selectedWord = GetSelectedWordOrText(anchorRect);
-                                if (!selectedWord.empty()) {
-                                    TriggerDictionaryLookup(selectedWord, anchorRect);
-                                }
+                    if (m_selectionController.SelectWordAtChar(pTab, hitPage, hitChar)) {
+                        if (m_settingsController.Get().doubleClickLookup) {
+                            D2D1_RECT_F anchorRect = { 0, 0, 0, 0 };
+                            std::wstring selectedWord = GetSelectedWordOrText(anchorRect);
+                            if (!selectedWord.empty()) {
+                                TriggerDictionaryLookup(selectedWord, anchorRect);
                             }
-                            Render();
-                            return 0;
                         }
+                        Render();
+                        return 0;
                     }
                 }
             }
@@ -1387,6 +1251,8 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 ZoomMode newMode = (pTab->zoomMode == ZoomMode::FitPage) ? ZoomMode::FitWidth : ZoomMode::FitPage;
                 pTab->zoomMode = newMode;
                 pTab->currentPage = clickedPage;
+                m_settingsController.SetDefaultZoomMode((newMode == ZoomMode::FitWidth) ? 1 : 0);
+                ApplySettingsToSession();
 
                 // Calculate new zoom
                 float dipW = m_renderer.GetWidth() * dipScale;
@@ -1443,238 +1309,337 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
 }
 
-LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) {
-        if (m_isDraggingScrollbar) return 0;
+bool AppWindow::HandleModalMouseDown(UINT msg, POINT pt, float dipScale, float dipX, float dipY) {
+    if (msg == WM_LBUTTONDOWN && m_showPasswordOverlay) {
+        int pwdHit = m_renderer.HitTestPasswordOverlay(pt);
+        if (pwdHit == 1 || pwdHit == 4 || pwdHit == -1) {
+            CancelPasswordPrompt();
+            return true;
+        } else if (pwdHit == 2) {
+            m_passwordShowPlain = !m_passwordShowPlain;
+            Render();
+            return true;
+        } else if (pwdHit == 3) {
+            SubmitPasswordPrompt();
+            return true;
+        }
+        return true;
+    }
 
-        if (m_showPasswordOverlay) {
-            bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            if (wParam == VK_ESCAPE) {
-                CancelPasswordPrompt();
-                return 0;
-            } else if (wParam == VK_RETURN) {
-                SubmitPasswordPrompt();
-                return 0;
-            } else if (wParam == VK_BACK) {
-                if (isCtrlDown) {
-                    if (!m_passwordInput.empty()) {
-                        SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
-                        m_passwordInput.clear();
-                    }
-                    m_passwordError.clear();
-                    Render();
-                } else if (!m_passwordInput.empty()) {
-                    m_passwordInput.back() = 0;
-                    m_passwordInput.pop_back();
-                    m_passwordError.clear();
-                    Render();
+    if (msg == WM_LBUTTONDOWN && m_readAloudController.IsActive()) {
+        int ttsHit = m_renderer.HitTestTtsBar(pt, m_tabController.GetTabCount() > 1);
+        if (ttsHit >= 0 && ttsHit <= 4) {
+            switch (ttsHit) {
+            case 0: m_readAloudController.SkipBackward(); break;
+            case 1:
+                m_readAloudController.TogglePause();
+                ShowToast(m_readAloudController.IsPaused() ? L"⏸ Paused" : L"▶ Resumed");
+                break;
+            case 2: m_readAloudController.SkipForward(); break;
+            case 3:
+                m_readAloudController.SpeedUp();
+                ShowToast(L"Speed: " + m_readAloudController.GetRateLabel());
+                break;
+            case 4: StopReadAloud(); break;
+            }
+            Render();
+            return true;
+        } else if (ttsHit == 100) {
+            return true;
+        }
+    }
+
+    if (msg == WM_LBUTTONDOWN && m_isFullscreen && m_showPresenterBar) {
+        int presHit = m_renderer.HitTestPresenterBar(pt);
+        if (presHit >= 0 && presHit <= 4) {
+            switch (presHit) {
+            case 0: PrevPage(); break;
+            case 1: NextPage(); break;
+            case 2: ToggleLaserPointer(); break;
+            case 3: CycleLaserColor(); break;
+            case 4: ToggleFullscreen(); break;
+            }
+            return true;
+        } else if (presHit == 100) {
+            return true;
+        }
+    }
+
+    if (m_showOptions) {
+        if (msg == WM_LBUTTONDOWN) {
+            int optHit = m_renderer.HitTestOptionsOverlay(pt, m_optionsActiveCategory);
+            HandleOptionsClick(optHit);
+        }
+        return true;
+    }
+
+    if (m_showProperties) {
+        int propHit = m_renderer.HitTestDocumentProperties(pt);
+        if (propHit == 1 || propHit == 3 || propHit == -1) {
+            CloseDocumentProperties();
+            return true;
+        } else if (propHit == 2) {
+            CopyPropertiesToClipboard();
+            return true;
+        }
+        return true;
+    }
+
+    if (m_selectionController.IsDictCardVisible() && !HitTestDictionaryCard(pt)) {
+        DismissDictionaryCard();
+    }
+
+    if (m_recentController.IsSwitcherOpen()) {
+        if (msg == WM_LBUTTONDOWN) {
+            float dipW = (float)m_renderer.GetWidth() * dipScale;
+            float dipH = (float)m_renderer.GetHeight() * dipScale;
+            bool outCardClicked = false;
+            int hit = RecentFilesController::HitTestSwitcher(
+                D2D1::Point2F(dipX, dipY), dipW, dipH, m_recentController.GetCount(), outCardClicked);
+            if (!outCardClicked) {
+                m_recentController.CloseSwitcher();
+                Render();
+                return true;
+            } else if (hit >= 0) {
+                m_recentController.CloseSwitcher();
+                OpenRecentFile(static_cast<size_t>(hit));
+                return true;
+            }
+        }
+        return true;
+    }
+
+    if (m_showGoToPage) {
+        float dipW = (float)m_renderer.GetWidth() * dipScale;
+        float dipH = (float)m_renderer.GetHeight() * dipScale;
+        float cardW = 320.0f;
+        float cardH = 150.0f;
+        float cardX = (dipW - cardW) * 0.5f;
+        float cardY = (dipH - cardH) * 0.5f;
+        if (dipX < cardX || dipX > cardX + cardW || dipY < cardY || dipY > cardY + cardH) {
+            m_showGoToPage = false;
+            Render();
+        }
+        return true;
+    }
+
+    return false;
+}
+
+bool AppWindow::HandleModalKeyDown(WPARAM wParam, bool isCtrlDown, bool isShiftDown) {
+    if (m_showPasswordOverlay) {
+        if (wParam == VK_ESCAPE) {
+            CancelPasswordPrompt();
+            return true;
+        } else if (wParam == VK_RETURN) {
+            SubmitPasswordPrompt();
+            return true;
+        } else if (wParam == VK_BACK) {
+            if (isCtrlDown) {
+                if (!m_passwordInput.empty()) {
+                    SecureZeroMemory(m_passwordInput.data(), m_passwordInput.size() * sizeof(wchar_t));
+                    m_passwordInput.clear();
                 }
-                return 0;
-            } else if (wParam == 'V' && isCtrlDown) {
-                if (OpenClipboard(m_hwnd)) {
-                    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
-                    if (hData) {
-                        const wchar_t* pText = (const wchar_t*)GlobalLock(hData);
-                        if (pText) {
-                            while (*pText && m_passwordInput.size() < 256) {
-                                if (*pText != L'\r' && *pText != L'\n') {
-                                    m_passwordInput.push_back(*pText);
-                                }
-                                pText++;
-                            }
-                            GlobalUnlock(hData);
-                            m_passwordError.clear();
-                            Render();
-                        }
+                m_passwordError.clear();
+                Render();
+            } else if (!m_passwordInput.empty()) {
+                m_passwordInput.back() = 0;
+                m_passwordInput.pop_back();
+                m_passwordError.clear();
+                Render();
+            }
+            return true;
+        } else if (wParam == 'V' && isCtrlDown) {
+            std::wstring clip = ClipboardUtils::GetText(m_hwnd);
+            if (!clip.empty()) {
+                for (wchar_t ch : clip) {
+                    if (m_passwordInput.size() >= 256) break;
+                    if (ch != L'\r' && ch != L'\n') {
+                        m_passwordInput.push_back(ch);
                     }
-                    CloseClipboard();
                 }
-                return 0;
+                m_passwordError.clear();
+                Render();
             }
-            return 0;
+            return true;
         }
-        bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        return true;
+    }
 
-        if (m_selectionController.IsDictCardVisible()) {
-            if (wParam == VK_ESCAPE) {
-                DismissDictionaryCard();
-                return 0;
-            } else if (wParam == 'C' && isCtrlDown) {
-                CopyDictionaryDefinitionToClipboard();
-                return 0;
+    if (m_selectionController.IsDictCardVisible()) {
+        if (wParam == VK_ESCAPE) {
+            DismissDictionaryCard();
+            return true;
+        } else if (wParam == 'C' && isCtrlDown) {
+            CopyDictionaryDefinitionToClipboard();
+            return true;
+        }
+    }
+
+    if (m_showOptions) {
+        if (wParam == VK_ESCAPE || wParam == VK_RETURN || (wParam == VK_OEM_COMMA && isCtrlDown)) {
+            CloseOptionsOverlay();
+            return true;
+        } else if (wParam >= '1' && wParam <= '3' && !isCtrlDown) {
+            m_optionsActiveCategory = (int)(wParam - '1');
+            Render();
+            return true;
+        } else if (wParam == VK_TAB) {
+            m_optionsActiveCategory = isShiftDown
+                ? ((m_optionsActiveCategory + 2) % 3)
+                : ((m_optionsActiveCategory + 1) % 3);
+            Render();
+            return true;
+        } else if (wParam == VK_LEFT) {
+            m_optionsActiveCategory = (m_optionsActiveCategory + 2) % 3;
+            Render();
+            return true;
+        } else if (wParam == VK_RIGHT) {
+            m_optionsActiveCategory = (m_optionsActiveCategory + 1) % 3;
+            Render();
+            return true;
+        }
+        return true;
+    }
+
+    if (m_showProperties) {
+        if (wParam == VK_ESCAPE || wParam == VK_RETURN || (wParam == 'D' && isCtrlDown)) {
+            CloseDocumentProperties();
+            return true;
+        } else if (wParam == 'C' && isCtrlDown) {
+            CopyPropertiesToClipboard();
+            return true;
+        }
+        return true;
+    }
+
+    if (m_showHelp) {
+        if (wParam == VK_ESCAPE || wParam == VK_F1) {
+            m_showHelp = false;
+            Render();
+            return true;
+        } else if (wParam >= '1' && wParam <= '5' && !isCtrlDown) {
+            m_helpActiveCategory = (int)(wParam - '1');
+            Render();
+            return true;
+        } else if (wParam == VK_TAB) {
+            m_helpActiveCategory = isShiftDown ? ((m_helpActiveCategory + 4) % 5) : ((m_helpActiveCategory + 1) % 5);
+            Render();
+            return true;
+        } else if (wParam == VK_LEFT) {
+            m_helpActiveCategory = (m_helpActiveCategory + 4) % 5;
+            Render();
+            return true;
+        } else if (wParam == VK_RIGHT) {
+            m_helpActiveCategory = (m_helpActiveCategory + 1) % 5;
+            Render();
+            return true;
+        }
+        return true;
+    }
+
+    if (m_recentController.IsSwitcherOpen()) {
+        if (wParam == VK_ESCAPE) {
+            m_recentController.CloseSwitcher();
+            Render();
+            return true;
+        } else if (wParam == VK_UP) {
+            m_recentController.SelectPrevSwitcherItem();
+            Render();
+            return true;
+        } else if (wParam == VK_DOWN) {
+            m_recentController.SelectNextSwitcherItem();
+            Render();
+            return true;
+        } else if (wParam == VK_RETURN) {
+            int sel = m_recentController.GetSwitcherSelectedIndex();
+            m_recentController.CloseSwitcher();
+            if (sel >= 0) {
+                OpenRecentFile(static_cast<size_t>(sel));
+            } else {
+                Render();
             }
-        }
-
-        if (m_showOptions) {
-            if (wParam == VK_ESCAPE || wParam == VK_RETURN || (wParam == VK_OEM_COMMA && isCtrlDown)) {
-                CloseOptionsOverlay();
-                return 0;
-            } else if (wParam >= '1' && wParam <= '3' && !isCtrlDown) {
-                m_optionsActiveCategory = (int)(wParam - '1');
-                Render();
-                return 0;
-            } else if (wParam == VK_TAB) {
-                m_optionsActiveCategory = isShiftDown
-                    ? ((m_optionsActiveCategory + 2) % 3)
-                    : ((m_optionsActiveCategory + 1) % 3);
-                Render();
-                return 0;
-            } else if (wParam == VK_LEFT) {
-                m_optionsActiveCategory = (m_optionsActiveCategory + 2) % 3;
-                Render();
-                return 0;
-            } else if (wParam == VK_RIGHT) {
-                m_optionsActiveCategory = (m_optionsActiveCategory + 1) % 3;
-                Render();
-                return 0;
-            }
-            return 0;
-        }
-
-        if (m_showProperties) {
-            if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
-                CloseDocumentProperties();
-                return 0;
-            } else if (wParam == 'D' && isCtrlDown) {
-                CloseDocumentProperties();
-                return 0;
-            } else if (wParam == 'C' && isCtrlDown) {
-                CopyPropertiesToClipboard();
-                return 0;
-            }
-            return 0;
-        }
-
-        if (m_showHelp) {
-            if (wParam == VK_ESCAPE || wParam == VK_F1) {
-                m_showHelp = false;
-                Render();
-                return 0;
-            } else if (wParam >= '1' && wParam <= '5' && !isCtrlDown) {
-                m_helpActiveCategory = (int)(wParam - '1');
-                Render();
-                return 0;
-            } else if (wParam == VK_TAB) {
-                if (isShiftDown) {
-                    m_helpActiveCategory = (m_helpActiveCategory + 4) % 5;
+            return true;
+        } else if (wParam == VK_DELETE) {
+            int sel = m_recentController.GetSwitcherSelectedIndex();
+            if (sel >= 0) {
+                m_recentController.RemoveRecentFile(static_cast<size_t>(sel));
+                if (m_recentController.IsEmpty()) {
+                    m_recentController.CloseSwitcher();
                 } else {
-                    m_helpActiveCategory = (m_helpActiveCategory + 1) % 5;
+                    m_recentController.SetSwitcherSelectedIndex((std::min)(sel, static_cast<int>(m_recentController.GetCount() - 1)));
                 }
                 Render();
-                return 0;
-            } else if (wParam == VK_LEFT) {
-                m_helpActiveCategory = (m_helpActiveCategory + 4) % 5;
-                Render();
-                return 0;
-            } else if (wParam == VK_RIGHT) {
-                m_helpActiveCategory = (m_helpActiveCategory + 1) % 5;
-                Render();
-                return 0;
             }
-            return 0;
-        }
-
-        if (m_recentController.IsSwitcherOpen()) {
-            if (wParam == VK_ESCAPE) {
-                m_recentController.CloseSwitcher();
-                Render();
-                return 0;
-            } else if (wParam == VK_UP) {
-                m_recentController.SelectPrevSwitcherItem();
-                Render();
-                return 0;
-            } else if (wParam == VK_DOWN) {
-                m_recentController.SelectNextSwitcherItem();
-                Render();
-                return 0;
-            } else if (wParam == VK_RETURN) {
-                int sel = m_recentController.GetSwitcherSelectedIndex();
-                m_recentController.CloseSwitcher();
-                if (sel >= 0) {
-                    OpenRecentFile(static_cast<size_t>(sel));
-                } else {
-                    Render();
-                }
-                return 0;
-            } else if (wParam == VK_DELETE) {
-                int sel = m_recentController.GetSwitcherSelectedIndex();
-                if (sel >= 0) {
-                    m_recentController.RemoveRecentFile(static_cast<size_t>(sel));
-                    if (m_recentController.IsEmpty()) {
-                        m_recentController.CloseSwitcher();
-                    } else {
-                        m_recentController.SetSwitcherSelectedIndex((std::min)(sel, static_cast<int>(m_recentController.GetCount() - 1)));
-                    }
-                    Render();
-                }
-                return 0;
-            } else if (wParam >= '1' && wParam <= '9' && !isCtrlDown) {
-                size_t idx = static_cast<size_t>(wParam - '1');
-                m_recentController.CloseSwitcher();
-                OpenRecentFile(idx);
-                return 0;
-            }
-            return 0;
-        }
-
-        // Empty state dashboard hotkeys (1..9 to open recent files)
-        if (m_tabController.IsEmpty() && !isCtrlDown && wParam >= '1' && wParam <= '9' &&
-            !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+            return true;
+        } else if (wParam >= '1' && wParam <= '9' && !isCtrlDown) {
             size_t idx = static_cast<size_t>(wParam - '1');
+            m_recentController.CloseSwitcher();
             OpenRecentFile(idx);
-            return 0;
+            return true;
         }
+        return true;
+    }
 
-        if (m_showGoToPage) {
-            if (wParam >= '0' && wParam <= '9') {
-                if (m_goToPageBuffer.size() < 6) {
-                    m_goToPageBuffer.push_back((wchar_t)wParam);
-                    Render();
-                }
-                return 0;
-            } else if (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9) {
-                if (m_goToPageBuffer.size() < 6) {
-                    m_goToPageBuffer.push_back(L'0' + (wchar_t)(wParam - VK_NUMPAD0));
-                    Render();
-                }
-                return 0;
-            } else if (wParam == VK_BACK) {
-                if (!m_goToPageBuffer.empty()) {
-                    m_goToPageBuffer.pop_back();
-                    Render();
-                }
-                return 0;
-            } else if (wParam == VK_RETURN) {
-                if (!m_goToPageBuffer.empty()) {
-                    try {
-                        long p = std::stol(m_goToPageBuffer);
-                        auto* pTab = GetActiveTab();
-                        if (pTab && pTab->document.IsLoaded()) {
-                            uint32_t total = pTab->document.GetPageCount();
-                            if (p >= 1 && (uint32_t)p <= total) {
-                                PushNavHistory(pTab);
-                                pTab->navForwardStack.clear();
-                                GoToPage((uint32_t)(p - 1));
-                            }
-                        }
-                    } catch (const std::exception& ex) {
-                        OutputDebugStringA(("[LightPDF] GoToPage invalid number: " + std::string(ex.what()) + "\n").c_str());
-                    } catch (...) {
-                        OutputDebugStringW(L"[LightPDF] GoToPage unknown error\n");
-                    }
-                }
-                m_showGoToPage = false;
-                m_goToPageBuffer.clear();
+    if (m_showGoToPage) {
+        if (wParam >= '0' && wParam <= '9') {
+            if (m_goToPageBuffer.size() < 6) {
+                m_goToPageBuffer.push_back((wchar_t)wParam);
                 Render();
-                return 0;
-            } else if (wParam == VK_ESCAPE) {
-                m_showGoToPage = false;
-                m_goToPageBuffer.clear();
-                Render();
-                return 0;
             }
-            return 0;
+            return true;
+        } else if (wParam >= VK_NUMPAD0 && wParam <= VK_NUMPAD9) {
+            if (m_goToPageBuffer.size() < 6) {
+                m_goToPageBuffer.push_back(L'0' + (wchar_t)(wParam - VK_NUMPAD0));
+                Render();
+            }
+            return true;
+        } else if (wParam == VK_BACK) {
+            if (!m_goToPageBuffer.empty()) {
+                m_goToPageBuffer.pop_back();
+                Render();
+            }
+            return true;
+        } else if (wParam == VK_RETURN) {
+            if (!m_goToPageBuffer.empty()) {
+                try {
+                    long p = std::stol(m_goToPageBuffer);
+                    auto* pTab = GetActiveTab();
+                    if (pTab && pTab->document.IsLoaded()) {
+                        uint32_t total = pTab->document.GetPageCount();
+                        if (p >= 1 && (uint32_t)p <= total) {
+                            PushNavHistory(pTab);
+                            pTab->navForwardStack.clear();
+                            GoToPage((uint32_t)(p - 1));
+                        }
+                    }
+                } catch (...) {}
+            }
+            m_showGoToPage = false;
+            m_goToPageBuffer.clear();
+            Render();
+            return true;
+        } else if (wParam == VK_ESCAPE) {
+            m_showGoToPage = false;
+            m_goToPageBuffer.clear();
+            Render();
+            return true;
         }
+        return true;
+    }
+
+    return false;
+}
+
+LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) {
+    if (m_isDraggingScrollbar) return 0;
+
+    bool isCtrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool isShiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+    if (HandleModalKeyDown(wParam, isCtrlDown, isShiftDown)) {
+        return 0;
+    }
 
         switch (wParam) {
         case VK_OEM_COMMA:
@@ -1759,21 +1724,14 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             break;
         case 'V':
             if (isCtrlDown && m_searchController.IsOpen()) {
-                if (OpenClipboard(m_hwnd)) {
-                    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
-                    if (hData) {
-                        const wchar_t* pText = (const wchar_t*)GlobalLock(hData);
-                        if (pText) {
-                            for (const wchar_t* p = pText; *p; ++p) {
-                                if (*p >= 32 && *p != 127) {
-                                    m_searchController.AppendQueryChar(*p);
-                                }
-                            }
-                            GlobalUnlock(hData);
-                            ScheduleSearchDebounce();
+                std::wstring clip = ClipboardUtils::GetText(m_hwnd);
+                if (!clip.empty()) {
+                    for (wchar_t ch : clip) {
+                        if (ch >= 32 && ch != 127) {
+                            m_searchController.AppendQueryChar(ch);
                         }
                     }
-                    CloseClipboard();
+                    ScheduleSearchDebounce();
                 }
                 return 0;
             } else if (!isCtrlDown && !m_searchController.IsOpen() && !m_showGoToPage) {
@@ -1887,13 +1845,7 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             break;
         case '1':
             if (isCtrlDown) {
-                auto* pTab = GetActiveTab();
-                if (pTab) {
-                    pTab->zoom = 1.0f;
-                    pTab->zoomMode = ZoomMode::Custom;
-                    RecalculateLayout();
-                    Render();
-                }
+                SetZoomMode(ZoomMode::Custom, 1.0f);
                 return 0;
             }
             break;
@@ -2418,20 +2370,38 @@ void AppWindow::ProcessNextPasswordRequest() {
     PromptForPassword(nextReq);
 }
 
+void AppWindow::RecordClosedTab(const DocumentTab& tab) {
+    if (tab.document.IsLoaded() && !tab.document.GetFilePath().empty()) {
+        ClosedTabInfo info;
+        info.filePath = tab.document.GetFilePath();
+        info.currentPage = tab.currentPage;
+        info.zoom = tab.zoom;
+        info.scrollY = tab.scrollY;
+        info.zoomMode = tab.zoomMode;
+        info.continuousScroll = tab.continuousScroll;
+        m_recentController.PushClosedTab(info);
+        m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
+    }
+}
+
+void AppWindow::OnActiveTabChanged() {
+    m_renderer.InvalidatePageCache();
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
+        TriggerSearch();
+    }
+    RecalculateLayout();
+    UpdateTitle();
+    Render();
+}
+
 void AppWindow::CloseTab(size_t index) {
     if (index >= m_tabController.GetTabCount()) return;
 
-    const auto* pTab = m_tabController.GetTab(index);
-    if (pTab && pTab->document.IsLoaded() && !pTab->document.GetFilePath().empty()) {
-        ClosedTabInfo info;
-        info.filePath = pTab->document.GetFilePath();
-        info.currentPage = pTab->currentPage;
-        info.zoom = pTab->zoom;
-        info.scrollY = pTab->scrollY;
-        info.zoomMode = pTab->zoomMode;
-        info.continuousScroll = pTab->continuousScroll;
-        m_recentController.PushClosedTab(info);
-        m_recentController.UpdateLastPage(pTab->document.GetFilePath(), pTab->currentPage);
+    if (const auto* pTab = m_tabController.GetTab(index)) {
+        RecordClosedTab(*pTab);
     }
 
     m_renderer.InvalidatePageCache();
@@ -2445,119 +2415,41 @@ void AppWindow::CloseTab(size_t index) {
         return;
     }
 
-    if (m_showProperties) {
-        ShowDocumentProperties();
-    }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
+    OnActiveTabChanged();
 }
 
 void AppWindow::CloseOtherTabs(size_t keepIndex) {
     if (keepIndex >= m_tabController.GetTabCount()) return;
 
-    auto onTabClosing = [this](const DocumentTab& tab) {
-        if (tab.document.IsLoaded() && !tab.document.GetFilePath().empty()) {
-            ClosedTabInfo info;
-            info.filePath = tab.document.GetFilePath();
-            info.currentPage = tab.currentPage;
-            info.zoom = tab.zoom;
-            info.scrollY = tab.scrollY;
-            info.zoomMode = tab.zoomMode;
-            info.continuousScroll = tab.continuousScroll;
-            m_recentController.PushClosedTab(info);
-            m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
-        }
-    };
-
     m_renderer.InvalidatePageCache();
-    m_tabController.CloseOtherTabs(keepIndex, onTabClosing);
-
-    if (m_showProperties) {
-        ShowDocumentProperties();
-    }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
+    m_tabController.CloseOtherTabs(keepIndex, [this](const DocumentTab& tab) { RecordClosedTab(tab); });
+    OnActiveTabChanged();
 }
 
 void AppWindow::CloseTabsToTheRight(size_t index) {
     if (index >= m_tabController.GetTabCount()) return;
 
-    auto onTabClosing = [this](const DocumentTab& tab) {
-        if (tab.document.IsLoaded() && !tab.document.GetFilePath().empty()) {
-            ClosedTabInfo info;
-            info.filePath = tab.document.GetFilePath();
-            info.currentPage = tab.currentPage;
-            info.zoom = tab.zoom;
-            info.scrollY = tab.scrollY;
-            info.zoomMode = tab.zoomMode;
-            info.continuousScroll = tab.continuousScroll;
-            m_recentController.PushClosedTab(info);
-            m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
-        }
-    };
-
     m_renderer.InvalidatePageCache();
-    m_tabController.CloseTabsToTheRight(index, onTabClosing);
-
-    if (m_showProperties) {
-        ShowDocumentProperties();
-    }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
+    m_tabController.CloseTabsToTheRight(index, [this](const DocumentTab& tab) { RecordClosedTab(tab); });
+    OnActiveTabChanged();
 }
 
 void AppWindow::SelectTab(size_t index) {
-    if (!m_tabController.SelectTab(index)) return;
-    m_renderer.InvalidatePageCache();
-    if (m_showProperties) {
-        ShowDocumentProperties();
+    if (m_tabController.SelectTab(index)) {
+        OnActiveTabChanged();
     }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
 }
 
 void AppWindow::NextTab() {
-    if (!m_tabController.NextTab()) return;
-    m_renderer.InvalidatePageCache();
-    if (m_showProperties) {
-        ShowDocumentProperties();
+    if (m_tabController.NextTab()) {
+        OnActiveTabChanged();
     }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
 }
 
 void AppWindow::PrevTab() {
-    if (!m_tabController.PrevTab()) return;
-    m_renderer.InvalidatePageCache();
-    if (m_showProperties) {
-        ShowDocumentProperties();
+    if (m_tabController.PrevTab()) {
+        OnActiveTabChanged();
     }
-    if (m_searchController.IsOpen() && !m_searchController.GetQuery().empty()) {
-        TriggerSearch();
-    }
-    RecalculateLayout();
-    UpdateTitle();
-    Render();
 }
 
 int AppWindow::HitTestTab(POINT pt, bool& outClose, bool& outAdd) const {
@@ -2769,22 +2661,6 @@ void AppWindow::CancelBakingSearchablePdf() {
 
 namespace {
 
-std::wstring GetParentDirectory(const std::wstring& filePath) {
-    size_t slash = filePath.find_last_of(L"\\/");
-    if (slash != std::wstring::npos) {
-        return filePath.substr(0, slash);
-    }
-    return L"";
-}
-
-std::wstring GetFileNamePart(const std::wstring& filePath) {
-    size_t slash = filePath.find_last_of(L"\\/");
-    if (slash != std::wstring::npos) {
-        return filePath.substr(slash + 1);
-    }
-    return filePath;
-}
-
 std::wstring AppendFilenameSuffix(const std::wstring& origName, const std::wstring& suffix) {
     size_t dotPos = origName.rfind(L'.');
     if (dotPos != std::wstring::npos) {
@@ -2941,6 +2817,66 @@ bool AppWindow::ReloadOrSwitchActiveTabToFile(const std::wstring& targetPath, co
     return true;
 }
 
+void AppWindow::RunDialogThread(std::function<void()> task) {
+    if (m_dialogThread.joinable()) {
+        m_dialogThread.join();
+    }
+    m_dialogThread = std::thread([task = std::move(task)]() {
+        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        task();
+        if (SUCCEEDED(hrCo)) CoUninitialize();
+    });
+}
+
+void AppWindow::CopyPdfAndEnqueueDone(const std::wstring& origPath, const std::wstring& targetPath, const std::wstring& password, const std::wstring& successPrefix) {
+    if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
+        EnqueueSaveDone(false, L"", L"", L"Document saved.");
+    } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
+        std::wstring savedName = PathUtils::GetFileName(targetPath);
+        std::wstring msg = successPrefix.empty() ? (L"Saved to \"" + savedName + L"\"") : (successPrefix + L"\"" + savedName + L"\"");
+        EnqueueSaveDone(true, targetPath, password, msg);
+    } else {
+        EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
+    }
+}
+
+namespace {
+int ShowTaskDialogChoice(
+    HWND hwnd,
+    const wchar_t* title,
+    const wchar_t* instruction,
+    const wchar_t* content,
+    const TASKDIALOG_BUTTON* buttons,
+    UINT buttonCount,
+    int defaultButton
+) {
+    typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+    HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
+    if (!hComCtl) return 0;
+
+    PFN_TaskDialogIndirect pfnTaskDialogIndirect = (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect");
+    int nButton = 0;
+    if (pfnTaskDialogIndirect) {
+        TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
+        tdc.hwndParent = hwnd;
+        tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
+        tdc.pszWindowTitle = title;
+        tdc.pszMainInstruction = instruction;
+        tdc.pszContent = content;
+        tdc.pButtons = buttons;
+        tdc.cButtons = buttonCount;
+        tdc.nDefaultButton = defaultButton;
+
+        if (SUCCEEDED(pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr))) {
+            FreeLibrary(hComCtl);
+            return nButton;
+        }
+    }
+    FreeLibrary(hComCtl);
+    return 0;
+}
+} // namespace
+
 void AppWindow::PromptSaveAsPdf() {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) {
@@ -2953,28 +2889,12 @@ void AppWindow::PromptSaveAsPdf() {
     std::wstring password = pTab->document.GetPassword();
     HWND hwnd = m_hwnd;
 
-    if (m_dialogThread.joinable()) {
-        m_dialogThread.join();
-    }
-
-    m_dialogThread = std::thread([this, hwnd, origPath, origName, password]() {
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-        std::wstring initialDir = GetParentDirectory(origPath);
+    RunDialogThread([this, hwnd, origPath, origName, password]() {
+        std::wstring initialDir = PathUtils::GetDirectory(origPath);
         std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save PDF As", initialDir, origName);
-
         if (!targetPath.empty()) {
-            if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
-                EnqueueSaveDone(false, L"", L"", L"Document saved.");
-            } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
-                std::wstring savedName = GetFileNamePart(targetPath);
-                EnqueueSaveDone(true, targetPath, password, L"Saved to \"" + savedName + L"\"");
-            } else {
-                EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
-            }
+            CopyPdfAndEnqueueDone(origPath, targetPath, password);
         }
-
-        if (SUCCEEDED(hrCo)) CoUninitialize();
     });
 }
 
@@ -3004,51 +2924,29 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
     std::wstring origName = pTab->document.GetFileName();
     HWND hwnd = m_hwnd;
 
-    if (m_dialogThread.joinable()) {
-        m_dialogThread.join();
-    }
-
-    m_dialogThread = std::thread([this, hwnd, origPath, origName, forceSaveAs]() {
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-        int action = forceSaveAs ? 101 : 0; // 101 = Bake OCR Save As, 102 = Bake OCR Overwrite, 103 = Copy Without OCR
+    RunDialogThread([this, hwnd, origPath, origName, forceSaveAs]() {
+        int action = forceSaveAs ? 101 : 0;
 
         if (!forceSaveAs) {
-            typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
-            HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
-            PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
-
-            bool handled = false;
-            if (pfnTaskDialogIndirect) {
-                TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
-                tdc.hwndParent = hwnd;
-                tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-                tdc.pszWindowTitle = L"Save Scanned PDF";
-                tdc.pszMainInstruction = L"How would you like to save this scanned document?";
-                tdc.pszContent = L"This PDF contains scanned pages without selectable text. You can bake an invisible English & Arabic OCR text layer or save a direct copy.";
-
-                TASKDIALOG_BUTTON buttons[] = {
-                    { 101, L"Save Searchable PDF As...\nRun OCR and save to a new searchable PDF file (Original file untouched)" },
-                    { 102, L"Update Original File (Bake OCR In-Place)\nRun OCR and update the current file directly using a safe atomic swap" },
-                    { 103, L"Save Original Copy As... (Without OCR)\nSave a fast copy of the document as-is without running OCR" }
-                };
-                tdc.pButtons = buttons;
-                tdc.cButtons = ARRAYSIZE(buttons);
-                tdc.nDefaultButton = 101;
-
-                int nButton = 0;
-                if (SUCCEEDED(pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr))) {
-                    handled = true;
-                    if (nButton == 101 || nButton == 102 || nButton == 103) {
-                        action = nButton;
-                    } else {
-                        if (SUCCEEDED(hrCo)) CoUninitialize();
-                        return;
-                    }
-                }
-            }
-
-            if (!handled) {
+            TASKDIALOG_BUTTON buttons[] = {
+                { 101, L"Save Searchable PDF As...\nRun OCR and save to a new searchable PDF file (Original file untouched)" },
+                { 102, L"Update Original File (Bake OCR In-Place)\nRun OCR and update the current file directly using a safe atomic swap" },
+                { 103, L"Save Original Copy As... (Without OCR)\nSave a fast copy of the document as-is without running OCR" }
+            };
+            int nButton = ShowTaskDialogChoice(
+                hwnd,
+                L"Save Scanned PDF",
+                L"How would you like to save this scanned document?",
+                L"This PDF contains scanned pages without selectable text. You can bake an invisible English & Arabic OCR text layer or save a direct copy.",
+                buttons,
+                ARRAYSIZE(buttons),
+                101
+            );
+            if (nButton == 101 || nButton == 102 || nButton == 103) {
+                action = nButton;
+            } else if (nButton != 0) {
+                return;
+            } else {
                 int res = MessageBoxW(
                     hwnd,
                     L"Do you want to bake OCR and overwrite the original file?\n\n"
@@ -3058,18 +2956,13 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
                     L"Save Searchable PDF",
                     MB_YESNOCANCEL | MB_ICONQUESTION
                 );
-                if (res == IDYES) {
-                    action = 102;
-                } else if (res == IDNO) {
-                    action = 101;
-                } else {
-                    if (SUCCEEDED(hrCo)) CoUninitialize();
-                    return;
-                }
+                if (res == IDYES) action = 102;
+                else if (res == IDNO) action = 101;
+                else return;
             }
         }
 
-        std::wstring initialDir = GetParentDirectory(origPath);
+        std::wstring initialDir = PathUtils::GetDirectory(origPath);
 
         if (action == 102) {
             EnqueueBakePdf(origPath, true);
@@ -3083,18 +2976,9 @@ void AppWindow::PromptSaveSearchablePdf(bool forceSaveAs) {
         } else if (action == 103) {
             std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save PDF Copy As", initialDir, origName);
             if (!targetPath.empty()) {
-                if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
-                    EnqueueSaveDone(false, L"", L"", L"Document saved.");
-                } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
-                    std::wstring savedName = GetFileNamePart(targetPath);
-                    EnqueueSaveDone(true, targetPath, L"", L"Saved to \"" + savedName + L"\"");
-                } else {
-                    EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
-                }
+                CopyPdfAndEnqueueDone(origPath, targetPath);
             }
         }
-
-        if (SUCCEEDED(hrCo)) CoUninitialize();
     });
 }
 
@@ -3110,62 +2994,32 @@ void AppWindow::PromptSaveDecryptedPdf() {
     std::wstring password = pTab->document.GetPassword();
     HWND hwnd = m_hwnd;
 
-    if (m_dialogThread.joinable()) {
-        m_dialogThread.join();
-    }
-
-    m_dialogThread = std::thread([this, hwnd, origPath, origName, password]() {
-        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-        typedef HRESULT (WINAPI *PFN_TaskDialogIndirect)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
-        HMODULE hComCtl = LoadLibraryW(L"comctl32.dll");
-        PFN_TaskDialogIndirect pfnTaskDialogIndirect = hComCtl ? (PFN_TaskDialogIndirect)GetProcAddress(hComCtl, "TaskDialogIndirect") : nullptr;
-
-        int action = 101; // 101 = Save Decrypted Copy As, 102 = Remove Password In-Place, 103 = Save Encrypted Copy As
-
-        if (pfnTaskDialogIndirect) {
-            TASKDIALOGCONFIG tdc = { sizeof(TASKDIALOGCONFIG) };
-            tdc.hwndParent = hwnd;
-            tdc.dwFlags = TDF_USE_COMMAND_LINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-            tdc.pszWindowTitle = L"Save Password-Protected PDF";
-            tdc.pszMainInstruction = L"How would you like to save this encrypted document?";
-            tdc.pszContent = L"Since you have unlocked this document, you can save a decrypted (password-free) version, unlock the original file in-place, or save a copy keeping the password.";
-
-            TASKDIALOG_BUTTON buttons[] = {
-                { 101, L"Save Decrypted Copy As...\nSave an unencrypted, password-free copy to a new file (Original file untouched)" },
-                { 102, L"Remove Password from Original File\nPermanently unlock the current file in-place using a safe atomic swap" },
-                { 103, L"Save Encrypted Copy As...\nSave a copy of the document keeping its password protection" }
-            };
-            tdc.pButtons = buttons;
-            tdc.cButtons = ARRAYSIZE(buttons);
-            tdc.nDefaultButton = 101;
-
-            int nButton = 0;
-            if (SUCCEEDED(pfnTaskDialogIndirect(&tdc, &nButton, nullptr, nullptr))) {
-                if (nButton == 101 || nButton == 102 || nButton == 103) {
-                    action = nButton;
-                } else {
-                    if (SUCCEEDED(hrCo)) CoUninitialize();
-                    return;
-                }
-            }
+    RunDialogThread([this, hwnd, origPath, origName, password]() {
+        TASKDIALOG_BUTTON buttons[] = {
+            { 101, L"Save Decrypted Copy As...\nSave an unencrypted, password-free copy to a new file (Original file untouched)" },
+            { 102, L"Remove Password from Original File\nPermanently unlock the current file in-place using a safe atomic swap" },
+            { 103, L"Save Encrypted Copy As...\nSave a copy of the document keeping its password protection" }
+        };
+        int action = ShowTaskDialogChoice(
+            hwnd,
+            L"Save Password-Protected PDF",
+            L"How would you like to save this encrypted document?",
+            L"Since you have unlocked this document, you can save a decrypted (password-free) version, unlock the original file in-place, or save a copy keeping the password.",
+            buttons,
+            ARRAYSIZE(buttons),
+            101
+        );
+        if (action != 101 && action != 102 && action != 103) {
+            return;
         }
 
-        std::wstring initialDir = GetParentDirectory(origPath);
+        std::wstring initialDir = PathUtils::GetDirectory(origPath);
 
         if (action == 103) {
             std::wstring targetPath = ShowNativeSavePdfDialog(hwnd, L"Save Encrypted PDF Copy As", initialDir, origName);
             if (!targetPath.empty()) {
-                if (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0) {
-                    EnqueueSaveDone(false, L"", L"", L"Document saved.");
-                } else if (CopyFileW(origPath.c_str(), targetPath.c_str(), FALSE)) {
-                    std::wstring savedName = GetFileNamePart(targetPath);
-                    EnqueueSaveDone(true, targetPath, password, L"Saved encrypted copy to \"" + savedName + L"\"");
-                } else {
-                    EnqueueSaveDone(false, L"", L"", L"Error: Failed to save file to destination.");
-                }
+                CopyPdfAndEnqueueDone(origPath, targetPath, password, L"Saved encrypted copy to ");
             }
-            if (SUCCEEDED(hrCo)) CoUninitialize();
             return;
         }
 
@@ -3181,7 +3035,7 @@ void AppWindow::PromptSaveDecryptedPdf() {
             bool isOverwrite = (_wcsicmp(targetPath.c_str(), origPath.c_str()) == 0);
             auto res = PdfDecryptor::DecryptAndSave(origPath, targetPath, password, nullptr);
             if (res.success) {
-                std::wstring savedName = GetFileNamePart(targetPath);
+                std::wstring savedName = PathUtils::GetFileName(targetPath);
                 std::wstring msg = isOverwrite
                     ? (L"Password removed from \"" + savedName + L"\"!")
                     : (L"Saved unencrypted copy to \"" + savedName + L"\"");
@@ -3191,8 +3045,6 @@ void AppWindow::PromptSaveDecryptedPdf() {
                 EnqueueSaveDone(false, L"", L"", L"Error: " + msg);
             }
         }
-
-        if (SUCCEEDED(hrCo)) CoUninitialize();
     });
 }
 
@@ -3343,10 +3195,23 @@ void AppWindow::UpdateTitle() {
     }
 }
 
-void AppWindow::SetZoomMode(ZoomMode mode) {
+void AppWindow::SetZoomMode(ZoomMode mode, float customZoom) {
     auto* pTab = GetActiveTab();
     if (!pTab) return;
     pTab->zoomMode = mode;
+    if (mode == ZoomMode::Custom) {
+        pTab->zoom = customZoom;
+    }
+
+    if (mode == ZoomMode::FitPage) {
+        m_settingsController.SetDefaultZoomMode(0);
+    } else if (mode == ZoomMode::FitWidth) {
+        m_settingsController.SetDefaultZoomMode(1);
+    } else if (mode == ZoomMode::Custom && std::abs(customZoom - 1.0f) < 0.05f) {
+        m_settingsController.SetDefaultZoomMode(2);
+    }
+    ApplySettingsToSession();
+
     RecalculateLayout();
     Render();
 }
@@ -3561,6 +3426,9 @@ void AppWindow::ToggleContinuousScroll() {
         pTab->currentPage = GetPageAtScrollOffset(pTab);
         pTab->offsetY = 24.0f;
     }
+
+    m_settingsController.SetDefaultContinuous(pTab->continuousScroll);
+    ApplySettingsToSession();
 
     RecalculateLayout();
     UpdateTitle();
@@ -4338,22 +4206,7 @@ void AppWindow::CopyPropertiesToClipboard() {
     text += L"  Created:     " + m_docPropsInfo.created + L"\r\n";
     text += L"  Modified:    " + m_docPropsInfo.modified + L"\r\n";
 
-    if (OpenClipboard(m_hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, text.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            } else {
-                GlobalFree(hMem);
-            }
-        }
-        CloseClipboard();
-    }
+    SetClipboardText(text);
 
     m_propsCopiedFeedbackTime = GetTickCount64();
     Render();
@@ -4368,6 +4221,7 @@ void AppWindow::ToggleOptionsOverlay() {
         m_showGoToPage = false;
         m_recentController.CloseSwitcher();
         m_searchController.SetOpen(false);
+        SyncSettingsWithActiveTab();
     } else {
         m_settingsController.SaveToRegistry();
     }
@@ -4404,6 +4258,36 @@ void AppWindow::ApplySettingsToSession() {
     m_readAloudController.SetRate(s.defaultTtsRate);
 }
 
+void AppWindow::SyncSettingsWithActiveTab() {
+    auto* pTab = GetActiveTab();
+    if (!pTab) return;
+
+    bool changed = false;
+    if (m_settingsController.Get().defaultContinuous != pTab->continuousScroll) {
+        m_settingsController.Get().defaultContinuous = pTab->continuousScroll;
+        changed = true;
+    }
+
+    uint32_t activeZoomMode = m_settingsController.Get().defaultZoomMode;
+    if (pTab->zoomMode == ZoomMode::FitPage) {
+        activeZoomMode = 0;
+    } else if (pTab->zoomMode == ZoomMode::FitWidth) {
+        activeZoomMode = 1;
+    } else if (pTab->zoomMode == ZoomMode::Custom && std::abs(pTab->zoom - 1.0f) < 0.05f) {
+        activeZoomMode = 2;
+    }
+
+    if (m_settingsController.Get().defaultZoomMode != activeZoomMode) {
+        m_settingsController.Get().defaultZoomMode = activeZoomMode;
+        changed = true;
+    }
+
+    if (changed) {
+        m_settingsController.SaveToRegistry();
+        ApplySettingsToSession();
+    }
+}
+
 void AppWindow::HandleOptionsClick(int hitId) {
     auto& s = m_settingsController.Get();
 
@@ -4437,31 +4321,23 @@ void AppWindow::HandleOptionsClick(int hitId) {
     case OPT_HIT_ZOOM_FIT_PAGE:
     case OPT_HIT_ZOOM_FIT_WIDTH:
     case OPT_HIT_ZOOM_100: {
-        s.defaultZoomMode = static_cast<uint32_t>(hitId - OPT_HIT_ZOOM_FIT_PAGE);
-        ApplySettingsToSession();
-        m_settingsController.SaveToRegistry();
-        if (auto* pTab = GetActiveTab()) {
-            if (s.defaultZoomMode == 0) pTab->zoomMode = ZoomMode::FitPage;
-            else if (s.defaultZoomMode == 1) pTab->zoomMode = ZoomMode::FitWidth;
-            else { pTab->zoom = 1.0f; pTab->zoomMode = ZoomMode::Custom; }
-            RecalculateLayout();
-        }
-        Render();
+        uint32_t zMode = static_cast<uint32_t>(hitId - OPT_HIT_ZOOM_FIT_PAGE);
+        if (zMode == 0) SetZoomMode(ZoomMode::FitPage);
+        else if (zMode == 1) SetZoomMode(ZoomMode::FitWidth);
+        else SetZoomMode(ZoomMode::Custom, 1.0f);
         return;
     }
     case OPT_HIT_SCROLL_SINGLE:
     case OPT_HIT_SCROLL_CONT: {
         bool wantCont = (hitId == OPT_HIT_SCROLL_CONT);
-        s.defaultContinuous = wantCont;
-        ApplySettingsToSession();
-        m_settingsController.SaveToRegistry();
-        if (auto* pTab = GetActiveTab()) {
-            if (pTab->continuousScroll != wantCont) {
-                ToggleContinuousScroll();
-                return;
-            }
+        auto* pTab = GetActiveTab();
+        if (pTab && pTab->continuousScroll != wantCont) {
+            ToggleContinuousScroll();
+        } else {
+            m_settingsController.SetDefaultContinuous(wantCont);
+            ApplySettingsToSession();
+            Render();
         }
-        Render();
         return;
     }
     case OPT_HIT_THEME_ORIG:
@@ -4983,23 +4859,7 @@ void AppWindow::NavigateForward() {
 
 
 void AppWindow::SetClipboardText(const std::wstring& text) {
-    if (text.empty()) return;
-    if (OpenClipboard(m_hwnd)) {
-        EmptyClipboard();
-        size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-        if (hMem) {
-            void* pMem = GlobalLock(hMem);
-            if (pMem) {
-                memcpy(pMem, text.c_str(), bytes);
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
-            } else {
-                GlobalFree(hMem);
-            }
-        }
-        CloseClipboard();
-    }
+    ClipboardUtils::SetText(m_hwnd, text);
 }
 
 void AppWindow::SelectAll() {
@@ -5221,34 +5081,15 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         }
         break;
     }
-    case ID_CTX_FIT_PAGE: {
-        auto* pTab = GetActiveTab();
-        if (pTab) {
-            pTab->zoomMode = ZoomMode::FitPage;
-            RecalculateLayout();
-            Render();
-        }
+    case ID_CTX_FIT_PAGE:
+        SetZoomMode(ZoomMode::FitPage);
         break;
-    }
-    case ID_CTX_ACTUAL_SIZE: {
-        auto* pTab = GetActiveTab();
-        if (pTab) {
-            pTab->zoom = 1.0f;
-            pTab->zoomMode = ZoomMode::Custom;
-            RecalculateLayout();
-            Render();
-        }
+    case ID_CTX_ACTUAL_SIZE:
+        SetZoomMode(ZoomMode::Custom, 1.0f);
         break;
-    }
-    case ID_CTX_FIT_WIDTH: {
-        auto* pTab = GetActiveTab();
-        if (pTab) {
-            pTab->zoomMode = ZoomMode::FitWidth;
-            RecalculateLayout();
-            Render();
-        }
+    case ID_CTX_FIT_WIDTH:
+        SetZoomMode(ZoomMode::FitWidth);
         break;
-    }
     case ID_CTX_CONTINUOUS_SCROLL:
         ToggleContinuousScroll();
         break;

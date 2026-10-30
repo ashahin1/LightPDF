@@ -122,7 +122,7 @@ private:
     void Render();
     void UpdateTitle();
 
-    void SetZoomMode(ZoomMode mode);
+    void SetZoomMode(ZoomMode mode, float customZoom = 1.0f);
     void AdjustZoom(float factor, POINT mousePos);
     void RecalculateLayout();
 
@@ -172,6 +172,7 @@ private:
     void CloseOptionsOverlay();
     void HandleOptionsClick(int hitId);
     void ApplySettingsToSession();
+    void SyncSettingsWithActiveTab();
     OptionsOverlayRenderInfo GetOptionsInfo() const;
 
     void SetToolMode(ToolMode mode);
@@ -195,6 +196,13 @@ private:
     void ClampCanvasOffsets(DocumentTab* pTab);
 
     HelpOverlayRenderInfo GetHelpInfo() const;
+
+    void RunDialogThread(std::function<void()> task);
+    void CopyPdfAndEnqueueDone(const std::wstring& origPath, const std::wstring& targetPath, const std::wstring& password = L"", const std::wstring& successPrefix = L"");
+    void RecordClosedTab(const DocumentTab& tab);
+    void OnActiveTabChanged();
+    bool HandleModalKeyDown(WPARAM wParam, bool isCtrlDown, bool isShiftDown);
+    bool HandleModalMouseDown(UINT msg, POINT pt, float dipScale, float dipX, float dipY);
 
     void EnqueueOpenFile(const std::wstring& path);
     void EnqueueBakePdf(const std::wstring& targetPath, bool overwriteOriginal);

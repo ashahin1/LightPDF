@@ -1461,6 +1461,23 @@ TEST_CASE("Settings: Registry Persistence, Theme Cycling, and Options Modal Hit-
         CHECK(reloaded.CyclePageTheme() == PageTheme::Night);
         CHECK(reloaded.CyclePageTheme() == PageTheme::Sepia);
 
+        // Test SetDefaultZoomMode and SetDefaultContinuous persistence
+        reloaded.SetDefaultZoomMode(2);
+        CHECK(reloaded.Get().defaultZoomMode == 2);
+        reloaded.SetDefaultContinuous(true);
+        CHECK(reloaded.Get().defaultContinuous);
+
+        SettingsController reloaded2(testKey);
+        reloaded2.LoadFromRegistry();
+        CHECK(reloaded2.Get().defaultZoomMode == 2);
+        CHECK(reloaded2.Get().defaultContinuous);
+
+        // Test TabController default view settings propagation
+        TabController tabCtrl;
+        tabCtrl.SetDefaultViewSettings(ZoomMode::FitWidth, true);
+        CHECK(tabCtrl.GetDefaultZoomMode() == ZoomMode::FitWidth);
+        CHECK(tabCtrl.GetDefaultContinuous());
+
         // Reset defaults and clean up test registry key
         reloaded.ResetToDefaults();
         CHECK(reloaded.Get().defaultZoomMode == 0);

@@ -78,6 +78,16 @@ void SettingsController::ResetToDefaults() {
     SaveToRegistry();
 }
 
+void SettingsController::SetDefaultZoomMode(uint32_t zoomMode) {
+    m_settings.defaultZoomMode = (zoomMode <= 2) ? zoomMode : 0;
+    SaveToRegistry();
+}
+
+void SettingsController::SetDefaultContinuous(bool continuous) {
+    m_settings.defaultContinuous = continuous;
+    SaveToRegistry();
+}
+
 PageTheme SettingsController::CyclePageTheme() {
     uint32_t next = (static_cast<uint32_t>(m_settings.pageTheme) + 1) % 3;
     m_settings.pageTheme = static_cast<PageTheme>(next);

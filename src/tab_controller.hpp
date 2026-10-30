@@ -147,6 +147,9 @@ public:
         m_defaultContinuous = defaultContinuous;
     }
 
+    ZoomMode GetDefaultZoomMode() const { return m_defaultZoomMode; }
+    bool GetDefaultContinuous() const { return m_defaultContinuous; }
+
     /// @brief Returns pointer to the currently active DocumentTab (or nullptr if none).
     DocumentTab* GetActiveTab();
 

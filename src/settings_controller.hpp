@@ -170,6 +170,12 @@ public:
     /// @brief Const access to current settings.
     const AppSettings& Get() const { return m_settings; }
 
+    /// @brief Updates default zoom mode and persists to registry.
+    void SetDefaultZoomMode(uint32_t zoomMode);
+
+    /// @brief Updates default continuous scroll mode and persists to registry.
+    void SetDefaultContinuous(bool continuous);
+
     /// @brief Cycles PageTheme (Original -> Night -> Sepia -> Original) and returns new theme.
     PageTheme CyclePageTheme();
 
