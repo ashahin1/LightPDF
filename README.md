@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/binary-978_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-27%20passed%20%7C%20427%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-27%20passed%20%7C%20433%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -529,6 +529,8 @@ LightPDF/
 │   ├── tts_engine.hpp/.cpp       # Pure COM SAPI voice engine, Desktop & OneCore voice discovery
 │   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
 │   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
+│   ├── settings_controller.hpp/.cpp # Persistent settings model, registry serialization, options layout & hit-testing
+│   ├── common_utils.hpp          # Centralized header-only utilities (DpiUtils, PathUtils, StringUtils, ClipboardUtils)
 │   ├── supported_formats.hpp     # Single source of truth for supported document extensions & dialog filters
 │   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
@@ -537,7 +539,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (26 test cases, 388 assertions, <5s runtime)
+│   ├── unified_tests.cpp         # Complete test suite (27 test cases, 433 assertions, <5s runtime)
 │   ├── run_tests.bat             # Test compilation & execution script (/W4)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
