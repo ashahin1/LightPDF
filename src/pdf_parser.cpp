@@ -1,3 +1,8 @@
+/**
+ * @file pdf_parser.cpp
+ * @brief Low-level PDF parser, xref table indexing, deflate decompressor, CMap parser, and content stream interpreter.
+ */
+
 #include "pdf_parser.hpp"
 #include <fstream>
 #include <sstream>

@@ -1,3 +1,8 @@
+/**
+ * @file d2d_renderer.cpp
+ * @brief Hardware-accelerated Direct2D 1.1 / Direct3D 11 rendering pipeline and DirectWrite typography factory.
+ */
+
 #include "d2d_renderer.hpp"
 #include "settings_controller.hpp"
 #include "ui_views.hpp"

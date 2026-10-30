@@ -1,3 +1,8 @@
+/**
+ * @file search_controller.cpp
+ * @brief In-page text search UI coordinator, match navigation, and query debounce management.
+ */
+
 #include "search_controller.hpp"
 
 void SearchController::Close() {

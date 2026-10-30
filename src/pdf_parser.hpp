@@ -244,8 +244,16 @@ private:
     bool GetObjectStreamData(uint32_t objNum, std::vector<uint8_t>& outData) const;
     bool FindIndirectRef(const std::string& dictStr, const std::string& key, uint32_t& outObjNum) const;
     std::string ResolveDict(const std::string& parentDict, const std::string& key) const;
+    /// @brief Resolves inherited /Resources dictionary across the page /Parent hierarchy.
     std::string ResolvePageResources(const std::string& pageDict) const;
 
+    /**
+     * @brief Traverses the PDF page inheritance hierarchy up to 5 levels of /Parent nodes.
+     * @tparam Fn Predicate callable taking const std::string& dict and returning true to stop early.
+     * @param pageDict Initial page dictionary.
+     * @param fn Callback invoked for pageDict and each successive parent dictionary.
+     * @return true if fn returned true at any level, false if top of hierarchy was reached.
+     */
     template <typename Fn>
     bool WalkPageHierarchy(const std::string& pageDict, Fn&& fn) const {
         if (fn(pageDict)) return true;

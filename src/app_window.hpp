@@ -122,6 +122,7 @@ private:
     void Render();
     void UpdateTitle();
 
+    /// @brief Sets active tab zoom mode and propagates to user settings (0=FitPage, 1=FitWidth, 2=100%).
     void SetZoomMode(ZoomMode mode, float customZoom = 1.0f);
     void AdjustZoom(float factor, POINT mousePos);
     void RecalculateLayout();
@@ -172,6 +173,7 @@ private:
     void CloseOptionsOverlay();
     void HandleOptionsClick(int hitId);
     void ApplySettingsToSession();
+    /// @brief Synchronizes active tab reading mode and zoom mode with persistent AppSettings model.
     void SyncSettingsWithActiveTab();
     OptionsOverlayRenderInfo GetOptionsInfo() const;
 
@@ -285,6 +287,7 @@ private:
     std::wstring m_hudToastText;
 
     // Password Prompt Modal state
+    /// @brief Parameters for opening a password-protected PDF document.
     struct PendingPasswordRequest {
         std::wstring filePath;
         bool hasRestoreState = false;
@@ -340,6 +343,7 @@ private:
     std::mutex m_pendingOpenFilesMutex;
     std::vector<std::wstring> m_pendingOpenFiles;
 
+    /// @brief Target file and overwrite parameters for background searchable PDF baking.
     struct PendingBakeRequest {
         std::wstring targetPath;
         bool overwriteOriginal = false;
@@ -348,6 +352,7 @@ private:
     std::vector<PendingBakeRequest> m_pendingBakes;
     std::wstring m_activeBakeTargetPath;
 
+    /// @brief Background save/export completion result queued to main UI thread.
     struct PendingSaveCompletion {
         bool success = false;
         std::wstring targetPath;

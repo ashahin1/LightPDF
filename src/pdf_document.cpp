@@ -1,3 +1,8 @@
+/**
+ * @file pdf_document.cpp
+ * @brief Windows.Data.Pdf WinRT wrapper, background page prefetching, and password protection lifecycle.
+ */
+
 #include "pdf_document.hpp"
 #include "pdf_parser.hpp"
 #include <filesystem>

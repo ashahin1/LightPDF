@@ -1,3 +1,8 @@
+/**
+ * @file pdf_search.cpp
+ * @brief Background multithreaded PDF text search engine, Arabic script normalization, and OCR fallback.
+ */
+
 #include "pdf_search.hpp"
 #include <cwctype>
 #include <algorithm>

@@ -1,3 +1,8 @@
+/**
+ * @file main.cpp
+ * @brief Application entry point, CLI parsing, WinRT apartment initialization, and process lifetime management.
+ */
+
 #include <windows.h>
 #include <winrt/Windows.Foundation.h>
 #include <shlobj.h>

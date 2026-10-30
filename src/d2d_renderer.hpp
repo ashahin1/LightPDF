@@ -46,6 +46,7 @@ struct TabRenderInfo {
     bool isCloseHovered = false;        ///< Whether tab close button is hovered
 };
 
+/// @brief Per-page positioning and rendering metrics within continuous vertical layout.
 struct ContinuousPageInfo {
     winrt::Windows::Data::Pdf::PdfPage page{ nullptr };
     D2D1_SIZE_F pageSize = { 0.0f, 0.0f };
@@ -55,6 +56,7 @@ struct ContinuousPageInfo {
     bool hasType3Font = false;
 };
 
+/// @brief Visual state and metrics for rendering the interactive scrollbar track and thumb.
 struct ScrollbarRenderInfo {
     bool visible = false;
     float trackY = 0.0f;
@@ -68,6 +70,7 @@ struct ScrollbarRenderInfo {
     uint32_t totalPages = 0;
 };
 
+/// @brief Render state descriptor for the interactive search toolbar.
 struct SearchBarRenderInfo {
     bool visible = false;
     bool hasTabs = false;
@@ -87,6 +90,7 @@ struct SearchBarRenderInfo {
     bool isCloseHovered = false;
 };
 
+/// @brief Geometric layout calculator for the search toolbar and button controls.
 struct SearchBarLayout {
     static constexpr float WIDTH = 384.0f;
     static constexpr float HEIGHT = 36.0f;
@@ -127,6 +131,7 @@ struct SearchBarLayout {
     }
 };
 
+/// @brief Highlight geometry descriptor for active and passive in-page search results.
 struct SearchHighlight {
     uint32_t pageIndex = 0;
     D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // PDF page coordinates in DIPs
@@ -134,6 +139,7 @@ struct SearchHighlight {
     bool isActive = false;
 };
 
+/// @brief Geometric highlight bounding boxes for interactive text selection and TTS tracking.
 struct SelectionHighlightSpan {
     uint32_t pageIndex = 0;
     std::vector<D2D1_RECT_F> rects;        // PDF page coordinates in DIPs
@@ -199,6 +205,7 @@ struct TtsBarLayout {
     }
 };
 
+/// @brief Render descriptor for the popup technical dictionary definition card.
 struct DictionaryCardRenderInfo {
     bool visible = false;
     D2D1_RECT_F anchorRect = { 0, 0, 0, 0 }; // Screen DIPs around target word/phrase
@@ -208,6 +215,7 @@ struct DictionaryCardRenderInfo {
     uint16_t category = 0;
 };
 
+/// @brief Layout geometry calculator for the popup dictionary definition card.
 struct DictionaryCardLayout {
     static constexpr float WIDTH = 380.0f;
     static constexpr float MIN_HEIGHT = 130.0f;
@@ -234,6 +242,7 @@ struct DictionaryCardLayout {
     }
 };
 
+/// @brief Render state descriptor for the password authentication modal overlay.
 struct PasswordOverlayRenderInfo {
     bool visible = false;
     std::wstring fileName;
@@ -254,6 +263,7 @@ struct LinkHoverRenderInfo {
     std::wstring label;                                ///< Formatted target text (e.g. "https://..." or "Go to Page 12")
 };
 
+/// @brief Layout geometry calculator for the password entry modal dialog.
 struct PasswordOverlayLayout {
     static constexpr float CARD_W = 380.0f;
     static constexpr float CARD_H = 220.0f;
@@ -289,6 +299,7 @@ struct PasswordOverlayLayout {
     }
 };
 
+/// @brief Metadata descriptor displayed inside the document properties modal.
 struct DocumentPropertiesRenderInfo {
     bool visible = false;
     // Document Information
@@ -312,6 +323,7 @@ struct DocumentPropertiesRenderInfo {
     bool copyFeedback = false;
 };
 
+/// @brief Layout geometry calculator for the document properties modal card.
 struct DocumentPropertiesLayout {
     static constexpr float WIDTH = 540.0f;
     static constexpr float HEIGHT = 552.0f;
@@ -335,6 +347,7 @@ struct DocumentPropertiesLayout {
     }
 };
 
+/// @brief Highlight color choices for the interactive presentation laser pointer.
 enum class LaserColor {
     Red,
     Green,
@@ -342,12 +355,14 @@ enum class LaserColor {
     Gold
 };
 
+/// @brief Position and color state for the presentation laser pointer overlay.
 struct LaserPointerRenderInfo {
     bool active = false;
     D2D1_POINT_2F position = { 0.0f, 0.0f }; // in DIPs
     LaserColor color = LaserColor::Red;
 };
 
+/// @brief Render state descriptor for the bottom presentation control bar.
 struct PresenterBarRenderInfo {
     bool visible = false;
     int hoveredBtn = -1; // -1 = none, 0 = Prev, 1 = Next, 2 = Laser, 3 = Color, 4 = ExitFullscreen
@@ -357,6 +372,7 @@ struct PresenterBarRenderInfo {
     LaserColor laserColor = LaserColor::Red;
 };
 
+/// @brief Layout geometry calculator for the fullscreen presentation control bar.
 struct PresenterBarLayout {
     static constexpr float WIDTH = 340.0f;
     static constexpr float HEIGHT = 44.0f;
@@ -388,6 +404,7 @@ struct PresenterBarLayout {
     }
 };
 
+/// @brief Render state descriptor for the keyboard shortcuts and help modal dialog.
 struct HelpOverlayRenderInfo {
     bool visible = false;
     int activeCategory = 0; // 0=All, 1=Navigation, 2=Zoom & View, 3=Tabs & Files, 4=Search & Tools
@@ -395,6 +412,7 @@ struct HelpOverlayRenderInfo {
     int hoveredClose = 0;   // 0=none, 1=close
 };
 
+/// @brief Layout geometry calculator for the keyboard shortcuts and help modal dialog.
 struct HelpOverlayLayout {
     static constexpr float WIDTH = 860.0f;
     static constexpr float HEIGHT = 580.0f;

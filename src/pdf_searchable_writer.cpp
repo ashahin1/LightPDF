@@ -1,3 +1,8 @@
+/**
+ * @file pdf_searchable_writer.cpp
+ * @brief Lossless incremental PDF updater and invisible searchable OCR text layer baker.
+ */
+
 #include "pdf_searchable_writer.hpp"
 #include "pdf_parser.hpp"
 #include <fstream>

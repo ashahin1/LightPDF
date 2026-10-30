@@ -1,3 +1,8 @@
+/**
+ * @file dictionary_engine.cpp
+ * @brief Binary memory-mapped offline dictionary lookup engine and custom user terms parser.
+ */
+
 #include "dictionary_engine.hpp"
 #include "common_utils.hpp"
 #include <algorithm>

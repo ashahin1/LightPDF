@@ -1,3 +1,8 @@
+/**
+ * @file selection_controller.cpp
+ * @brief Interactive text selection controller, character hit-testing, link activation, and dictionary card lifecycle.
+ */
+
 #include "selection_controller.hpp"
 #include "common_utils.hpp"
 #include <algorithm>

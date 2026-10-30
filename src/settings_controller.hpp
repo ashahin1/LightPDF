@@ -25,17 +25,17 @@ enum class PageTheme : uint32_t {
 
 /// @brief Persistent user preferences stored in HKCU\\Software\\LightPDF\\Settings.
 struct AppSettings {
-    uint32_t defaultZoomMode   = 0; ///< 0 = FitPage, 1 = FitWidth, 2 = ActualSize (100%)
-    bool defaultContinuous     = false;
-    PageTheme pageTheme        = PageTheme::Original;
-    bool rememberLastPage      = true;
+    uint32_t defaultZoomMode   = 0;                   ///< 0 = FitPage, 1 = FitWidth, 2 = ActualSize (100%)
+    bool defaultContinuous     = false;               ///< true = Continuous vertical scroll, false = Single page
+    PageTheme pageTheme        = PageTheme::Original; ///< Default color filter theme
+    bool rememberLastPage      = true;                ///< Remember last read page per document in MRU
 
-    bool doubleClickLookup     = true;
-    bool rightClickAutoSelect  = false;
-    int32_t defaultTtsRate     = 0; ///< SAPI rate: -2 (0.75x), 0 (1.0x), 1 (1.25x), 2 (1.5x), 4 (2.0x)
-    bool autoOcrSearch         = true;
+    bool doubleClickLookup     = true;                ///< Look up words in dictionary on double click
+    bool rightClickAutoSelect  = false;               ///< Expand right click to whole word when no selection
+    int32_t defaultTtsRate     = 0;                   ///< SAPI rate: -2 (0.75x), 0 (1.0x), 1 (1.25x), 2 (1.5x), 4 (2.0x)
+    bool autoOcrSearch         = true;                ///< Automatically activate OCR search on scanned documents
 
-    bool keepRecentHistory     = true;
+    bool keepRecentHistory     = true;                ///< Persist opened documents history to HKCU
 };
 
 /// @brief Hit-test identifiers for interactive controls inside the Options modal.

@@ -1,3 +1,8 @@
+/**
+ * @file ui_views.cpp
+ * @brief Implementation of Direct2D modular UI drawing routines for tab bar, scrollbar, search toolbar, and modal overlays.
+ */
+
 #include "ui_views.hpp"
 #include "settings_controller.hpp"
 #include "common_utils.hpp"

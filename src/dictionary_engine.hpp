@@ -102,6 +102,7 @@ public:
 
 private:
 #pragma pack(push, 1)
+    /// @brief Binary header format for pre-compiled dictionary files (LPDICT01).
     struct DictHeader {
         char magic[8];          // 'LPDICT01'
         uint32_t entryCount;
@@ -110,6 +111,7 @@ private:
         uint8_t reserved[12];
     };
 
+    /// @brief Fixed-size index entry mapping an individual dictionary entry.
     struct DictRecord {
         uint32_t wordOffset;
         uint16_t wordLen;

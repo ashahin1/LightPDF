@@ -1,3 +1,8 @@
+/**
+ * @file tab_controller.cpp
+ * @brief Multi-tab document controller, tab strip layout calculations, hit-testing, and jump history management.
+ */
+
 #include "tab_controller.hpp"
 #include <algorithm>
 

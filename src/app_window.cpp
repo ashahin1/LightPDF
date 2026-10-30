@@ -1,3 +1,8 @@
+/**
+ * @file app_window.cpp
+ * @brief Implementation of top-level application window, message dispatch, tool controllers, and UI interaction pipelines.
+ */
+
 #include "app_window.hpp"
 #include "pdf_parser.hpp"
 #include "pdf_decryptor.hpp"
