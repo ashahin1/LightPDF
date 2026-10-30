@@ -1,4 +1,4 @@
-$tag = "v2.2.1"
+$tag = "v2.3.0"
 $zipName = "dist\LightPDF-$tag-windows-x64.zip"
 $tempDir = "bin\release_pkg"
 

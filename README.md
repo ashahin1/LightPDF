@@ -12,10 +12,10 @@
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
   <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/github/v/release/ashahin1/LightPDF?color=blue&style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-944_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-978_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-26%20passed%20%7C%20388%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-27%20passed%20%7C%20427%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -41,6 +41,8 @@
   - [🖱️ Smart Context-Sensitive Right-Click Menus](#️-smart-context-sensitive-right-click-menus)
   - [🗣️ Native Read Aloud (TTS) & Technical Dictionary](#️-native-read-aloud-tts--technical-dictionary)
   - [📄 Native Searchable PDF Baking & Multilingual Search](#-native-searchable-pdf-baking--multilingual-search)
+  - [⚙️ Options & Preferences Dialog and Page Color Themes](#️-options--preferences-dialog-and-page-color-themes)
+  - [💾 Context-Aware Save & Decrypted Save As Pipeline](#-context-aware-save--decrypted-save-as-pipeline)
 - [Keyboard & Mouse Shortcuts](#keyboard--mouse-shortcuts)
 - [Architecture & Technical Design](#architecture--technical-design)
   - [Searchable PDF Baking Pipeline](#searchable-pdf-baking-pipeline)
@@ -175,6 +177,29 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Bilingual Search Engine**: Real-time search (`Ctrl+F`) with diacritics stripping, Alef/Taa Marbuta normalization, Eastern & Western Arabic numeral unification, and bidirectional matching.
 - **Presentation Laser Pointer**: Press `L` to activate an optical glowing laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold.
 - **300 DPI Streaming Printing**: Native `PrintDlgExW` &mdash; All Pages, Current Page, or Custom Ranges &mdash; streamed page-by-page directly to the printer spooler.
+
+### ⚙️ Options & Preferences Dialog and Page Color Themes
+- **Tabbed Direct2D Options Modal (`Ctrl+,`)**: Centered, keyboard-accessible options dialog with categories for **View & Reading**, **Tools & Behavior**, and **System & History**.
+  - Default Zoom Mode (Fit Page, Fit Width, 100% Zoom).
+  - Continuous vertical scroll preference.
+  - Page Color Theme selection with instant live preview.
+  - Page memory toggle (remember and restore exact page position upon document reload).
+  - Double-click word dictionary lookup toggle.
+  - Right-click auto-select toggle (approach 1: context menu appears when text is selected; approach 2: auto-select nearest word).
+  - Auto-OCR scanned search trigger toggle.
+  - Default speech rate slider (0.75x to 2.0x).
+  - Recent files history retention toggle with registry cleanup.
+- **Hardware-Accelerated Page Color Themes (`Ctrl+I`)**: Direct2D Color Matrix Effect filters providing high-contrast, eye-friendly document reading:
+  - **Original**: Standard document rendering.
+  - **Night Dark**: Contrast-balanced inversion transforming white pages into dark charcoal (`#1c1f24`) and black text into soft warm white (`#ececee`), with theme-matched underlay and crisp outlines.
+  - **Sepia Paper**: Warm, vintage cream tint (`#f5e8cf`) reducing harsh blue light for long reading sessions.
+
+### 💾 Context-Aware Save & Decrypted Save As Pipeline
+- **Smart Pipeline Routing**: Pressing `Ctrl+S` or `Ctrl+Shift+S` automatically detects the document state:
+  - **Encrypted / Decrypted PDF**: Seamlessly exports an unencrypted, password-free PDF copy without recompressing page raster images.
+  - **Scanned Document**: Bakes an invisible, searchable OCR text layer (`3 Tr` PDF sandwich) into the file.
+- **In-Place Decryption & File Replacement**: Allows replacing the encrypted file in-place on disk or exporting to a new filename.
+- **Post-Save Tab Switching**: Automatically binds the newly saved file to the active tab, updates tab captions, and keeps navigation fluid.
 
 ---
 
