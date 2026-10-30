@@ -1,4 +1,4 @@
-<div align="center" style="text-align: center;">
+<div align="center">
 
 # LightPDF
 
