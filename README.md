@@ -486,6 +486,10 @@ winget install DimitrivanHeesch.Doxygen
 
 ### 2. Run the Generator
 ```cmd
+:: Using PowerShell
+powershell -ExecutionPolicy Bypass -File generate_docs.ps1
+
+:: Or using Command Prompt
 generate_docs.bat
 ```
 *(Or run `doxygen Doxyfile` directly).*
@@ -550,7 +554,7 @@ LightPDF/
 ├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
 ├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)
 ├── Doxyfile                      # Doxygen API documentation configuration
-├── generate_docs.bat             # Automated Doxygen HTML documentation generator
+├── generate_docs.ps1 / .bat      # Automated Doxygen HTML API documentation generators
 ├── .editorconfig                 # Standard cross-editor styling configuration
 ├── .clang-format                 # Chromium/Google C++ 4-space formatting specification
 ├── .git-blame-ignore-revs        # Blame exclusion for formatting revisions

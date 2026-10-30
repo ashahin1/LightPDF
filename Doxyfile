@@ -1,7 +1,7 @@
 # Doxyfile for LightPDF
 PROJECT_NAME           = "LightPDF"
 PROJECT_BRIEF          = "Ultra-Fast Minimalist Windows PDF Viewer"
-PROJECT_NUMBER         = "2.0"
+PROJECT_NUMBER         = "2.4.0"
 OUTPUT_DIRECTORY       = docs
 INPUT                  = src README.md
 RECURSIVE              = YES

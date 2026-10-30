@@ -23,7 +23,7 @@ enum class PageTheme : uint32_t {
     Sepia    = 2  ///< Warm eye-care paper tint
 };
 
-/// @brief Persistent user preferences stored in HKCU\Software\LightPDF\Settings.
+/// @brief Persistent user preferences stored in HKCU\\Software\\LightPDF\\Settings.
 struct AppSettings {
     uint32_t defaultZoomMode   = 0; ///< 0 = FitPage, 1 = FitWidth, 2 = ActualSize (100%)
     bool defaultContinuous     = false;
