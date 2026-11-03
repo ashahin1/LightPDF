@@ -65,6 +65,7 @@ void D2DRenderer::Cleanup() {
     m_textFormatSearchInput = nullptr;
     m_textFormatSearchBadge = nullptr;
     m_textFormatSearchBtn = nullptr;
+    m_textFormatAboutTitle = nullptr;
     m_wicFactory = nullptr;
     m_d2dFactory = nullptr;
 }
@@ -194,6 +195,7 @@ bool D2DRenderer::CreateDeviceIndependentResources() {
     // Properties Formats
     if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatPropsLabel, L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
     if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatPropsSection, L"Segoe UI", 13.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
+    if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatAboutTitle, L"Segoe UI", 18.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
 
     // Dictionary Formats
     if (!CreateFormat(m_dwriteFactory.Get(), m_textFormatDictWord, L"Segoe UI", 14.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER)) return false;
@@ -273,8 +275,8 @@ bool D2DRenderer::CreateDeviceResources() {
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.60f, 0.60f, 0.60f, 1.0f), &m_brushBlankText);
 
     // Help Overlay Brushes
-    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.65f), &m_brushHelpBackdrop);
-    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.14f, 0.14f, 0.14f, 0.96f), &m_brushHelpCardBg);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.72f), &m_brushHelpBackdrop);
+    m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.14f, 0.14f, 0.14f, 1.0f), &m_brushHelpCardBg);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.35f, 0.35f, 0.35f, 0.80f), &m_brushHelpCardBorder);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.22f, 0.74f, 0.97f, 1.0f), &m_brushHelpKeyText);
     m_d2dContext->CreateSolidColorBrush(D2D1::ColorF(0.92f, 0.94f, 0.96f, 1.0f), &m_brushHelpDescText);
@@ -1839,25 +1841,29 @@ void D2DRenderer::DrawAboutOverlay(const AboutOverlayRenderInfo& aboutInfo) {
     float dipScale = 96.0f / m_dpi;
     float dipWidth = m_width * dipScale;
     float dipHeight = m_height * dipScale;
-    UIViews::DocPropertiesResources res{
+    UIViews::AboutOverlayResources res{
         m_brushHelpBackdrop.Get(),
         m_brushPageShadow.Get(),
         m_brushHelpCardBg.Get(),
         m_brushHelpCardBorder.Get(),
         m_brushHudText.Get(),
-        m_brushPropsSecBtnHover.Get(),
         m_brushHelpSubText.Get(),
         m_brushPropsAccent.Get(),
-        m_brushPropsBtn.Get(),
-        m_brushPropsBtnHover.Get(),
-        m_brushPropsSecBtn.Get(),
         m_brushPropsSuccess.Get(),
-        m_brushPageBg.Get(),
-        m_textFormatHelpTitle.Get(),
-        m_textFormatTabClose.Get(),
-        m_textFormatPropsSection.Get(),
-        m_textFormatPropsLabel.Get(),
-        m_textFormatTab.Get()
+        m_brushPropsSecBtn.Get(),      // brushContainerBg (dark container fill)
+        m_brushPropsSecBtn.Get(),      // brushBtnBg
+        m_brushPropsSecBtnHover.Get(), // brushBtnHover
+        m_brushPropsBtn.Get(),         // brushPrimaryBtn
+        m_brushPropsBtnHover.Get(),    // brushPrimaryBtnHover
+        m_brushTabCloseHover.Get(),    // brushCloseHover
+        m_textFormatAboutTitle.Get(),  // textFormatTitle (18pt Bold LEADING)
+        m_textFormatTab.Get(),         // textFormatSubtitle (12pt Normal LEADING)
+        m_textFormatPropsSection.Get(),// textFormatSection (13pt SemiBold LEADING)
+        m_textFormatPropsLabel.Get(),  // textFormatLabel (12pt SemiBold TRAILING)
+        m_textFormatTab.Get(),         // textFormatValue (12pt Normal LEADING)
+        m_textFormatSearchBtn.Get(),   // textFormatBtn (11.5pt SemiBold CENTER)
+        m_textFormatTabClose.Get(),    // textFormatClose (12pt Normal CENTER)
+        m_textFormatHelpSub.Get()      // textFormatFooter (11.5pt Normal CENTER)
     };
     UIViews::AboutOverlayView::Render(m_d2dContext.Get(), aboutInfo, dipWidth, dipHeight, res);
 }

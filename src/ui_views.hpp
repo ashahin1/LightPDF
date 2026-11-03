@@ -678,6 +678,33 @@ struct AboutOverlayLayout {
     static D2D1_RECT_F GetOkBtnRect(D2D1_RECT_F card);
 };
 
+/// @brief Pre-allocated brush and typography resources for the About dialog modal.
+struct AboutOverlayResources {
+    ID2D1SolidColorBrush* brushBackdrop = nullptr;        ///< Modal backdrop darkening brush
+    ID2D1SolidColorBrush* brushShadow = nullptr;          ///< Card drop shadow brush
+    ID2D1SolidColorBrush* brushCardBg = nullptr;          ///< Opaque card background brush
+    ID2D1SolidColorBrush* brushBorder = nullptr;          ///< Dialog card and container border brush
+    ID2D1SolidColorBrush* brushText = nullptr;            ///< Primary high-contrast text brush
+    ID2D1SolidColorBrush* brushSubText = nullptr;         ///< Muted secondary text brush
+    ID2D1SolidColorBrush* brushAccent = nullptr;          ///< Section and link accent brush
+    ID2D1SolidColorBrush* brushSuccess = nullptr;         ///< Version badge success fill brush
+    ID2D1SolidColorBrush* brushContainerBg = nullptr;     ///< Dark container panel background brush
+    ID2D1SolidColorBrush* brushBtnBg = nullptr;           ///< Secondary button background brush
+    ID2D1SolidColorBrush* brushBtnHover = nullptr;        ///< Secondary button hover background brush
+    ID2D1SolidColorBrush* brushPrimaryBtn = nullptr;      ///< Primary action button background brush
+    ID2D1SolidColorBrush* brushPrimaryBtnHover = nullptr; ///< Primary action button hover background brush
+    ID2D1SolidColorBrush* brushCloseHover = nullptr;      ///< Close button hover background brush
+
+    IDWriteTextFormat* textFormatTitle = nullptr;         ///< Large bold dialog title format (leading)
+    IDWriteTextFormat* textFormatSubtitle = nullptr;      ///< Subtitle tagline format (leading)
+    IDWriteTextFormat* textFormatSection = nullptr;       ///< Section header text format (leading)
+    IDWriteTextFormat* textFormatLabel = nullptr;         ///< Specification label text format (trailing)
+    IDWriteTextFormat* textFormatValue = nullptr;         ///< Specification value text format (leading)
+    IDWriteTextFormat* textFormatBtn = nullptr;           ///< Action button and badge text format (center)
+    IDWriteTextFormat* textFormatClose = nullptr;         ///< Close [×] button text format (center)
+    IDWriteTextFormat* textFormatFooter = nullptr;        ///< Centered copyright footer text format (center)
+};
+
 /// @brief Renders the hardware-accelerated About LightPDF modal dialog.
 class AboutOverlayView {
 public:
@@ -694,7 +721,7 @@ public:
         const AboutOverlayRenderInfo& info,
         float dipWidth,
         float dipHeight,
-        const DocPropertiesResources& res
+        const AboutOverlayResources& res
     );
 
     /**

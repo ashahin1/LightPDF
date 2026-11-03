@@ -868,6 +868,7 @@ private:
     // Document Properties Formats & Brushes
     ComPtr<IDWriteTextFormat> m_textFormatPropsLabel;
     ComPtr<IDWriteTextFormat> m_textFormatPropsSection;
+    ComPtr<IDWriteTextFormat> m_textFormatAboutTitle;
     ComPtr<ID2D1SolidColorBrush> m_brushPropsAccent;
     ComPtr<ID2D1SolidColorBrush> m_brushPropsBtn;
     ComPtr<ID2D1SolidColorBrush> m_brushPropsBtnHover;
