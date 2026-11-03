@@ -450,6 +450,25 @@ struct HelpOverlayLayout {
     }
 };
 
+/// @brief Hit code identifiers for the About modal dialog.
+enum AboutHitId {
+    ABOUT_HIT_OUTSIDE = -1,     ///< Clicked outside modal (dismiss)
+    ABOUT_HIT_CARD = 0,         ///< Clicked card background
+    ABOUT_HIT_CLOSE_BTN = 1,    ///< Top-right [×] close button
+    ABOUT_HIT_GITHUB_BTN = 2,   ///< GitHub repository link button
+    ABOUT_HIT_COPY_INFO_BTN = 3,///< Copy diagnostics to clipboard button
+    ABOUT_HIT_OK_BTN = 4        ///< OK / Close button
+};
+
+/// @brief Render information descriptor for the About modal dialog.
+struct AboutOverlayRenderInfo {
+    bool visible = false;                       ///< Modal visibility flag
+    int hoveredId = 0;                          ///< Currently hovered AboutHitId button
+    std::wstring version = L"v2.4.1";           ///< Application version string
+    std::wstring gpuAdapterName;                ///< Detected GPU adapter description
+    float dpiScale = 1.0f;                      ///< Active monitor DPI scale
+};
+
 /**
  * @class D2DRenderer
  * @brief High-performance Direct2D 1.1 / Direct3D 11 hardware-accelerated rendering engine.
@@ -513,7 +532,8 @@ public:
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
         const LinkHoverRenderInfo* pLinkHover = nullptr,
-        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr,
+        const AboutOverlayRenderInfo* pAboutOverlay = nullptr
     );
 
     /**
@@ -573,7 +593,8 @@ public:
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
         const LinkHoverRenderInfo* pLinkHover = nullptr,
-        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr,
+        const AboutOverlayRenderInfo* pAboutOverlay = nullptr
     );
 
     /**
@@ -627,7 +648,8 @@ public:
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
         const LinkHoverRenderInfo* pLinkHover = nullptr,
-        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr,
+        const AboutOverlayRenderInfo* pAboutOverlay = nullptr
     );
 
     /// @brief Sets the active page color filter theme (Original, Night, Sepia).
@@ -654,11 +676,20 @@ public:
     /// @brief Draws the modal Options & Preferences overlay.
     void DrawOptionsOverlay(const OptionsOverlayRenderInfo& optInfo);
 
+    /// @brief Draws the modal About LightPDF overlay.
+    /// @param aboutInfo Render information and state for the About dialog.
+    void DrawAboutOverlay(const AboutOverlayRenderInfo& aboutInfo);
+
     /// @brief Hit-tests password prompt modal buttons.
     int HitTestPasswordOverlay(POINT pt) const;
 
     /// @brief Hit-tests Options modal tabs, toggles, and buttons.
     int HitTestOptionsOverlay(POINT pt, int activeCategory) const;
+
+    /// @brief Hit-tests About modal buttons.
+    /// @param pt Mouse point in client pixel coordinates.
+    /// @return Hit-test identifier (AboutHitId).
+    int HitTestAboutOverlay(POINT pt) const;
 
     /// @brief Hit-tests document properties modal buttons.
     int HitTestDocumentProperties(POINT pt) const;
@@ -689,6 +720,10 @@ public:
 
     /// @brief Returns current monitor DPI.
     float GetDpi() const { return m_dpi; }
+
+    /// @brief Retrieves the active GPU adapter description from DXGI.
+    /// @return Wide string containing GPU adapter name.
+    std::wstring GetGpuAdapterName() const;
 
     /// @brief Updates DPI scaling and recreates typography layouts.
     void UpdateDpi(float dpi);
@@ -734,7 +769,8 @@ private:
         const RecentRenderInfo* pRecent = nullptr,
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
         const LinkHoverRenderInfo* pLinkHover = nullptr,
-        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr
+        const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr,
+        const AboutOverlayRenderInfo* pAboutOverlay = nullptr
     );
 
     /// @brief Draws the floating bottom-left URL preview pill when hovering over an interactive hyperlink.

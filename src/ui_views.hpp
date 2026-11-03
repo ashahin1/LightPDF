@@ -632,4 +632,80 @@ public:
     static int HitTest(POINT pt, UINT width, UINT height, float dpi, int activeCategory);
 };
 
+// =========================================================================
+// 14. About Overlay View
+// =========================================================================
+
+/// @brief Pre-calculated geometric boundaries and layout metrics for the About modal.
+struct AboutOverlayLayout {
+    static constexpr float CARD_W = 540.0f;
+    static constexpr float CARD_H = 430.0f;
+
+    /**
+     * @brief Computes the centered bounding rectangle of the modal card.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @return Bounding rectangle for the dialog card.
+     */
+    static D2D1_RECT_F GetCardRect(float dipWidth, float dipHeight);
+
+    /**
+     * @brief Computes the bounding rectangle of the top-right close button.
+     * @param card Bounding rectangle of the dialog card.
+     * @return Bounding rectangle for the close button.
+     */
+    static D2D1_RECT_F GetCloseBtnRect(D2D1_RECT_F card);
+
+    /**
+     * @brief Computes the bounding rectangle of the GitHub link button.
+     * @param card Bounding rectangle of the dialog card.
+     * @return Bounding rectangle for the GitHub button.
+     */
+    static D2D1_RECT_F GetGithubBtnRect(D2D1_RECT_F card);
+
+    /**
+     * @brief Computes the bounding rectangle of the Copy Diagnostics button.
+     * @param card Bounding rectangle of the dialog card.
+     * @return Bounding rectangle for the Copy Diagnostics button.
+     */
+    static D2D1_RECT_F GetCopyInfoBtnRect(D2D1_RECT_F card);
+
+    /**
+     * @brief Computes the bounding rectangle of the primary OK button.
+     * @param card Bounding rectangle of the dialog card.
+     * @return Bounding rectangle for the OK button.
+     */
+    static D2D1_RECT_F GetOkBtnRect(D2D1_RECT_F card);
+};
+
+/// @brief Renders the hardware-accelerated About LightPDF modal dialog.
+class AboutOverlayView {
+public:
+    /**
+     * @brief Renders the About dialog card and interactive controls.
+     * @param ctx Active Direct2D device context.
+     * @param info Runtime render descriptor.
+     * @param dipWidth Window client width in DIPs.
+     * @param dipHeight Window client height in DIPs.
+     * @param res Resource bundle for modal chrome, typography, and brushes.
+     */
+    static void Render(
+        ID2D1DeviceContext* ctx,
+        const AboutOverlayRenderInfo& info,
+        float dipWidth,
+        float dipHeight,
+        const DocPropertiesResources& res
+    );
+
+    /**
+     * @brief Hit-tests buttons and background within the About modal dialog.
+     * @param pt Mouse point in client pixel coordinates.
+     * @param width Window width in physical pixels.
+     * @param height Window height in physical pixels.
+     * @param dpi Monitor DPI scale.
+     * @return Hit-test identifier (AboutHitId).
+     */
+    static int HitTest(POINT pt, UINT width, UINT height, float dpi);
+};
+
 } // namespace UIViews

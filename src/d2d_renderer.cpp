@@ -69,6 +69,21 @@ void D2DRenderer::Cleanup() {
     m_d2dFactory = nullptr;
 }
 
+std::wstring D2DRenderer::GetGpuAdapterName() const {
+    if (!m_d3dDevice) return L"Direct3D 11 Hardware";
+    ComPtr<IDXGIDevice> dxgiDevice;
+    if (SUCCEEDED(m_d3dDevice.As(&dxgiDevice))) {
+        ComPtr<IDXGIAdapter> adapter;
+        if (SUCCEEDED(dxgiDevice->GetAdapter(&adapter))) {
+            DXGI_ADAPTER_DESC desc;
+            if (SUCCEEDED(adapter->GetDesc(&desc))) {
+                return std::wstring(desc.Description);
+            }
+        }
+    }
+    return L"Direct3D 11 Hardware";
+}
+
 void D2DRenderer::UpdateDpi(float dpi) {
     std::lock_guard<std::mutex> lock(m_renderMutex);
     m_dpi = dpi;
@@ -573,7 +588,8 @@ void D2DRenderer::RenderBlank(
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
     const LinkHoverRenderInfo* pLinkHover,
-    const OptionsOverlayRenderInfo* pOptionsOverlay
+    const OptionsOverlayRenderInfo* pOptionsOverlay,
+    const AboutOverlayRenderInfo* pAboutOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -626,7 +642,7 @@ void D2DRenderer::RenderBlank(
         );
     }
 
-    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
+    DrawOverlays(tabs, isAddHovered, nullptr, showGoToPage, goToPageBuffer, 0, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay, pAboutOverlay);
 
     EndDrawAndPresent();
 }
@@ -740,7 +756,8 @@ void D2DRenderer::RenderPage(
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
     const LinkHoverRenderInfo* pLinkHover,
-    const OptionsOverlayRenderInfo* pOptionsOverlay
+    const OptionsOverlayRenderInfo* pOptionsOverlay,
+    const AboutOverlayRenderInfo* pAboutOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -767,7 +784,7 @@ void D2DRenderer::RenderPage(
             );
         }
 
-        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
+        DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay, pAboutOverlay);
         EndDrawAndPresent();
         return;
     }
@@ -806,7 +823,8 @@ void D2DRenderer::RenderPage(
         pRecent,
         pPasswordOverlay,
         pLinkHover,
-        pOptionsOverlay
+        pOptionsOverlay,
+        pAboutOverlay
     );
 }
 
@@ -834,7 +852,8 @@ void D2DRenderer::RenderContinuous(
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
     const LinkHoverRenderInfo* pLinkHover,
-    const OptionsOverlayRenderInfo* pOptionsOverlay
+    const OptionsOverlayRenderInfo* pOptionsOverlay,
+    const AboutOverlayRenderInfo* pAboutOverlay
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -1101,7 +1120,7 @@ void D2DRenderer::RenderContinuous(
     }
 
     // 6. Draw Overlays (Scrollbar, Search Bar, Tab Bar, Overlays)
-    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay);
+    DrawOverlays(tabs, isAddHovered, &scrollbar, showGoToPage, goToPageBuffer, totalPages, searchBar, help, docProps, &dictCard, &laser, &presenterBar, &ttsBar, pRecent, pPasswordOverlay, pLinkHover, pOptionsOverlay, pAboutOverlay);
 
     EndDrawAndPresent();
 }
@@ -1123,7 +1142,8 @@ void D2DRenderer::DrawOverlays(
     const RecentRenderInfo* pRecent,
     const PasswordOverlayRenderInfo* pPasswordOverlay,
     const LinkHoverRenderInfo* pLinkHover,
-    const OptionsOverlayRenderInfo* pOptionsOverlay
+    const OptionsOverlayRenderInfo* pOptionsOverlay,
+    const AboutOverlayRenderInfo* pAboutOverlay
 ) {
     // 1. Draw Scrollbar
     if (pScrollbar && pScrollbar->visible) {
@@ -1216,11 +1236,17 @@ void D2DRenderer::DrawOverlays(
         DrawOptionsOverlay(*pOptionsOverlay);
     }
 
+    // 13b. Draw About Overlay if active (modal about dialog)
+    if (pAboutOverlay && pAboutOverlay->visible) {
+        DrawAboutOverlay(*pAboutOverlay);
+    }
+
     // 14. Draw Link Preview Pill if hovered (bottom-left status preview, non-modal)
     if (pLinkHover && pLinkHover->active && !pLinkHover->label.empty() &&
         !help.visible && !showGoToPage && !docProps.visible &&
         !(pPasswordOverlay && pPasswordOverlay->visible) &&
         !(pOptionsOverlay && pOptionsOverlay->visible) &&
+        !(pAboutOverlay && pAboutOverlay->visible) &&
         !(pRecent && pRecent->showSwitcher)) {
         DrawLinkPreviewPill(*pLinkHover);
     }
@@ -1806,4 +1832,36 @@ void D2DRenderer::DrawOptionsOverlay(const OptionsOverlayRenderInfo& optInfo) {
 
 int D2DRenderer::HitTestOptionsOverlay(POINT pt, int activeCategory) const {
     return UIViews::OptionsOverlayView::HitTest(pt, m_width, m_height, m_dpi, activeCategory);
+}
+
+void D2DRenderer::DrawAboutOverlay(const AboutOverlayRenderInfo& aboutInfo) {
+    if (!m_d2dContext || !aboutInfo.visible) return;
+    float dipScale = 96.0f / m_dpi;
+    float dipWidth = m_width * dipScale;
+    float dipHeight = m_height * dipScale;
+    UIViews::DocPropertiesResources res{
+        m_brushHelpBackdrop.Get(),
+        m_brushPageShadow.Get(),
+        m_brushHelpCardBg.Get(),
+        m_brushHelpCardBorder.Get(),
+        m_brushHudText.Get(),
+        m_brushPropsSecBtnHover.Get(),
+        m_brushHelpSubText.Get(),
+        m_brushPropsAccent.Get(),
+        m_brushPropsBtn.Get(),
+        m_brushPropsBtnHover.Get(),
+        m_brushPropsSecBtn.Get(),
+        m_brushPropsSuccess.Get(),
+        m_brushPageBg.Get(),
+        m_textFormatHelpTitle.Get(),
+        m_textFormatTabClose.Get(),
+        m_textFormatPropsSection.Get(),
+        m_textFormatPropsLabel.Get(),
+        m_textFormatTab.Get()
+    };
+    UIViews::AboutOverlayView::Render(m_d2dContext.Get(), aboutInfo, dipWidth, dipHeight, res);
+}
+
+int D2DRenderer::HitTestAboutOverlay(POINT pt) const {
+    return UIViews::AboutOverlayView::HitTest(pt, m_width, m_height, m_dpi);
 }

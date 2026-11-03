@@ -113,6 +113,8 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
             AppendMenuW(hMenu, MF_STRING | (!data.canReopenClosedTab ? MF_GRAYED : 0), ID_CTX_TAB_REOPEN_CLOSED, L"Reopen Closed Tab\tCtrl+Shift+T");
             AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
             AppendMenuW(hMenu, MF_STRING, ID_CTX_OPTIONS, L"Options...\tCtrl+,");
+            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_ABOUT, L"About LightPDF...");
             break;
         }
 
@@ -146,6 +148,8 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, ID_CTX_DOC_PROPERTIES, L"Document Properties...\tCtrl+D");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_OPTIONS, L"Options...\tCtrl+,");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ABOUT, L"About LightPDF...");
         break;
     }
     }

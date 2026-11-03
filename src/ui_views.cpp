@@ -1897,4 +1897,194 @@ void OptionsOverlayView::Render(
     }
 }
 
+// =========================================================================
+// 14. About Overlay View
+// =========================================================================
+
+D2D1_RECT_F AboutOverlayLayout::GetCardRect(float dipWidth, float dipHeight) {
+    float left = (std::max)(10.0f, (dipWidth - CARD_W) * 0.5f);
+    float top = (std::max)(10.0f, (dipHeight - CARD_H) * 0.5f);
+    return D2D1::RectF(left, top, left + CARD_W, top + CARD_H);
+}
+
+D2D1_RECT_F AboutOverlayLayout::GetCloseBtnRect(D2D1_RECT_F card) {
+    return D2D1::RectF(card.right - 40.0f, card.top + 14.0f, card.right - 14.0f, card.top + 40.0f);
+}
+
+D2D1_RECT_F AboutOverlayLayout::GetGithubBtnRect(D2D1_RECT_F card) {
+    return D2D1::RectF(card.left + 24.0f, card.bottom - 50.0f, card.left + 154.0f, card.bottom - 18.0f);
+}
+
+D2D1_RECT_F AboutOverlayLayout::GetCopyInfoBtnRect(D2D1_RECT_F card) {
+    return D2D1::RectF(card.left + 164.0f, card.bottom - 50.0f, card.left + 324.0f, card.bottom - 18.0f);
+}
+
+D2D1_RECT_F AboutOverlayLayout::GetOkBtnRect(D2D1_RECT_F card) {
+    return D2D1::RectF(card.right - 104.0f, card.bottom - 50.0f, card.right - 24.0f, card.bottom - 18.0f);
+}
+
+int AboutOverlayView::HitTest(POINT pt, UINT width, UINT height, float dpi) {
+    float dipScale = DpiUtils::Scale(dpi);
+    D2D1_POINT_2F ptDip = DpiUtils::ToDip(pt, dpi);
+    float dipWidth = (float)width * dipScale;
+    float dipHeight = (float)height * dipScale;
+
+    D2D1_RECT_F card = AboutOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    if (!DpiUtils::PointInRect(ptDip.x, ptDip.y, card)) return ABOUT_HIT_OUTSIDE;
+
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, AboutOverlayLayout::GetCloseBtnRect(card))) return ABOUT_HIT_CLOSE_BTN;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, AboutOverlayLayout::GetGithubBtnRect(card))) return ABOUT_HIT_GITHUB_BTN;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, AboutOverlayLayout::GetCopyInfoBtnRect(card))) return ABOUT_HIT_COPY_INFO_BTN;
+    if (DpiUtils::PointInRect(ptDip.x, ptDip.y, AboutOverlayLayout::GetOkBtnRect(card))) return ABOUT_HIT_OK_BTN;
+
+    return ABOUT_HIT_CARD;
+}
+
+void AboutOverlayView::Render(
+    ID2D1DeviceContext* ctx,
+    const AboutOverlayRenderInfo& info,
+    float dipWidth,
+    float dipHeight,
+    const DocPropertiesResources& res
+) {
+    if (!ctx) return;
+
+    D2D1_RECT_F card = AboutOverlayLayout::GetCardRect(dipWidth, dipHeight);
+    DrawModalCardChrome(ctx, dipWidth, dipHeight, card,
+        res.brushHelpBackdrop, res.brushPageShadow, res.brushHelpCardBg, res.brushHelpCardBorder);
+
+    // 1. Header: App Name "LightPDF"
+    D2D1_RECT_F titleRect = D2D1::RectF(card.left + 24.0f, card.top + 18.0f, card.left + 160.0f, card.top + 46.0f);
+    const wchar_t* titleStr = L"LightPDF";
+    ctx->DrawText(titleStr, (UINT32)wcslen(titleStr), res.textFormatHelpTitle, titleRect, res.brushHudText);
+
+    // Version pill badge (e.g. "v2.4.1")
+    float pillLeft = card.left + 164.0f;
+    float pillTop = card.top + 22.0f;
+    float pillRight = pillLeft + 62.0f;
+    float pillBottom = pillTop + 22.0f;
+    D2D1_RECT_F pillRect = D2D1::RectF(pillLeft, pillTop, pillRight, pillBottom);
+    if (res.brushPropsSuccess) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(pillRect, 4.0f, 4.0f), res.brushPropsSuccess);
+    }
+    if (res.textFormatTab && res.brushPageBg) {
+        std::wstring verStr = info.version.empty() ? L"v2.4.1" : info.version;
+        ctx->DrawText(verStr.c_str(), (UINT32)verStr.length(), res.textFormatTab, pillRect, res.brushPageBg);
+    }
+
+    // Close button [×]
+    D2D1_RECT_F closeRect = AboutOverlayLayout::GetCloseBtnRect(card);
+    if (info.hoveredId == ABOUT_HIT_CLOSE_BTN) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(closeRect, 4.0f, 4.0f), res.brushPropsSecBtnHover);
+    }
+    const wchar_t* closeSym = L"\x00D7";
+    ctx->DrawText(closeSym, 1, res.textFormatTabClose, closeRect,
+        (info.hoveredId == ABOUT_HIT_CLOSE_BTN) ? res.brushHudText : res.brushHelpSubText);
+
+    // Subtitle tagline
+    D2D1_RECT_F subRect = D2D1::RectF(card.left + 24.0f, card.top + 48.0f, card.right - 24.0f, card.top + 68.0f);
+    const wchar_t* subStr = L"Ultra-Fast, Minimalist, Hardware-Accelerated PDF Viewer for Windows";
+    ctx->DrawText(subStr, (UINT32)wcslen(subStr), res.textFormatPropsLabel, subRect, res.brushHelpSubText);
+
+    // Divider Line
+    ctx->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.top + 76.0f),
+        D2D1::Point2F(card.right - 24.0f, card.top + 76.0f),
+        res.brushHelpCardBorder, 1.0f
+    );
+
+    // 2. Specifications Section
+    D2D1_RECT_F secSpecRect = D2D1::RectF(card.left + 24.0f, card.top + 84.0f, card.right - 24.0f, card.top + 104.0f);
+    const wchar_t* secSpecStr = L"ARCHITECTURE & SPECIFICATIONS";
+    ctx->DrawText(secSpecStr, (UINT32)wcslen(secSpecStr), res.textFormatPropsSection, secSpecRect, res.brushPropsAccent);
+
+    struct SpecRow {
+        const wchar_t* label;
+        const wchar_t* val;
+    };
+    static const SpecRow specs[] = {
+        { L"Rendering Engine:",  L"Direct2D 1.1 / Direct3D 11 (Hardware Accelerated)" },
+        { L"Runtime Model:",    L"Native Win32 x64 \x2022 C++20 \x2022 Zero Runtime DLLs" },
+        { L"Security Hardening:",L"Control Flow Guard (CFG) \x2022 Shadow Stack (CET) \x2022 DEP \x2022 ASLR" },
+        { L"Core Capabilities:", L"Multilingual OCR \x2022 AES Decryptor \x2022 SAPI TTS \x2022 Tech Dictionary" }
+    };
+
+    float ySpec = card.top + 106.0f;
+    float rowH = 21.0f;
+    for (const auto& sp : specs) {
+        D2D1_RECT_F lblRect = D2D1::RectF(card.left + 24.0f, ySpec, card.left + 154.0f, ySpec + rowH);
+        D2D1_RECT_F valRect = D2D1::RectF(card.left + 156.0f, ySpec, card.right - 24.0f, ySpec + rowH);
+        ctx->DrawText(sp.label, (UINT32)wcslen(sp.label), res.textFormatPropsLabel, lblRect, res.brushHelpSubText);
+        ctx->DrawText(sp.val, (UINT32)wcslen(sp.val), res.textFormatPropsLabel, valRect, res.brushHudText);
+        ySpec += rowH;
+    }
+
+    // 3. Hardware & System Diagnostics Box
+    float diagBoxTop = card.top + 200.0f;
+    float diagBoxH = 68.0f;
+    D2D1_RECT_F diagRect = D2D1::RectF(card.left + 24.0f, diagBoxTop, card.right - 24.0f, diagBoxTop + diagBoxH);
+    if (res.brushPageBg) {
+        ctx->FillRoundedRectangle(D2D1::RoundedRect(diagRect, 6.0f, 6.0f), res.brushPageBg);
+    }
+    if (res.brushHelpCardBorder) {
+        ctx->DrawRoundedRectangle(D2D1::RoundedRect(diagRect, 6.0f, 6.0f), res.brushHelpCardBorder, 1.0f);
+    }
+
+    D2D1_RECT_F diagTitleRect = D2D1::RectF(diagRect.left + 14.0f, diagRect.top + 8.0f, diagRect.right - 14.0f, diagRect.top + 26.0f);
+    const wchar_t* diagTitleStr = L"HARDWARE & DISPLAY";
+    ctx->DrawText(diagTitleStr, (UINT32)wcslen(diagTitleStr), res.textFormatPropsSection, diagTitleRect, res.brushPropsAccent);
+
+    std::wstring gpuStr = L"GPU: " + (info.gpuAdapterName.empty() ? std::wstring(L"Direct3D 11 Compatible Adapter") : info.gpuAdapterName);
+    D2D1_RECT_F gpuRect = D2D1::RectF(diagRect.left + 14.0f, diagRect.top + 26.0f, diagRect.right - 14.0f, diagRect.top + 45.0f);
+    ctx->DrawText(gpuStr.c_str(), (UINT32)gpuStr.length(), res.textFormatPropsLabel, gpuRect, res.brushHudText);
+
+    wchar_t dpiBuf[128];
+    swprintf_s(dpiBuf, L"Display Scaling: %d%% (%d DPI) \x2022 Footprint: < 1.0 MB Standalone",
+        (int)std::round(info.dpiScale * 100.0f), (int)std::round(info.dpiScale * 96.0f));
+    D2D1_RECT_F dpiRect = D2D1::RectF(diagRect.left + 14.0f, diagRect.top + 45.0f, diagRect.right - 14.0f, diagRect.top + 64.0f);
+    ctx->DrawText(dpiBuf, (UINT32)wcslen(dpiBuf), res.textFormatPropsLabel, dpiRect, res.brushHelpSubText);
+
+    // 4. Copyright & License
+    D2D1_RECT_F copyRect = D2D1::RectF(card.left + 24.0f, card.top + 280.0f, card.right - 24.0f, card.top + 316.0f);
+    const wchar_t* copyStr = L"Copyright \x00A9 2026 Ahmed Amer Shahin. All rights reserved.\nReleased under the MIT License (Open Source Software).";
+    ctx->DrawText(copyStr, (UINT32)wcslen(copyStr), res.textFormatPropsLabel, copyRect, res.brushHelpSubText);
+
+    // Bottom Divider Line
+    ctx->DrawLine(
+        D2D1::Point2F(card.left + 24.0f, card.bottom - 58.0f),
+        D2D1::Point2F(card.right - 24.0f, card.bottom - 58.0f),
+        res.brushHelpCardBorder, 1.0f
+    );
+
+    // 5. Action Buttons (GitHub, Copy Diagnostics, OK)
+    // GitHub Repo button
+    D2D1_RECT_F gitRect = AboutOverlayLayout::GetGithubBtnRect(card);
+    bool gitHov = (info.hoveredId == ABOUT_HIT_GITHUB_BTN);
+    ID2D1SolidColorBrush* gitBg = gitHov ? res.brushPropsSecBtnHover : res.brushPropsSecBtn;
+    if (gitBg) ctx->FillRoundedRectangle(D2D1::RoundedRect(gitRect, 5.0f, 5.0f), gitBg);
+    if (res.brushHelpCardBorder) ctx->DrawRoundedRectangle(D2D1::RoundedRect(gitRect, 5.0f, 5.0f), res.brushHelpCardBorder, 1.0f);
+    const wchar_t* gitStr = L"GitHub Repo";
+    ctx->DrawText(gitStr, (UINT32)wcslen(gitStr), res.textFormatTab, gitRect,
+        gitHov ? res.brushHudText : res.brushPropsAccent);
+
+    // Copy Diagnostics button
+    D2D1_RECT_F copyBtnRect = AboutOverlayLayout::GetCopyInfoBtnRect(card);
+    bool copyHov = (info.hoveredId == ABOUT_HIT_COPY_INFO_BTN);
+    ID2D1SolidColorBrush* copyBg = copyHov ? res.brushPropsSecBtnHover : res.brushPropsSecBtn;
+    if (copyBg) ctx->FillRoundedRectangle(D2D1::RoundedRect(copyBtnRect, 5.0f, 5.0f), copyBg);
+    if (res.brushHelpCardBorder) ctx->DrawRoundedRectangle(D2D1::RoundedRect(copyBtnRect, 5.0f, 5.0f), res.brushHelpCardBorder, 1.0f);
+    const wchar_t* copyBtnStr = L"Copy Diagnostics";
+    ctx->DrawText(copyBtnStr, (UINT32)wcslen(copyBtnStr), res.textFormatTab, copyBtnRect,
+        copyHov ? res.brushHudText : res.brushHelpSubText);
+
+    // Primary OK button
+    D2D1_RECT_F okRect = AboutOverlayLayout::GetOkBtnRect(card);
+    bool okHov = (info.hoveredId == ABOUT_HIT_OK_BTN);
+    ID2D1SolidColorBrush* okBg = okHov ? res.brushPropsBtnHover : res.brushPropsBtn;
+    if (okBg) ctx->FillRoundedRectangle(D2D1::RoundedRect(okRect, 5.0f, 5.0f), okBg);
+    const wchar_t* okStr = L"OK";
+    ctx->DrawText(okStr, (UINT32)wcslen(okStr), res.textFormatTab, okRect,
+        okHov ? res.brushPageBg : res.brushHudText);
+}
+
 } // namespace UIViews

@@ -98,6 +98,12 @@ bool AppWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& in
 
     DragAcceptFiles(m_hwnd, TRUE);
 
+    HMENU hSysMenu = GetSystemMenu(m_hwnd, FALSE);
+    if (hSysMenu) {
+        AppendMenuW(hSysMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(hSysMenu, MF_STRING, 0x1020 /* SC_ABOUT */, L"About LightPDF...");
+    }
+
     if (!m_renderer.Initialize(m_hwnd)) {
         return false;
     }
@@ -432,6 +438,14 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
     }
 
+    case WM_SYSCOMMAND: {
+        if ((wParam & 0xFFF0) == 0x1020 /* SC_ABOUT */) {
+            ShowAboutOverlay();
+            return 0;
+        }
+        break;
+    }
+
     case WM_CONTEXTMENU: {
         POINT ptScreen = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         if (ptScreen.x == -1 && ptScreen.y == -1) {
@@ -556,7 +570,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_MOUSEWHEEL: {
-        if (m_showProperties || m_showOptions) return 0;
+        if (m_showProperties || m_showOptions || m_showAbout) return 0;
         if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
@@ -586,7 +600,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_MOUSEHWHEEL: {
-        if (m_showProperties || m_showOptions) return 0;
+        if (m_showProperties || m_showOptions || m_showAbout) return 0;
         if (m_isDraggingScrollbar) return 0;
         auto* pTab = GetActiveTab();
         if (!pTab || !pTab->document.IsLoaded()) return 0;
@@ -779,7 +793,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 SetCursor(m_cursorSizeAll);
                 return 0;
             }
-        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showOptions && !m_showAbout && !m_showGoToPage && !m_searchController.IsOpen()) {
             if (msg == WM_LBUTTONDOWN && !m_recentController.IsEmpty()) {
                 float dipW = (float)m_renderer.GetWidth() * dipScale;
                 float dipH = (float)m_renderer.GetHeight() * dipScale;
@@ -889,6 +903,18 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             int newHov = (hit > 0) ? hit : 0;
             if (newHov != m_optionsHoveredId) {
                 m_optionsHoveredId = newHov;
+                Render();
+            }
+            SetCursor((hit > 0) ? m_cursorHand : m_cursorArrow);
+            return 0;
+        }
+
+        // 00d. About Overlay hover detection
+        if (m_showAbout) {
+            int hit = m_renderer.HitTestAboutOverlay(pt);
+            int newHov = (hit > 0) ? hit : 0;
+            if (newHov != m_aboutHoveredId) {
+                m_aboutHoveredId = newHov;
                 Render();
             }
             SetCursor((hit > 0) ? m_cursorHand : m_cursorArrow);
@@ -1108,7 +1134,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                     }
                 }
             }
-        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showGoToPage && !m_searchController.IsOpen()) {
+        } else if (m_tabController.IsEmpty() && !m_showHelp && !m_showProperties && !m_showOptions && !m_showAbout && !m_showGoToPage && !m_searchController.IsOpen()) {
             if (!m_recentController.IsEmpty()) {
                 float dipH = (float)m_renderer.GetHeight() * dipScale;
                 bool outRemove = false;
@@ -1204,7 +1230,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_justOpenedRecent = false;
             return 0;
         }
-        if (m_showProperties || m_showOptions) return 0;
+        if (m_showProperties || m_showOptions || m_showAbout) return 0;
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         float topOffset = GetTopOffset();
         float dipScale = 96.0f / m_renderer.GetDpi();
@@ -1384,6 +1410,20 @@ bool AppWindow::HandleModalMouseDown(UINT msg, POINT pt, float dipScale, float d
         return true;
     }
 
+    if (m_showAbout) {
+        if (msg == WM_LBUTTONDOWN) {
+            int aboutHit = m_renderer.HitTestAboutOverlay(pt);
+            if (aboutHit == ABOUT_HIT_CLOSE_BTN || aboutHit == ABOUT_HIT_OK_BTN || aboutHit == ABOUT_HIT_OUTSIDE) {
+                CloseAboutOverlay();
+            } else if (aboutHit == ABOUT_HIT_GITHUB_BTN) {
+                ShellExecuteW(nullptr, L"open", L"https://github.com/ashahin1/LightPDF", nullptr, nullptr, SW_SHOWNORMAL);
+            } else if (aboutHit == ABOUT_HIT_COPY_INFO_BTN) {
+                CopyAboutDiagnosticsToClipboard();
+            }
+        }
+        return true;
+    }
+
     if (m_showProperties) {
         int propHit = m_renderer.HitTestDocumentProperties(pt);
         if (propHit == 1 || propHit == 3 || propHit == -1) {
@@ -1508,6 +1548,17 @@ bool AppWindow::HandleModalKeyDown(WPARAM wParam, bool isCtrlDown, bool isShiftD
         } else if (wParam == VK_RIGHT) {
             m_optionsActiveCategory = (m_optionsActiveCategory + 1) % 3;
             Render();
+            return true;
+        }
+        return true;
+    }
+
+    if (m_showAbout) {
+        if (wParam == VK_ESCAPE || wParam == VK_RETURN) {
+            CloseAboutOverlay();
+            return true;
+        } else if (wParam == 'C' && isCtrlDown) {
+            CopyAboutDiagnosticsToClipboard();
             return true;
         }
         return true;
@@ -3707,6 +3758,13 @@ void AppWindow::Render() {
     auto recentInfo = m_recentController.GetRenderInfo();
     OptionsOverlayRenderInfo optInfo = GetOptionsInfo();
 
+    AboutOverlayRenderInfo aboutInfo;
+    aboutInfo.visible = m_showAbout;
+    aboutInfo.hoveredId = m_aboutHoveredId;
+    aboutInfo.version = L"v2.4.1";
+    aboutInfo.gpuAdapterName = m_renderer.GetGpuAdapterName();
+    aboutInfo.dpiScale = m_renderer.GetDpi() / 96.0f;
+
     if (pTab && pTab->document.IsLoaded() && pTab->document.GetPageCount() > 0) {
         std::wstring modeStr = L"";
         if (m_hudToastTime > 0 && (GetTickCount64() - m_hudToastTime < 1500)) {
@@ -3792,7 +3850,8 @@ void AppWindow::Render() {
                 &recentInfo,
                 &pwdInfo,
                 &linkHover,
-                &optInfo
+                &optInfo,
+                &aboutInfo
             );
             return;
         }
@@ -3829,7 +3888,8 @@ void AppWindow::Render() {
                 &recentInfo,
                 &pwdInfo,
                 &linkHover,
-                &optInfo
+                &optInfo,
+                &aboutInfo
             );
             return;
         }
@@ -3853,7 +3913,8 @@ void AppWindow::Render() {
         &recentInfo,
         &pwdInfo,
         &linkHover,
-        &optInfo
+        &optInfo,
+        &aboutInfo
     );
 }
 
@@ -4266,6 +4327,61 @@ OptionsOverlayRenderInfo AppWindow::GetOptionsInfo() const {
     info.recentCount = m_recentController.GetCount();
     info.settings = m_settingsController.Get();
     return info;
+}
+
+void AppWindow::ShowAboutOverlay() {
+    m_showAbout = true;
+    m_aboutHoveredId = 0;
+    m_showHelp = false;
+    m_showProperties = false;
+    m_showOptions = false;
+    m_showGoToPage = false;
+    m_recentController.CloseSwitcher();
+    m_searchController.SetOpen(false);
+    Render();
+}
+
+void AppWindow::CloseAboutOverlay() {
+    if (m_showAbout) {
+        m_showAbout = false;
+        m_aboutHoveredId = 0;
+        Render();
+    }
+}
+
+void AppWindow::ToggleAboutOverlay() {
+    if (m_showAbout) {
+        CloseAboutOverlay();
+    } else {
+        ShowAboutOverlay();
+    }
+}
+
+std::wstring AppWindow::BuildSystemDiagnosticsString() {
+    std::wstring diag = L"--- LightPDF System Diagnostics ---\r\n";
+    diag += L"Application: LightPDF v2.4.1 (x64 Release)\r\n";
+    diag += L"Architecture: C++20 / Direct2D 1.1 / Direct3D 11\r\n";
+    diag += L"Security: CFG (Guarded), CET Shadow Stack, DEP, ASLR\r\n";
+
+    std::wstring gpuName = m_renderer.GetGpuAdapterName();
+    if (gpuName.empty()) gpuName = L"Direct3D 11 Hardware Adapter";
+    diag += L"GPU: " + gpuName + L"\r\n";
+
+    wchar_t dispBuf[128];
+    float dpi = m_renderer.GetDpi();
+    swprintf_s(dispBuf, L"Display: %ux%u @ %d%% DPI (%d DPI)\r\n",
+        m_renderer.GetWidth(), m_renderer.GetHeight(), (int)std::round(dpi / 96.0f * 100.0f), (int)std::round(dpi));
+    diag += dispBuf;
+
+    diag += L"Dependencies: Zero Runtime DLLs (OS-native)\r\n";
+    diag += L"License: MIT License (https://github.com/ashahin1/LightPDF)\r\n";
+    return diag;
+}
+
+void AppWindow::CopyAboutDiagnosticsToClipboard() {
+    std::wstring diag = BuildSystemDiagnosticsString();
+    SetClipboardText(diag);
+    ShowToast(L"Diagnostics copied to clipboard");
 }
 
 void AppWindow::ApplySettingsToSession() {
@@ -5151,6 +5267,9 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         break;
     case ID_CTX_OPTIONS:
         ToggleOptionsOverlay();
+        break;
+    case ID_CTX_ABOUT:
+        ShowAboutOverlay();
         break;
 
     // Tab commands

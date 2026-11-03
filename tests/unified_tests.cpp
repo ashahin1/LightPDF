@@ -1339,6 +1339,8 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             GetMenuStringW(hMenu, ID_CTX_OPTIONS, itemBuf, 256, MF_BYCOMMAND);
             CHECK(std::wstring(itemBuf).find(L"\tCtrl+,") != std::wstring::npos);
 
+            CHECK(GetMenuState(hMenu, ID_CTX_ABOUT, MF_BYCOMMAND) != 0xFFFFFFFF);
+
             DestroyMenu(hMenu);
 
             // Scanned document canvas
@@ -1367,6 +1369,15 @@ TEST_CASE("UI: Context Menu State Assembly and Command Routing") {
             CHECK(GetMenuState(hEncMenu, ID_CTX_SAVE_SEARCHABLE, MF_BYCOMMAND) == 0xFFFFFFFF);
 
             DestroyMenu(hEncMenu);
+
+            // Empty canvas
+            ContextMenuData emptyData;
+            emptyData.isDocumentLoaded = false;
+            HMENU hEmptyMenu = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, emptyData);
+            REQUIRE(hEmptyMenu != nullptr);
+            CHECK(GetMenuState(hEmptyMenu, ID_CTX_OPTIONS, MF_BYCOMMAND) != 0xFFFFFFFF);
+            CHECK(GetMenuState(hEmptyMenu, ID_CTX_ABOUT, MF_BYCOMMAND) != 0xFFFFFFFF);
+            DestroyMenu(hEmptyMenu);
         }
     }
 
@@ -1520,6 +1531,85 @@ TEST_CASE("Settings: Registry Persistence, Theme Cycling, and Options Modal Hit-
         // Tab 2 controls
         CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 0, 0, 2)), winW, winH, dpi, 2) == OPT_HIT_SET_DEFAULT);
         CHECK(UIViews::OptionsOverlayView::HitTest(midPt(OptionsOverlayLayout::GetSegmentedBtnRect(card, 2, 1, 2)), winW, winH, dpi, 2) == OPT_HIT_CLEAR_RECENT);
+    }
+}
+
+TEST_CASE("Views: AboutOverlayView Layout & Hit-Testing") {
+    SUBCASE("AboutOverlayLayout Centering and Dimensions") {
+        float winW = 1000.0f;
+        float winH = 800.0f;
+        D2D1_RECT_F card = UIViews::AboutOverlayLayout::GetCardRect(winW, winH);
+        CHECK(card.right - card.left == doctest::Approx(UIViews::AboutOverlayLayout::CARD_W));
+        CHECK(card.bottom - card.top == doctest::Approx(UIViews::AboutOverlayLayout::CARD_H));
+        CHECK(card.left == doctest::Approx((winW - UIViews::AboutOverlayLayout::CARD_W) * 0.5f));
+        CHECK(card.top == doctest::Approx((winH - UIViews::AboutOverlayLayout::CARD_H) * 0.5f));
+
+        D2D1_RECT_F closeBtn = UIViews::AboutOverlayLayout::GetCloseBtnRect(card);
+        CHECK(closeBtn.right <= card.right);
+        CHECK(closeBtn.top >= card.top);
+
+        D2D1_RECT_F githubBtn = UIViews::AboutOverlayLayout::GetGithubBtnRect(card);
+        CHECK(githubBtn.left >= card.left);
+        CHECK(githubBtn.bottom <= card.bottom);
+
+        D2D1_RECT_F copyInfoBtn = UIViews::AboutOverlayLayout::GetCopyInfoBtnRect(card);
+        CHECK(copyInfoBtn.left > githubBtn.right);
+        CHECK(copyInfoBtn.bottom <= card.bottom);
+
+        D2D1_RECT_F okBtn = UIViews::AboutOverlayLayout::GetOkBtnRect(card);
+        CHECK(okBtn.right <= card.right);
+        CHECK(okBtn.left > copyInfoBtn.right);
+    }
+
+    SUBCASE("AboutOverlayView Hit-Testing at 96 DPI") {
+        const UINT winW = 1000;
+        const UINT winH = 800;
+        const float dpi = 96.0f;
+        D2D1_RECT_F card = UIViews::AboutOverlayLayout::GetCardRect((float)winW, (float)winH);
+
+        auto midPt = [](const D2D1_RECT_F& r) -> POINT {
+            return POINT{ (LONG)((r.left + r.right) * 0.5f), (LONG)((r.top + r.bottom) * 0.5f) };
+        };
+
+        // Outside modal (dismiss)
+        CHECK(UIViews::AboutOverlayView::HitTest(POINT{ 5, 5 }, winW, winH, dpi) == ABOUT_HIT_OUTSIDE);
+
+        // Inside card background
+        CHECK(UIViews::AboutOverlayView::HitTest(POINT{ (LONG)((card.left + card.right) * 0.5f), (LONG)(card.top + 50.0f) }, winW, winH, dpi) == ABOUT_HIT_CARD);
+
+        // Close button
+        CHECK(UIViews::AboutOverlayView::HitTest(midPt(UIViews::AboutOverlayLayout::GetCloseBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_CLOSE_BTN);
+
+        // GitHub repository button
+        CHECK(UIViews::AboutOverlayView::HitTest(midPt(UIViews::AboutOverlayLayout::GetGithubBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_GITHUB_BTN);
+
+        // Copy diagnostics button
+        CHECK(UIViews::AboutOverlayView::HitTest(midPt(UIViews::AboutOverlayLayout::GetCopyInfoBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_COPY_INFO_BTN);
+
+        // OK button
+        CHECK(UIViews::AboutOverlayView::HitTest(midPt(UIViews::AboutOverlayLayout::GetOkBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_OK_BTN);
+    }
+
+    SUBCASE("AboutOverlayView Hit-Testing at High DPI (144 DPI / 150%)") {
+        const UINT winW = 1500;
+        const UINT winH = 1200;
+        const float dpi = 144.0f;
+        const float dipScale = 96.0f / dpi;
+        float dipW = (float)winW * dipScale;
+        float dipH = (float)winH * dipScale;
+        D2D1_RECT_F card = UIViews::AboutOverlayLayout::GetCardRect(dipW, dipH);
+
+        auto midPtPix = [dpi](const D2D1_RECT_F& r) -> POINT {
+            float dipMidX = (r.left + r.right) * 0.5f;
+            float dipMidY = (r.top + r.bottom) * 0.5f;
+            return POINT{ (LONG)(dipMidX * (dpi / 96.0f)), (LONG)(dipMidY * (dpi / 96.0f)) };
+        };
+
+        CHECK(UIViews::AboutOverlayView::HitTest(midPtPix(UIViews::AboutOverlayLayout::GetCloseBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_CLOSE_BTN);
+        CHECK(UIViews::AboutOverlayView::HitTest(midPtPix(UIViews::AboutOverlayLayout::GetGithubBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_GITHUB_BTN);
+        CHECK(UIViews::AboutOverlayView::HitTest(midPtPix(UIViews::AboutOverlayLayout::GetCopyInfoBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_COPY_INFO_BTN);
+        CHECK(UIViews::AboutOverlayView::HitTest(midPtPix(UIViews::AboutOverlayLayout::GetOkBtnRect(card)), winW, winH, dpi) == ABOUT_HIT_OK_BTN);
+        CHECK(UIViews::AboutOverlayView::HitTest(POINT{ 5, 5 }, winW, winH, dpi) == ABOUT_HIT_OUTSIDE);
     }
 }
 

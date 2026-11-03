@@ -175,6 +175,12 @@ private:
     void ApplySettingsToSession();
     /// @brief Synchronizes active tab reading mode and zoom mode with persistent AppSettings model.
     void SyncSettingsWithActiveTab();
+
+    void ShowAboutOverlay();
+    void CloseAboutOverlay();
+    void ToggleAboutOverlay();
+    void CopyAboutDiagnosticsToClipboard();
+    std::wstring BuildSystemDiagnosticsString();
     OptionsOverlayRenderInfo GetOptionsInfo() const;
 
     void SetToolMode(ToolMode mode);
@@ -266,6 +272,11 @@ private:
     bool m_showOptions = false;
     int m_optionsActiveCategory = 0; // 0=View & Reading, 1=Selection & Speech, 2=System & Privacy
     int m_optionsHoveredId = 0;
+
+    // About Modal state
+    bool m_showAbout = false;
+    int m_aboutHoveredId = 0;
+    AboutOverlayRenderInfo m_aboutInfo;
 
     // Scrollbar state
     bool m_isDraggingScrollbar = false;
