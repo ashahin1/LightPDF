@@ -30,6 +30,7 @@
 #include "recent_files_controller.hpp"
 #include "context_menu_controller.hpp"
 #include "settings_controller.hpp"
+#include "common_utils.hpp"
 
 // ============================================================================
 // Dictionary Engine Tests
@@ -1736,5 +1737,76 @@ TEST_CASE("Security: Graphics State 'q' Depth Limit and Form Cycle Breaker (SEC-
         // Must parse safely without stack overflow or huge allocations
         parser.ParseContentStream(stream, 0, 0, 612, 792, 0, fonts, pageText, xobjects);
         CHECK(pageText.chars.empty());
+    }
+}
+
+TEST_CASE("Print: Automatic Orientation Detection, Copy Resolution, and Collation Schedule") {
+    SUBCASE("Automatic Orientation Detection based on Page Dimensions") {
+        // Landscape: width > height
+        D2D1_SIZE_F a4Landscape = D2D1::SizeF(842.0f, 595.0f);
+        CHECK(PrintUtils::DetectOrientation(a4Landscape) == DMORIENT_LANDSCAPE);
+
+        // Portrait: height >= width
+        D2D1_SIZE_F a4Portrait = D2D1::SizeF(595.0f, 842.0f);
+        CHECK(PrintUtils::DetectOrientation(a4Portrait) == DMORIENT_PORTRAIT);
+
+        // Square: width == height -> defaults to portrait
+        D2D1_SIZE_F square = D2D1::SizeF(500.0f, 500.0f);
+        CHECK(PrintUtils::DetectOrientation(square) == DMORIENT_PORTRAIT);
+    }
+
+    SUBCASE("Copy Resolution between Dialog and DevMode") {
+        // Dialog copies takes precedence if > 1
+        CHECK(PrintUtils::ResolveCopyCount(11, 1, 0) == 11);
+        CHECK(PrintUtils::ResolveCopyCount(5, 10, DM_COPIES) == 5);
+
+        // DEVMODE copies used if dialog reported 1 and DM_COPIES is specified
+        CHECK(PrintUtils::ResolveCopyCount(1, 11, DM_COPIES) == 11);
+
+        // DEVMODE copies ignored if DM_COPIES bit is not set
+        CHECK(PrintUtils::ResolveCopyCount(1, 11, 0) == 1);
+
+        // Defaults to 1 if both <= 1
+        CHECK(PrintUtils::ResolveCopyCount(1, 1, DM_COPIES) == 1);
+        CHECK(PrintUtils::ResolveCopyCount(0, 0, 0) == 1);
+
+        // Clamped to 999 maximum
+        CHECK(PrintUtils::ResolveCopyCount(5000, 1, 0) == 999);
+    }
+
+    SUBCASE("Spool Page Schedule Generation (Collated vs Uncollated)") {
+        std::vector<uint32_t> pages = { 0, 1, 2 };
+
+        // Empty pages or 0 copies
+        CHECK(PrintUtils::BuildPrintPageSchedule({}, 5, true).empty());
+        CHECK(PrintUtils::BuildPrintPageSchedule(pages, 0, true).empty());
+
+        // Single copy
+        std::vector<uint32_t> singleCopy = PrintUtils::BuildPrintPageSchedule(pages, 1, true);
+        REQUIRE(singleCopy.size() == 3);
+        CHECK(singleCopy[0] == 0);
+        CHECK(singleCopy[1] == 1);
+        CHECK(singleCopy[2] == 2);
+
+        // Multiple copies: Collated (1,2,3, 1,2,3)
+        std::vector<uint32_t> collated = PrintUtils::BuildPrintPageSchedule(pages, 2, true);
+        REQUIRE(collated.size() == 6);
+        std::vector<uint32_t> expectedCollated = { 0, 1, 2, 0, 1, 2 };
+        CHECK(collated == expectedCollated);
+
+        // Multiple copies: Uncollated (1,1, 2,2, 3,3)
+        std::vector<uint32_t> uncollated = PrintUtils::BuildPrintPageSchedule(pages, 2, false);
+        REQUIRE(uncollated.size() == 6);
+        std::vector<uint32_t> expectedUncollated = { 0, 0, 1, 1, 2, 2 };
+        CHECK(uncollated == expectedUncollated);
+
+        // Verification of 11-copies scenario
+        std::vector<uint32_t> twoPages = { 0, 1 };
+        std::vector<uint32_t> elevenCopies = PrintUtils::BuildPrintPageSchedule(twoPages, 11, true);
+        REQUIRE(elevenCopies.size() == 22);
+        CHECK(elevenCopies[0] == 0);
+        CHECK(elevenCopies[1] == 1);
+        CHECK(elevenCopies[20] == 0);
+        CHECK(elevenCopies[21] == 1);
     }
 }

@@ -14,6 +14,8 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
+#include <algorithm>
 
 /**
  * @namespace DpiUtils
@@ -133,5 +135,66 @@ namespace ClipboardUtils {
         }
         CloseClipboard();
         return out;
+    }
+}
+
+/**
+ * @namespace PrintUtils
+ * @brief Utilities for document print orientation detection, copy count resolution, and spool page scheduling.
+ */
+namespace PrintUtils {
+    /**
+     * @brief Determines whether a PDF page should default to landscape or portrait orientation.
+     * @param pageSize Page dimensions in points / DIPs.
+     * @return DMORIENT_LANDSCAPE (2) if width > height, else DMORIENT_PORTRAIT (1).
+     */
+    inline short DetectOrientation(D2D1_SIZE_F pageSize) {
+        return (pageSize.width > pageSize.height) ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
+    }
+
+    /**
+     * @brief Resolves effective print copy count from dialog result and DEVMODE fields.
+     * @param dlgCopies Number of copies reported by PrintDlgExW (pdex.nCopies).
+     * @param devModeCopies Number of copies specified in printer DEVMODE (dmCopies).
+     * @param devModeFields Bitfield flags from DEVMODE (dmFields).
+     * @return Clamped copy count (between 1 and 999).
+     */
+    inline DWORD ResolveCopyCount(DWORD dlgCopies, short devModeCopies, DWORD devModeFields) {
+        DWORD copies = 1;
+        if (dlgCopies > 1) {
+            copies = dlgCopies;
+        } else if ((devModeFields & DM_COPIES) && devModeCopies > 1) {
+            copies = static_cast<DWORD>(devModeCopies);
+        }
+        return (std::max)(1UL, (std::min)(copies, 999UL));
+    }
+
+    /**
+     * @brief Builds the exact sequence of 0-based page indices to send to StartPage/EndPage.
+     * @param pages Set of page indices to print.
+     * @param copies Number of copies to produce.
+     * @param collate True for collated (1,2, 1,2), false for uncollated (1,1, 2,2).
+     * @return Ordered list of page indices to render.
+     */
+    inline std::vector<uint32_t> BuildPrintPageSchedule(const std::vector<uint32_t>& pages, DWORD copies, bool collate) {
+        std::vector<uint32_t> schedule;
+        if (pages.empty() || copies == 0) return schedule;
+        DWORD safeCopies = (std::min)(copies, 999UL);
+        schedule.reserve(pages.size() * safeCopies);
+
+        if (collate) {
+            for (DWORD c = 0; c < safeCopies; ++c) {
+                for (uint32_t pageIndex : pages) {
+                    schedule.push_back(pageIndex);
+                }
+            }
+        } else {
+            for (uint32_t pageIndex : pages) {
+                for (DWORD c = 0; c < safeCopies; ++c) {
+                    schedule.push_back(pageIndex);
+                }
+            }
+        }
+        return schedule;
     }
 }

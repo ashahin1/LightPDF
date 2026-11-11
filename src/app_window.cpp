@@ -2614,6 +2614,7 @@ void AppWindow::PromptPrint() {
     uint32_t totalPages = pTab->document.GetPageCount();
     std::wstring docName = pTab->document.GetFileName();
     auto doc = pTab->document.GetDoc();
+    D2D1_SIZE_F currentPageSize = pTab->document.GetPageSize(currentPage);
 
     std::vector<bool> type3Pages(totalPages, false);
     if (pTab->parser) {
@@ -2622,8 +2623,33 @@ void AppWindow::PromptPrint() {
         }
     }
 
-    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc, type3Pages]() {
+    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc, type3Pages, currentPageSize]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+        HGLOBAL hDevMode = nullptr;
+        HGLOBAL hDevNames = nullptr;
+
+        PRINTDLGEXW pdInit = {};
+        pdInit.lStructSize = sizeof(PRINTDLGEXW);
+        pdInit.hwndOwner = hwnd;
+        pdInit.Flags = PD_RETURNDEFAULT;
+        if (SUCCEEDED(PrintDlgExW(&pdInit))) {
+            hDevMode = pdInit.hDevMode;
+            hDevNames = pdInit.hDevNames;
+            if (pdInit.hDC) {
+                DeleteDC(pdInit.hDC);
+                pdInit.hDC = nullptr;
+            }
+
+            if (hDevMode) {
+                auto* pDevMode = static_cast<DEVMODEW*>(GlobalLock(hDevMode));
+                if (pDevMode) {
+                    pDevMode->dmOrientation = PrintUtils::DetectOrientation(currentPageSize);
+                    pDevMode->dmFields |= DM_ORIENTATION;
+                    GlobalUnlock(hDevMode);
+                }
+            }
+        }
 
         PRINTPAGERANGE pageRanges[32] = {};
         pageRanges[0].nFromPage = 1;
@@ -2632,10 +2658,10 @@ void AppWindow::PromptPrint() {
         PRINTDLGEXW pdex = {};
         pdex.lStructSize = sizeof(PRINTDLGEXW);
         pdex.hwndOwner = hwnd;
-        pdex.hDevMode = nullptr;
-        pdex.hDevNames = nullptr;
+        pdex.hDevMode = hDevMode;
+        pdex.hDevNames = hDevNames;
         pdex.hDC = nullptr;
-        pdex.Flags = PD_ALLPAGES | PD_RETURNDC | PD_USEDEVMODECOPIESANDCOLLATE | PD_NOSELECTION;
+        pdex.Flags = PD_ALLPAGES | PD_RETURNDC | PD_NOSELECTION | PD_COLLATE;
         pdex.Flags2 = 0;
         pdex.ExclusionFlags = 0;
         pdex.nPageRanges = 1;
@@ -2648,6 +2674,28 @@ void AppWindow::PromptPrint() {
 
         HRESULT hr = PrintDlgExW(&pdex);
         if (SUCCEEDED(hr) && pdex.dwResultAction == PD_RESULT_PRINT && pdex.hDC && !m_cancelPrint) {
+            DWORD dlgCopies = pdex.nCopies;
+            short devModeCopies = 1;
+            DWORD devModeFields = 0;
+
+            if (pdex.hDevMode) {
+                auto* pDevMode = static_cast<DEVMODEW*>(GlobalLock(pdex.hDevMode));
+                if (pDevMode) {
+                    devModeCopies = pDevMode->dmCopies;
+                    devModeFields = pDevMode->dmFields;
+
+                    // Prevent printer driver / hardware spooler multiplication
+                    pDevMode->dmCopies = 1;
+                    pDevMode->dmFields |= DM_COPIES;
+                    ResetDCW(pdex.hDC, pDevMode);
+
+                    GlobalUnlock(pdex.hDevMode);
+                }
+            }
+
+            DWORD copies = PrintUtils::ResolveCopyCount(dlgCopies, devModeCopies, devModeFields);
+            bool collate = (pdex.Flags & PD_COLLATE) != 0;
+
             std::vector<uint32_t> pagesToPrint;
 
             if (pdex.Flags & PD_CURRENTPAGE) {
@@ -2675,33 +2723,31 @@ void AppWindow::PromptPrint() {
                 di.lpszDocName = docName.c_str();
 
                 if (StartDocW(pdex.hDC, &di) > 0) {
-                    DWORD copies = (pdex.nCopies > 0) ? pdex.nCopies : 1;
+                    std::vector<uint32_t> schedule = PrintUtils::BuildPrintPageSchedule(pagesToPrint, copies, collate);
                     bool aborted = false;
 
-                    for (DWORD c = 0; c < copies && !aborted; ++c) {
-                        for (uint32_t pageIndex : pagesToPrint) {
-                            if (m_cancelPrint) {
-                                aborted = true;
-                                break;
-                            }
-                            if (StartPage(pdex.hDC) > 0) {
-                                try {
-                                    auto page = doc.GetPage(pageIndex);
-                                    if (page) {
-                                        auto sz = page.Size();
-                                        D2D1_SIZE_F pSize = D2D1::SizeF(sz.Width, sz.Height);
-                                        bool hasType3 = (pageIndex < type3Pages.size()) ? type3Pages[pageIndex] : false;
-                                        m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3);
-                                    }
-                                } catch (const winrt::hresult_error& ex) {
-                                    OutputDebugStringW((L"[LightPDF] Print page render failed: " + std::wstring(ex.message()) + L"\n").c_str());
-                                } catch (const std::exception& ex) {
-                                    OutputDebugStringA(("[LightPDF] Print page render std::exception: " + std::string(ex.what()) + "\n").c_str());
-                                } catch (...) {
-                                    OutputDebugStringW(L"[LightPDF] Print page render unknown error\n");
+                    for (uint32_t pageIndex : schedule) {
+                        if (m_cancelPrint) {
+                            aborted = true;
+                            break;
+                        }
+                        if (StartPage(pdex.hDC) > 0) {
+                            try {
+                                auto page = doc.GetPage(pageIndex);
+                                if (page) {
+                                    auto sz = page.Size();
+                                    D2D1_SIZE_F pSize = D2D1::SizeF(sz.Width, sz.Height);
+                                    bool hasType3 = (pageIndex < type3Pages.size()) ? type3Pages[pageIndex] : false;
+                                    m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3);
                                 }
-                                EndPage(pdex.hDC);
+                            } catch (const winrt::hresult_error& ex) {
+                                OutputDebugStringW((L"[LightPDF] Print page render failed: " + std::wstring(ex.message()) + L"\n").c_str());
+                            } catch (const std::exception& ex) {
+                                OutputDebugStringA(("[LightPDF] Print page render std::exception: " + std::string(ex.what()) + "\n").c_str());
+                            } catch (...) {
+                                OutputDebugStringW(L"[LightPDF] Print page render unknown error\n");
                             }
+                            EndPage(pdex.hDC);
                         }
                     }
 
@@ -2719,9 +2765,13 @@ void AppWindow::PromptPrint() {
         }
         if (pdex.hDevMode) {
             GlobalFree(pdex.hDevMode);
+        } else if (hDevMode) {
+            GlobalFree(hDevMode);
         }
         if (pdex.hDevNames) {
             GlobalFree(pdex.hDevNames);
+        } else if (hDevNames) {
+            GlobalFree(hDevNames);
         }
 
         if (SUCCEEDED(hrCo)) {
