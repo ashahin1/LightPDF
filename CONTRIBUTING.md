@@ -42,7 +42,7 @@ build.bat /clean
 Always run the automated test suite before opening a pull request:
 
 ```cmd
-:: Run the unified test suite (21 test cases, 228 assertions)
+:: Run the unified test suite (33 test cases, 520 assertions)
 cmd.exe /c tests\run_tests.bat
 ```
 

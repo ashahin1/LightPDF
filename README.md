@@ -167,7 +167,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
   - **Tab Strip Menu**: Close Tab (`Ctrl+W`), Close Other Tabs, Close Tabs to Right, Reopen Closed Tab (`Ctrl+Shift+T`), Copy Full File Path, and Reveal in File Explorer (`/select`).
   - **Hyperlink Menu**: Default bold Open Link action, Copy Link Address, Fit Page (`Ctrl+0`), Actual Size (`Ctrl+1`), Fit Width (`Ctrl+2`), and Print (`Ctrl+P`).
   - **Text Selection Menu**: Copy (`Ctrl+C`), Look up in Dictionary (`D`), Read Aloud Selection, Search for Selection (`Ctrl+F`), Select All (`Ctrl+A`), and Deselect (`Esc`). Appears seamlessly whenever text is selected prior to right-clicking.
-  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page `Ctrl+0`, Actual Size `Ctrl+1`, Fit Width `Ctrl+2`, Continuous Scrolling `Ctrl+3` toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, and Document Properties (`Ctrl+D`).
+  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page `Ctrl+0`, Actual Size `Ctrl+1`, Fit Width `Ctrl+2`, Continuous Scrolling `Ctrl+3` toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, Document Properties (`Ctrl+D`), Options & Preferences (`Ctrl+,`), and About LightPDF...
 
 ### 🗣️ Native Read Aloud (TTS) & Technical Dictionary
 - **Bilingual Text-to-Speech**: Press `Ctrl+R` for high-fidelity speech playback with real-time visual word highlighting. Automatically routes Arabic to `Microsoft Naayf` and English to system voices via Windows OneCore & SAPI.
@@ -178,7 +178,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Searchable PDF Sandwich Export**: Press `Ctrl+S` / `Ctrl+Shift+S` to bake an invisible OCR text layer (`3 Tr` PDF sandwich) into scanned files via `Windows.Media.Ocr`. Supports atomic in-place overwrite or Save As with zero image recompression.
 - **Bilingual Search Engine**: Real-time search (`Ctrl+F`) with diacritics stripping, Alef/Taa Marbuta normalization, Eastern & Western Arabic numeral unification, and bidirectional matching.
 - **Presentation Laser Pointer**: Press `L` to activate an optical glowing laser pointer; cycle colors (`C`) through Red, Green, Cyan, and Gold.
-- **300 DPI Streaming Printing**: Native `PrintDlgExW` &mdash; All Pages, Current Page, or Custom Ranges &mdash; streamed page-by-page directly to the printer spooler.
+- **Intelligent 300 DPI Printing**: Native `PrintDlgExW` with automatic page orientation detection (Landscape vs. Portrait matching page dimensions), safe spool copy count resolution (preventing printer driver N x N multiplier bugs), and collated/uncollated page spool scheduling.
 
 ### ⚙️ Options & Preferences Dialog and Page Color Themes
 - **Tabbed Direct2D Options Modal (`Ctrl+,`)**: Centered, keyboard-accessible options dialog with categories for **View & Reading**, **Tools & Behavior**, and **System & History**.
@@ -202,6 +202,11 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
   - **Scanned Document**: Bakes an invisible, searchable OCR text layer (`3 Tr` PDF sandwich) into the file.
 - **In-Place Decryption & File Replacement**: Allows replacing the encrypted file in-place on disk or exporting to a new filename.
 - **Post-Save Tab Switching**: Automatically binds the newly saved file to the active tab, updates tab captions, and keeps navigation fluid.
+
+### ℹ️ Direct2D Hardware Diagnostics & About Dialog
+- **Native Direct2D Modal Overlay**: Access via the Document Canvas Menu (`About LightPDF...`) or the Window System Menu. Renders specifications, runtime model, compiler security hardening flags, display scaling, and active GPU adapter description.
+- **One-Click Diagnostics Export**: Dedicated `Copy Diagnostics` button packages system specifications, DPI metrics, and hardware adapter details directly to the Windows clipboard for effortless troubleshooting.
+- **Direct GitHub Access**: One-click repository button for quick access to source code and documentation.
 
 ---
 
@@ -277,7 +282,7 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
 | `L` | Toggle Presentation Laser Pointer |
 | `C` | Cycle Laser Pointer Color (Red, Green, Cyan, Gold) |
-| `Right Click Canvas` | Document Canvas Menu (Navigation, View Modes, Scroll Toggle, Search, Print, Properties) |
+| `Right Click Canvas` | Document Canvas Menu (Navigation, View Modes, Scroll Toggle, Search, Print, Properties, Options, About) |
 | `Right Click Selection` | Text Selection Menu (Copy, Dictionary, Read Aloud, Search Selection, Select All, Deselect) |
 | `Right Click Link` | Hyperlink Menu (Open Link, Copy Link Address, View Modes, Print) |
 | `Ctrl + A` | Select all text on current page |
