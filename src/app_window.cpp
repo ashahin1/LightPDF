@@ -2340,6 +2340,14 @@ void AppWindow::ReopenClosedTab() {
 
 void AppWindow::PromptForPassword(const PendingPasswordRequest& req) {
     if (m_showPasswordOverlay) {
+        if (_wcsicmp(m_activePasswordReq.filePath.c_str(), req.filePath.c_str()) == 0) {
+            return;
+        }
+        for (const auto& queued : m_pendingPasswordQueue) {
+            if (_wcsicmp(queued.filePath.c_str(), req.filePath.c_str()) == 0) {
+                return;
+            }
+        }
         m_pendingPasswordQueue.push_back(req);
         return;
     }

@@ -88,6 +88,47 @@ TEST_CASE("Tabs: TabController State and Layout") {
     POINT pt{ 100, 10 };
     int hit = tabs.HitTestTab(pt, 800.0f, 96.0f, closeHover, addHover);
     CHECK(hit == -1);
+
+    SUBCASE("Deduplication: Opening the same file twice switches tab without duplicating") {
+        std::wstring outPath;
+        bool alreadyOpen = false;
+        std::wstring path1 = L"tests/PDF/Exam_Schedule_472.pdf";
+        REQUIRE(tabs.OpenTab(path1, nullptr, outPath, alreadyOpen));
+        CHECK(tabs.GetTabCount() == 1);
+        CHECK_FALSE(alreadyOpen);
+
+        // Open a second distinct document
+        std::wstring outPathSecond;
+        bool alreadyOpenSecond = false;
+        REQUIRE(tabs.OpenTab(L"tests/PDF/123.pdf", nullptr, outPathSecond, alreadyOpenSecond));
+        CHECK(tabs.GetTabCount() == 2);
+        CHECK_FALSE(alreadyOpenSecond);
+        CHECK(tabs.GetActiveIndex() == 1);
+
+        // Reopen first file with different slash & uppercase format -> switches back to tab 0
+        bool alreadyOpen2 = false;
+        std::wstring outPath2;
+        REQUIRE(tabs.OpenTab(L"TESTS\\PDF\\EXAM_SCHEDULE_472.PDF", nullptr, outPath2, alreadyOpen2));
+        CHECK(tabs.GetTabCount() == 2);
+        CHECK(alreadyOpen2);
+        CHECK(tabs.GetActiveIndex() == 0);
+
+        // Switch back to tab 1, then reopen first file via 8.3 short path
+        tabs.SelectTab(1);
+        CHECK(tabs.GetActiveIndex() == 1);
+
+        wchar_t shortBuf[MAX_PATH * 2] = { 0 };
+        DWORD shortLen = GetShortPathNameW(outPath.c_str(), shortBuf, static_cast<DWORD>(_countof(shortBuf)));
+        std::wstring shortPath = (shortLen > 0 && shortLen < _countof(shortBuf)) ? std::wstring(shortBuf, shortLen) : outPath;
+
+        bool alreadyOpenShort = false;
+        std::wstring outPathShort;
+        REQUIRE(tabs.OpenTab(shortPath, nullptr, outPathShort, alreadyOpenShort));
+        CHECK(tabs.GetTabCount() == 2);
+        CHECK(alreadyOpenShort);
+        CHECK(tabs.GetActiveIndex() == 0);
+        CHECK(_wcsicmp(outPathShort.c_str(), outPath.c_str()) == 0);
+    }
 }
 
 TEST_CASE("Search: SearchController State & Layout") {

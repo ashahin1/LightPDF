@@ -54,12 +54,20 @@ namespace PathUtils {
         return (pos != std::wstring::npos) ? path.substr(0, pos) : L"";
     }
 
-    /// @brief Resolves and canonicalizes a relative or standard path to its full Windows absolute path.
+    /// @brief Resolves and canonicalizes a relative, 8.3 short, or standard path to its full Windows long path.
     inline std::wstring NormalizePath(const std::wstring& path) {
         if (path.empty()) return L"";
         wchar_t fullPath[MAX_PATH * 2] = { 0 };
         DWORD len = GetFullPathNameW(path.c_str(), static_cast<DWORD>(_countof(fullPath)), fullPath, nullptr);
-        return (len > 0 && len < static_cast<DWORD>(_countof(fullPath))) ? std::wstring(fullPath, len) : path;
+        if (len == 0 || len >= static_cast<DWORD>(_countof(fullPath))) {
+            return path;
+        }
+        wchar_t longPath[MAX_PATH * 2] = { 0 };
+        DWORD longLen = GetLongPathNameW(fullPath, longPath, static_cast<DWORD>(_countof(longPath)));
+        if (longLen > 0 && longLen < static_cast<DWORD>(_countof(longPath))) {
+            return std::wstring(longPath, longLen);
+        }
+        return std::wstring(fullPath, len);
     }
 }
 

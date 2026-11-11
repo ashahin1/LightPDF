@@ -5,6 +5,7 @@
 
 #include "pdf_document.hpp"
 #include "pdf_parser.hpp"
+#include "common_utils.hpp"
 #include <filesystem>
 
 PdfDocumentWrapper::PdfDocumentWrapper() = default;
@@ -60,10 +61,8 @@ PdfLoadStatus PdfDocumentWrapper::OpenWithPassword(
     }
 
     try {
-        // Resolve absolute canonical path
-        wchar_t fullPath[MAX_PATH * 2] = { 0 };
-        DWORD len = GetFullPathNameW(filePath.c_str(), _countof(fullPath), fullPath, nullptr);
-        std::wstring resolvedPath = (len > 0 && len < _countof(fullPath)) ? fullPath : filePath;
+        // Resolve absolute canonical long path
+        std::wstring resolvedPath = PathUtils::NormalizePath(filePath);
 
         // Primary: Load via Win32 stream (CreateRandomAccessStreamOnFile)
         // This bypasses WinRT StorageFile restrictions on network UNC paths, Administrator elevation, and 8.3 paths.

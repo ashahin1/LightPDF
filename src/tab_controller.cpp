@@ -4,6 +4,7 @@
  */
 
 #include "tab_controller.hpp"
+#include "common_utils.hpp"
 #include <algorithm>
 
 DocumentTab* TabController::GetActiveTab() {
@@ -37,9 +38,7 @@ PdfLoadStatus TabController::OpenTabWithPassword(
     outCanonicalPath.clear();
     if (path.empty()) return PdfLoadStatus::Failed;
 
-    wchar_t fullPath[MAX_PATH * 2] = { 0 };
-    DWORD len = GetFullPathNameW(path.c_str(), _countof(fullPath), fullPath, nullptr);
-    std::wstring resolvedPath = (len > 0 && len < _countof(fullPath)) ? fullPath : path;
+    std::wstring resolvedPath = PathUtils::NormalizePath(path);
     outCanonicalPath = resolvedPath;
 
     for (size_t i = 0; i < m_tabs.size(); ++i) {
