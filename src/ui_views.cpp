@@ -1960,7 +1960,7 @@ void AboutOverlayView::Render(
         ctx->DrawText(titleStr, (UINT32)wcslen(titleStr), res.textFormatTitle, titleRect, res.brushText);
     }
 
-    // Version pill badge (e.g. "v2.4.1") - positioned right after title
+    // Version pill badge (e.g. "v2.5.0") - positioned right after title
     float pillLeft = card.left + 114.0f;
     float pillTop = card.top + 19.0f;
     float pillRight = pillLeft + 58.0f;
@@ -1970,7 +1970,7 @@ void AboutOverlayView::Render(
         ctx->FillRoundedRectangle(D2D1::RoundedRect(pillRect, 4.0f, 4.0f), res.brushSuccess);
     }
     if (res.textFormatBtn && res.brushText) {
-        std::wstring verStr = info.version.empty() ? L"v2.4.1" : info.version;
+        std::wstring verStr = info.version.empty() ? L"v2.5.0" : info.version;
         ctx->DrawText(verStr.c_str(), (UINT32)verStr.length(), res.textFormatBtn, pillRect, res.brushText);
     }
 

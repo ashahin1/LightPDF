@@ -3819,7 +3819,7 @@ void AppWindow::Render() {
     AboutOverlayRenderInfo aboutInfo;
     aboutInfo.visible = m_showAbout;
     aboutInfo.hoveredId = m_aboutHoveredId;
-    aboutInfo.version = L"v2.4.1";
+    aboutInfo.version = L"v2.5.0";
     aboutInfo.gpuAdapterName = m_renderer.GetGpuAdapterName();
     aboutInfo.dpiScale = m_renderer.GetDpi() / 96.0f;
 
@@ -4417,7 +4417,7 @@ void AppWindow::ToggleAboutOverlay() {
 
 std::wstring AppWindow::BuildSystemDiagnosticsString() {
     std::wstring diag = L"--- LightPDF System Diagnostics ---\r\n";
-    diag += L"Application: LightPDF v2.4.1 (x64 Release)\r\n";
+    diag += L"Application: LightPDF v2.5.0 (x64 Release)\r\n";
     diag += L"Architecture: C++20 / Direct2D 1.1 / Direct3D 11\r\n";
     diag += L"Security: CFG (Guarded), CET Shadow Stack, DEP, ASLR\r\n";
 

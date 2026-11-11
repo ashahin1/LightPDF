@@ -135,7 +135,7 @@ $colleagueReadme = @"
 LightPDF - Instructions for Colleagues
 ======================================
 Publisher: Ahmed Amer Shahin (EtherHome)
-Version:   2.4.1.0
+Version:   2.5.0.0
 
 FIRST-TIME SETUP (Takes 5 seconds):
 1. Right-click 'install_certificate.bat' and run it (or simply double-click).

@@ -464,7 +464,7 @@ enum AboutHitId {
 struct AboutOverlayRenderInfo {
     bool visible = false;                       ///< Modal visibility flag
     int hoveredId = 0;                          ///< Currently hovered AboutHitId button
-    std::wstring version = L"v2.4.1";           ///< Application version string
+    std::wstring version = L"v2.5.0";           ///< Application version string
     std::wstring gpuAdapterName;                ///< Detected GPU adapter description
     float dpiScale = 1.0f;                      ///< Active monitor DPI scale
 };

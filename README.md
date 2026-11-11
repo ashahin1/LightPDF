@@ -4,18 +4,18 @@
 
 <p>
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>1,008 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>1,014 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p>
   <a href="https://isocpp.org/"><img src="https://img.shields.io/badge/C%2B%2B-20-blue.svg?style=flat-square" alt="C++20"></a>
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
-  <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/badge/release-v2.4.1-blue?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/badge/release-v2.5.0-blue?style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-1008_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-1014_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-31%20passed%20%7C%20451%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-33%20passed%20%7C%20520%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -121,7 +121,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **1,008 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **1,014 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
@@ -135,7 +135,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 ### ⚡ Ultra-Fast Hardware-Accelerated Engine
 - **Instant Launch**: Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader.
-- **Sub-Megabyte Footprint**: Single **1,000 KB** (1,008 KB signed) standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
+- **Sub-Megabyte Footprint**: Single **1,014 KB** standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
 - **GPU Hardware Rendering**: Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard model.
 - **Chromeless Design**: No toolbars, ribbons, side panels, or telemetry &mdash; pure focus on your document.
 - **HiDPI Native**: Full PerMonitorV2 DPI awareness &mdash; razor-sharp on 4K, 8K, and mixed-scaling multi-monitor environments.
@@ -433,11 +433,11 @@ tests\run_tests.bat
 
 ```
 ===============================================================================
-[LightPDF Test Runner] Executing 31 test cases...
+[LightPDF Test Runner] Executing 33 test cases...
 ===============================================================================
-  Test Cases: 31 passed | 0 failed | 31 total
-  Assertions: 451 passed | 0 failed | 451 total
-  Elapsed:    ~3.2 s
+  Test Cases: 33 passed | 0 failed | 33 total
+  Assertions: 520 passed | 0 failed | 520 total
+  Elapsed:    ~3.7 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
 ```
@@ -445,6 +445,9 @@ tests\run_tests.bat
 The test suite exercises all critical components:
 - **PDF Core Parser & Streams**: Incremental xref `/Prev` traversal, stream decompression (Flate / ASCII85), and font dictionary extraction.
 - **Security & Hardening Defenses**: MiniZlib 64 MB decompression limit & BitStream EOF overrun protection (SEC-01), Form XObject cycle breaker & per-page operator limits (SEC-11), safe external URI & mailto parameter sanitization (SEC-15), dictionary CWD isolation & record offset bounds validation (SEC-06, SEC-05), graphics state `q` stack clamping (SEC-07), and non-stream string decryption (SEC-12).
+- **Print Engine & Safe Copies**: Page aspect ratio automatic orientation detection (Landscape vs Portrait), DEVMODE/dialog copy resolution preventing driver N x N multiplier bugs, and collated/uncollated page spool scheduling.
+- **Direct2D About Dialog & Diagnostics**: Hardware adapter discovery, display scaling, architecture specifications, and one-click diagnostics export.
+- **Path & Tab Deduplication**: 8.3 short filename canonicalization via `GetLongPathNameW` and duplicate tab prevention across external launches and pending password prompt sessions.
 - **CMap & Font Metrics**: Composite Type 0 fonts, CIDFontType2, and Adobe UCS `/ToUnicode` mapping.
 - **Multilingual Search**: Arabic diacritic stripping, Alef/Taa Marbuta normalization, Eastern-to-Western Arabic numeral normalization, and bidirectional text matching.
 - **Interactive Hyperlinks**: ISO 32000-1 `/Annots` parsing (`/URI`, `/GoTo`), plaintext URL regex extraction, single/continuous hit-testing, and navigation history stacks.
@@ -509,7 +512,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~1,000 KB standalone binary (1,000.5 KB unsigned / 1,007.5 KB signed Authenticode, zero DLLs)
+│   ├── LightPDF.exe              # ~1,014 KB standalone binary (zero external DLLs, <1 MB budget)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
