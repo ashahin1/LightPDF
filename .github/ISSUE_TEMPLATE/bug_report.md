@@ -32,4 +32,4 @@ A clear and concise description of what you expected to happen.
 **System Information:**
  - OS: Windows 10 / Windows 11 (64-bit, build number)
  - GPU: (e.g., Intel Iris, NVIDIA RTX, AMD Radeon, WARP Software)
- - App Version: (e.g., v2.5.0 or commit SHA)
+ - App Version: (e.g., v2.6.0 or commit SHA)

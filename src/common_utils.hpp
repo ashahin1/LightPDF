@@ -11,6 +11,8 @@
 
 #include <windows.h>
 #include <d2d1.h>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -196,5 +198,143 @@ namespace PrintUtils {
             }
         }
         return schedule;
+    }
+}
+
+/**
+ * @namespace RotationUtils
+ * @brief Orthogonal quarter-turn coordinate and matrix utilities for live page rotation.
+ */
+namespace RotationUtils {
+    /**
+     * @brief Normalizes any signed quarter-turn count into {0, 1, 2, 3} (0, 90, 180, 270 degrees CW).
+     * @param turns Signed integer quarter-turn count.
+     * @return Normalized quarter turns in [0, 3].
+     */
+    inline uint8_t NormalizeQuarterTurns(int turns) {
+        return static_cast<uint8_t>(((turns % 4) + 4) % 4);
+    }
+
+    /**
+     * @brief Converts quarter turns into clockwise degrees (0, 90, 180, 270).
+     * @param quarterTurns Quarter turns count.
+     * @return Clockwise rotation angle in degrees.
+     */
+    inline int QuarterTurnsToDegrees(uint8_t quarterTurns) {
+        return static_cast<int>(NormalizeQuarterTurns(quarterTurns)) * 90;
+    }
+
+    /**
+     * @brief Returns effective displayed page dimensions after applying quarter-turn rotation.
+     * @param intrinsicSize Unrotated page dimensions in DIPs.
+     * @param quarterTurns Clockwise quarter-turn count.
+     * @return Rotated page size (width and height swapped when quarterTurns is odd).
+     */
+    inline D2D1_SIZE_F GetRotatedSize(D2D1_SIZE_F intrinsicSize, uint8_t quarterTurns) {
+        float w = (intrinsicSize.width > 0.0f) ? intrinsicSize.width : 0.0f;
+        float h = (intrinsicSize.height > 0.0f) ? intrinsicSize.height : 0.0f;
+        return ((NormalizeQuarterTurns(quarterTurns) & 1u) != 0u)
+            ? D2D1::SizeF(h, w)
+            : D2D1::SizeF(w, h);
+    }
+
+    /**
+     * @brief Maps a point from intrinsic page space into rotated display page space.
+     * @param pt Point in intrinsic space [0..intrinsicSize.width] x [0..intrinsicSize.height].
+     * @param intrinsicSize Intrinsic dimensions of the source coordinate space.
+     * @param quarterTurns Clockwise quarter-turn delta.
+     * @return Point in rotated display space.
+     */
+    inline D2D1_POINT_2F IntrinsicToDisplayPoint(D2D1_POINT_2F pt, D2D1_SIZE_F intrinsicSize, uint8_t quarterTurns) {
+        switch (NormalizeQuarterTurns(quarterTurns)) {
+        case 1:  return D2D1::Point2F(intrinsicSize.height - pt.y, pt.x);
+        case 2:  return D2D1::Point2F(intrinsicSize.width - pt.x, intrinsicSize.height - pt.y);
+        case 3:  return D2D1::Point2F(pt.y, intrinsicSize.width - pt.x);
+        default: return pt;
+        }
+    }
+
+    /**
+     * @brief Maps a point from rotated display page space back into intrinsic page space.
+     * @param pt Point in rotated display space.
+     * @param intrinsicSize Intrinsic dimensions of the target coordinate space.
+     * @param quarterTurns Clockwise quarter-turn delta that was applied to intrinsic space.
+     * @return Point in intrinsic space.
+     */
+    inline D2D1_POINT_2F DisplayToIntrinsicPoint(D2D1_POINT_2F pt, D2D1_SIZE_F intrinsicSize, uint8_t quarterTurns) {
+        switch (NormalizeQuarterTurns(quarterTurns)) {
+        case 1:  return D2D1::Point2F(pt.y, intrinsicSize.height - pt.x);
+        case 2:  return D2D1::Point2F(intrinsicSize.width - pt.x, intrinsicSize.height - pt.y);
+        case 3:  return D2D1::Point2F(intrinsicSize.width - pt.y, pt.x);
+        default: return pt;
+        }
+    }
+
+    /**
+     * @brief Maps an axis-aligned rectangle from intrinsic space into rotated display space.
+     * @param rect Rectangle in intrinsic space.
+     * @param intrinsicSize Intrinsic dimensions of the source coordinate space.
+     * @param quarterTurns Clockwise quarter-turn delta.
+     * @return Normalized axis-aligned rectangle in display space.
+     */
+    inline D2D1_RECT_F IntrinsicToDisplayRect(const D2D1_RECT_F& rect, D2D1_SIZE_F intrinsicSize, uint8_t quarterTurns) {
+        D2D1_POINT_2F p1 = IntrinsicToDisplayPoint(D2D1::Point2F(rect.left, rect.top), intrinsicSize, quarterTurns);
+        D2D1_POINT_2F p2 = IntrinsicToDisplayPoint(D2D1::Point2F(rect.right, rect.bottom), intrinsicSize, quarterTurns);
+        return D2D1::RectF(
+            (std::min)(p1.x, p2.x),
+            (std::min)(p1.y, p2.y),
+            (std::max)(p1.x, p2.x),
+            (std::max)(p1.y, p2.y)
+        );
+    }
+
+    /**
+     * @brief Maps an axis-aligned rectangle from rotated display space back into intrinsic space.
+     * @param rect Rectangle in rotated display space.
+     * @param intrinsicSize Intrinsic dimensions of the target coordinate space.
+     * @param quarterTurns Clockwise quarter-turn delta.
+     * @return Normalized axis-aligned rectangle in intrinsic space.
+     */
+    inline D2D1_RECT_F DisplayToIntrinsicRect(const D2D1_RECT_F& rect, D2D1_SIZE_F intrinsicSize, uint8_t quarterTurns) {
+        D2D1_POINT_2F p1 = DisplayToIntrinsicPoint(D2D1::Point2F(rect.left, rect.top), intrinsicSize, quarterTurns);
+        D2D1_POINT_2F p2 = DisplayToIntrinsicPoint(D2D1::Point2F(rect.right, rect.bottom), intrinsicSize, quarterTurns);
+        return D2D1::RectF(
+            (std::min)(p1.x, p2.x),
+            (std::min)(p1.y, p2.y),
+            (std::max)(p1.x, p2.x),
+            (std::max)(p1.y, p2.y)
+        );
+    }
+
+    /**
+     * @brief Builds a Direct2D 3x2 transform matrix mapping scaled intrinsic coordinates [0..scaledIntrinsicW] x [0..scaledIntrinsicH]
+     *        onto screen coordinates anchored at (screenLeft, screenTop).
+     * @param quarterTurns Clockwise quarter-turn count.
+     * @param scaledIntrinsicW Intrinsic width multiplied by zoom.
+     * @param scaledIntrinsicH Intrinsic height multiplied by zoom.
+     * @param screenLeft Destination top-left X coordinate in screen DIPs (or pixels).
+     * @param screenTop Destination top-left Y coordinate in screen DIPs (or pixels).
+     * @return Orthogonal Direct2D transformation matrix.
+     */
+    inline D2D1::Matrix3x2F BuildPageDisplayMatrix(
+        uint8_t quarterTurns,
+        float scaledIntrinsicW,
+        float scaledIntrinsicH,
+        float screenLeft,
+        float screenTop
+    ) {
+        switch (NormalizeQuarterTurns(quarterTurns)) {
+        case 1:
+            return D2D1::Matrix3x2F::Rotation(90.0f) *
+                   D2D1::Matrix3x2F::Translation(screenLeft + scaledIntrinsicH, screenTop);
+        case 2:
+            return D2D1::Matrix3x2F::Rotation(180.0f) *
+                   D2D1::Matrix3x2F::Translation(screenLeft + scaledIntrinsicW, screenTop + scaledIntrinsicH);
+        case 3:
+            return D2D1::Matrix3x2F::Rotation(270.0f) *
+                   D2D1::Matrix3x2F::Translation(screenLeft, screenTop + scaledIntrinsicW);
+        default:
+            return D2D1::Matrix3x2F::Translation(screenLeft, screenTop);
+        }
     }
 }

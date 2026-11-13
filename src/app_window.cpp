@@ -309,7 +309,7 @@ LRESULT AppWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 auto page = pTab->document.GetPage(nextPage);
                                 auto pSize = pTab->document.GetPageSize(nextPage);
                                 OcrPageItem ocrItem;
-                                if (ExtractBilingualPageOcr(page, nextPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
+                                if (ExtractBilingualPageOcr(page, nextPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem, 2.0f, pTab->GetPageRotation(nextPage))) {
                                     PopulatePageTextFromOcr(ocrItem, *pageText);
                                 }
                             }
@@ -1077,7 +1077,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                     pTab->offsetX += dx;
                     pTab->offsetY += dy;
                     ClampCanvasOffsets(pTab);
-                    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+                    D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
                     float renderedW = pSize.width * pTab->zoom;
                     float renderedH = pSize.height * pTab->zoom;
                     float dipH = (float)m_renderer.GetHeight() * dipScale - topOffset;
@@ -1273,7 +1273,7 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 float offsetInPage = 0.0f;
 
                 for (uint32_t i = 0; i < count; ++i) {
-                    float pageH = pTab->document.GetPageSize(i).height * pTab->zoom;
+                    float pageH = pTab->GetEffectivePageSize(i).height * pTab->zoom;
                     if (clickedDocY < curY + pageH + gap || i == count - 1) {
                         clickedPage = i;
                         offsetInPage = std::clamp(clickedDocY - curY, 0.0f, pageH);
@@ -1299,14 +1299,14 @@ LRESULT AppWindow::HandleMouseEvent(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (newMode == ZoomMode::FitWidth) {
                     float maxW = 0.0f;
                     for (uint32_t i = 0; i < count; ++i) {
-                        float w = pTab->document.GetPageSize(i).width;
+                        float w = pTab->GetEffectivePageSize(i).width;
                         if (w > maxW) maxW = w;
                     }
                     if (maxW > 0.0f) {
                         pTab->zoom = std::max(0.10f, (dipW - margin * 2.0f) / maxW);
                     }
                 } else { // FitPage
-                    D2D1_SIZE_F pSize = pTab->document.GetPageSize(clickedPage);
+                    D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(clickedPage);
                     if (pSize.height > 0.0f && pSize.width > 0.0f) {
                         float scaleX = (dipW - margin * 2.0f) / pSize.width;
                         float scaleY = (dipH - margin * 2.0f) / pSize.height;
@@ -1878,8 +1878,14 @@ LRESULT AppWindow::HandleKeyDown(WPARAM wParam, [[maybe_unused]] LPARAM lParam) 
             }
             break;
         case 'R':
-            if (isCtrlDown) {
+            if (isCtrlDown && isShiftDown) {
+                RotateAllPages(1);
+                return 0;
+            } else if (isCtrlDown) {
                 ToggleReadAloud();
+                return 0;
+            } else if (!m_searchController.IsOpen() && !m_showGoToPage) {
+                RotateCurrentPage(isShiftDown ? -1 : 1);
                 return 0;
             }
             break;
@@ -2209,6 +2215,9 @@ void AppWindow::OpenTab(const std::wstring& path) {
                 if (_wcsicmp(item.filePath.c_str(), resolvedPath.c_str()) == 0) {
                     if (item.lastPage > 0 && item.lastPage < pTab->document.GetPageCount()) {
                         pTab->currentPage = item.lastPage;
+                        if (pTab->continuousScroll) {
+                            pTab->scrollY = GetPageYOffset(pTab, pTab->currentPage) - 24.0f;
+                        }
                     }
                     break;
                 }
@@ -2309,6 +2318,8 @@ void AppWindow::ReopenClosedTab() {
             pTab->zoomMode = info.zoomMode;
             pTab->continuousScroll = info.continuousScroll;
             pTab->scrollY = info.scrollY;
+            pTab->pageRotations = info.pageRotations;
+            m_tabController.InvalidateContinuousLayout(pTab);
             if (info.currentPage < pTab->document.GetPageCount()) {
                 pTab->currentPage = info.currentPage;
             }
@@ -2331,6 +2342,7 @@ void AppWindow::ReopenClosedTab() {
         req.restoreZoomMode = info.zoomMode;
         req.restoreScrollY = info.scrollY;
         req.restoreContinuous = info.continuousScroll;
+        req.restoreRotations = info.pageRotations;
         PromptForPassword(req);
     } else {
         ShowToast(L"Unable to reopen: " + RecentFilesController::ExtractFileName(info.filePath));
@@ -2395,6 +2407,8 @@ void AppWindow::SubmitPasswordPrompt() {
             pTab->zoomMode = m_activePasswordReq.restoreZoomMode;
             pTab->continuousScroll = m_activePasswordReq.restoreContinuous;
             pTab->scrollY = m_activePasswordReq.restoreScrollY;
+            pTab->pageRotations = std::move(m_activePasswordReq.restoreRotations);
+            m_tabController.InvalidateContinuousLayout(pTab);
             if (m_activePasswordReq.restorePage < pTab->document.GetPageCount()) {
                 pTab->currentPage = m_activePasswordReq.restorePage;
             }
@@ -2456,6 +2470,7 @@ void AppWindow::RecordClosedTab(const DocumentTab& tab) {
         info.scrollY = tab.scrollY;
         info.zoomMode = tab.zoomMode;
         info.continuousScroll = tab.continuousScroll;
+        info.pageRotations = tab.pageRotations;
         m_recentController.PushClosedTab(info);
         m_recentController.UpdateLastPage(tab.document.GetFilePath(), tab.currentPage);
     }
@@ -2614,7 +2629,8 @@ void AppWindow::PromptPrint() {
     uint32_t totalPages = pTab->document.GetPageCount();
     std::wstring docName = pTab->document.GetFileName();
     auto doc = pTab->document.GetDoc();
-    D2D1_SIZE_F currentPageSize = pTab->document.GetPageSize(currentPage);
+    D2D1_SIZE_F currentPageSize = pTab->GetEffectivePageSize(currentPage);
+    std::vector<uint8_t> pageRotations = pTab->pageRotations;
 
     std::vector<bool> type3Pages(totalPages, false);
     if (pTab->parser) {
@@ -2623,7 +2639,7 @@ void AppWindow::PromptPrint() {
         }
     }
 
-    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc, type3Pages, currentPageSize]() {
+    m_printThread = std::thread([this, hwnd, currentPage, totalPages, docName, doc, type3Pages, currentPageSize, pageRotations]() {
         HRESULT hrCo = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
         HGLOBAL hDevMode = nullptr;
@@ -2738,7 +2754,8 @@ void AppWindow::PromptPrint() {
                                     auto sz = page.Size();
                                     D2D1_SIZE_F pSize = D2D1::SizeF(sz.Width, sz.Height);
                                     bool hasType3 = (pageIndex < type3Pages.size()) ? type3Pages[pageIndex] : false;
-                                    m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3);
+                                    uint8_t rotTurns = (pageIndex < pageRotations.size()) ? (pageRotations[pageIndex] & 3u) : 0u;
+                                    m_renderer.PrintPageToHdc(page, pdex.hDC, pSize, hasType3, rotTurns);
                                 }
                             } catch (const winrt::hresult_error& ex) {
                                 OutputDebugStringW((L"[LightPDF] Print page render failed: " + std::wstring(ex.message()) + L"\n").c_str());
@@ -2935,7 +2952,8 @@ bool AppWindow::ReloadOrSwitchActiveTabToFile(const std::wstring& targetPath, co
     pTab->scrollY = curScrollY;
     pTab->offsetX = curOffsetX;
     pTab->offsetY = curOffsetY;
-    pTab->lastOffsetsZoom = -1.0f;
+    pTab->pageRotations.clear();
+    m_tabController.InvalidateContinuousLayout(pTab);
 
     m_recentController.AddRecentFile(targetPath, totalPages, pTab->currentPage);
     m_renderer.InvalidatePageCache();
@@ -3196,11 +3214,12 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
     m_activeBakeTargetPath = targetPath;
     std::wstring srcPath = pTab->document.GetFilePath();
     uint32_t totalPages = pTab->document.GetPageCount();
+    std::vector<uint8_t> pageRotations = pTab->pageRotations;
     HWND hwnd = m_hwnd;
 
     ShowToast(L"Processing searchable PDF...");
 
-    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages]() {
+    m_bakePdfThread = std::thread([this, hwnd, srcPath, targetPath, overwriteOriginal, totalPages, pageRotations]() {
         try {
             winrt::init_apartment(winrt::apartment_type::multi_threaded);
         } catch (const winrt::hresult_error& ex) {
@@ -3253,8 +3272,9 @@ void AppWindow::StartBakingSearchablePdf(const std::wstring& targetPath, bool ov
                 try {
                     auto page = doc.GetPage(p);
                     if (page) {
+                        uint8_t rotTurns = (p < pageRotations.size()) ? (pageRotations[p] & 3u) : 0u;
                         OcrPageItem pageItem;
-                        if (ExtractBilingualPageOcr(page, p, pageText.pageWidth, pageText.pageHeight, ocrEngines.arEngine, ocrEngines.enEngine, pageItem, 2.0f)) {
+                        if (ExtractBilingualPageOcr(page, p, pageText.pageWidth, pageText.pageHeight, ocrEngines.arEngine, ocrEngines.enEngine, pageItem, 2.0f, rotTurns)) {
                             ocrPages.push_back(std::move(pageItem));
                         }
                     }
@@ -3398,7 +3418,7 @@ void AppWindow::RecalculateLayout() {
         if (pTab->zoomMode == ZoomMode::FitWidth) {
             float maxW = 0.0f;
             for (uint32_t i = 0; i < count; ++i) {
-                float w = pTab->document.GetPageSize(i).width;
+                float w = pTab->GetEffectivePageSize(i).width;
                 if (w > maxW) maxW = w;
             }
             if (maxW > 0.0f) {
@@ -3406,7 +3426,7 @@ void AppWindow::RecalculateLayout() {
             }
             pTab->offsetX = 0.0f;
         } else if (pTab->zoomMode == ZoomMode::FitPage) {
-            D2D1_SIZE_F pSize = pTab->document.GetPageSize(anchorPage);
+            D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(anchorPage);
             if (pSize.height > 0.0f && pSize.width > 0.0f) {
                 float scaleX = (dipW - margin * 2.0f) / pSize.width;
                 float scaleY = (dipH - margin * 2.0f) / pSize.height;
@@ -3433,7 +3453,7 @@ void AppWindow::RecalculateLayout() {
         return;
     }
 
-    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
     if (pSize.width <= 0.0f || pSize.height <= 0.0f) return;
 
     if (pTab->zoomMode == ZoomMode::FitPage) {
@@ -3582,7 +3602,7 @@ void AppWindow::ScrollSinglePage(float deltaY) {
     auto* pTab = GetActiveTab();
     if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
 
-    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
     float topOffset = GetTopOffset();
     float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - topOffset;
     float renderedH = pSize.height * pTab->zoom;
@@ -3606,7 +3626,7 @@ void AppWindow::ScrollSinglePage(float deltaY) {
         } else if (oldOffsetY >= maxOffsetY && deltaY > 0.0f) {
             if (pTab->currentPage > 0) {
                 PrevPage(false);
-                D2D1_SIZE_F prevSize = pTab->document.GetPageSize(pTab->currentPage);
+                D2D1_SIZE_F prevSize = pTab->GetEffectivePageSize(pTab->currentPage);
                 float prevRenderedH = prevSize.height * pTab->zoom;
                 pTab->offsetY = dipH - prevRenderedH - margin;
             } else {
@@ -3642,7 +3662,7 @@ void AppWindow::ScrollHorizontal(float deltaX) {
         float maxPageW = 0.0f;
         uint32_t count = pTab->document.GetPageCount();
         for (uint32_t i = 0; i < count; ++i) {
-            float w = pTab->document.GetPageSize(i).width * pTab->zoom;
+            float w = pTab->GetEffectivePageSize(i).width * pTab->zoom;
             if (w > maxPageW) maxPageW = w;
         }
 
@@ -3652,7 +3672,7 @@ void AppWindow::ScrollHorizontal(float deltaX) {
             Render();
         }
     } else {
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
         float renderedW = pSize.width * pTab->zoom;
 
         if (renderedW > dipW - margin * 2.0f) {
@@ -3760,11 +3780,22 @@ void AppWindow::CycleLaserColor() {
 }
 
 void AppWindow::Render() {
+    auto* pTab = GetActiveTab();
+
     LinkHoverRenderInfo linkHover;
     linkHover.active = m_hasHoveredLink;
     if (m_hasHoveredLink) {
         linkHover.pageIndex = m_hoveredLinkPage;
         linkHover.pageRect = m_hoveredLink.rect;
+        if (pTab && pTab->textCache) {
+            std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+            if (m_hoveredLinkPage < pTab->textCache->pages.size() && pTab->textCache->pages[m_hoveredLinkPage]) {
+                const auto& cachedLinkPage = pTab->textCache->pages[m_hoveredLinkPage];
+                if (cachedLinkPage->isFromOcr) {
+                    linkHover.coordRotationTurns = cachedLinkPage->coordinateRotationTurns;
+                }
+            }
+        }
         if (m_hoveredLink.type == PdfLinkType::ExternalUri) {
             linkHover.label = m_hoveredLink.uri;
         } else if (m_hoveredLink.type == PdfLinkType::InternalPage) {
@@ -3785,7 +3816,6 @@ void AppWindow::Render() {
         pwdInfo.hoveredButton = m_passwordHoveredBtn;
     }
 
-    auto* pTab = GetActiveTab();
     auto tabInfos = m_tabController.GetTabRenderInfos();
     bool hoveredAdd = m_tabController.IsHoveredAdd();
     const auto& dictCardInfo = m_selectionController.GetDictCardInfo();
@@ -3819,7 +3849,7 @@ void AppWindow::Render() {
     AboutOverlayRenderInfo aboutInfo;
     aboutInfo.visible = m_showAbout;
     aboutInfo.hoveredId = m_aboutHoveredId;
-    aboutInfo.version = L"v2.5.0";
+    aboutInfo.version = L"v2.6.0";
     aboutInfo.gpuAdapterName = m_renderer.GetGpuAdapterName();
     aboutInfo.dpiScale = m_renderer.GetDpi() / 96.0f;
 
@@ -3862,8 +3892,10 @@ void AppWindow::Render() {
             for (uint32_t i = startIdx; i < count; ++i) {
                 float curY = offsets[i];
                 D2D1_SIZE_F pSize = pTab->document.GetPageSize(i);
-                float pageH = pSize.height * pTab->zoom;
-                float pageW = pSize.width * pTab->zoom;
+                uint8_t rotTurns = pTab->GetPageRotation(i);
+                D2D1_SIZE_F effSize = pTab->GetEffectivePageSize(i);
+                float pageH = effSize.height * pTab->zoom;
+                float pageW = effSize.width * pTab->zoom;
 
                 if (curY + pageH >= viewTop && curY <= viewBot) {
                     ContinuousPageInfo info;
@@ -3878,6 +3910,7 @@ void AppWindow::Render() {
                     }
                     info.pageIndex = i;
                     info.hasType3Font = pTab->parser ? pTab->parser->PageHasType3Fonts(i) : false;
+                    info.rotationTurns = rotTurns;
                     visiblePages.push_back(std::move(info));
                 } else if (curY > viewBot) {
                     break;
@@ -3947,7 +3980,8 @@ void AppWindow::Render() {
                 &pwdInfo,
                 &linkHover,
                 &optInfo,
-                &aboutInfo
+                &aboutInfo,
+                pTab->GetPageRotation(pTab->currentPage)
             );
             return;
         }
@@ -4179,9 +4213,14 @@ void AppWindow::JumpToActiveMatch() {
     float dipW = (float)m_renderer.GetWidth() * dipScale;
     float dipH = (float)m_renderer.GetHeight() * dipScale - GetTopOffset();
 
+    uint8_t viewTurns = pTab->GetPageRotation(match.pageIndex);
+    uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)match.coordRotationTurns);
+    D2D1_SIZE_F coordBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(match.pageIndex), match.coordRotationTurns);
+    D2D1_RECT_F dispRect = RotationUtils::IntrinsicToDisplayRect(match.pageRect, coordBaseSize, deltaTurns);
+
     if (pTab->continuousScroll) {
         float curY = GetPageYOffset(pTab, match.pageIndex);
-        float matchCenterY = curY + (match.pageRect.top + (match.pageRect.bottom - match.pageRect.top) * 0.5f) * pTab->zoom;
+        float matchCenterY = curY + (dispRect.top + (dispRect.bottom - dispRect.top) * 0.5f) * pTab->zoom;
         float targetScrollY = matchCenterY - (dipH * 0.5f);
         float totalH = GetTotalDocumentHeight(pTab);
         float maxScroll = std::max(0.0f, totalH - dipH);
@@ -4194,11 +4233,11 @@ void AppWindow::JumpToActiveMatch() {
                 RecalculateLayout();
             }
         }
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(match.pageIndex);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(match.pageIndex);
         float pageRenderW = pSize.width * pTab->zoom;
         float pageRenderH = pSize.height * pTab->zoom;
-        float matchCenterX = (match.pageRect.left + (match.pageRect.right - match.pageRect.left) * 0.5f) * pTab->zoom;
-        float matchCenterY = (match.pageRect.top + (match.pageRect.bottom - match.pageRect.top) * 0.5f) * pTab->zoom;
+        float matchCenterX = (dispRect.left + (dispRect.right - dispRect.left) * 0.5f) * pTab->zoom;
+        float matchCenterY = (dispRect.top + (dispRect.bottom - dispRect.top) * 0.5f) * pTab->zoom;
 
         if (pageRenderW > dipW) {
             pTab->offsetX = (dipW * 0.5f) - matchCenterX;
@@ -4276,7 +4315,7 @@ void AppWindow::ShowDocumentProperties() {
     m_docPropsInfo.totalPages = std::to_wstring(totalPages);
 
     // 3. Current page size
-    D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+    D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
     float widthIn = pSize.width / 72.0f;
     float heightIn = pSize.height / 72.0f;
     float widthMm = widthIn * 25.4f;
@@ -4286,6 +4325,10 @@ void AppWindow::ShowDocumentProperties() {
     swprintf_s(sizeBuf, L"%.2f × %.2f in (%.1f × %.1f pt / %.1f × %.1f mm)",
         widthIn, heightIn, pSize.width, pSize.height, widthMm, heightMm);
     m_docPropsInfo.pageSize = sizeBuf;
+    uint8_t rotTurns = pTab->GetPageRotation(pTab->currentPage);
+    if (rotTurns != 0) {
+        m_docPropsInfo.pageSize += L" (Rotated " + std::to_wstring(RotationUtils::QuarterTurnsToDegrees(rotTurns)) + L"\x00B0)";
+    }
 
     // 4. File size on disk
     WIN32_FILE_ATTRIBUTE_DATA fileAttrData;
@@ -4417,7 +4460,7 @@ void AppWindow::ToggleAboutOverlay() {
 
 std::wstring AppWindow::BuildSystemDiagnosticsString() {
     std::wstring diag = L"--- LightPDF System Diagnostics ---\r\n";
-    diag += L"Application: LightPDF v2.5.0 (x64 Release)\r\n";
+    diag += L"Application: LightPDF v2.6.0 (x64 Release)\r\n";
     diag += L"Architecture: C++20 / Direct2D 1.1 / Direct3D 11\r\n";
     diag += L"Security: CFG (Guarded), CET Shadow Stack, DEP, ASLR\r\n";
 
@@ -4679,7 +4722,7 @@ void AppWindow::ClampCanvasOffsets(DocumentTab* pTab) {
         float maxPageW = 0.0f;
         uint32_t count = pTab->document.GetPageCount();
         for (uint32_t i = 0; i < count; ++i) {
-            float w = pTab->document.GetPageSize(i).width * pTab->zoom;
+            float w = pTab->GetEffectivePageSize(i).width * pTab->zoom;
             if (w > maxPageW) maxPageW = w;
         }
 
@@ -4693,7 +4736,7 @@ void AppWindow::ClampCanvasOffsets(DocumentTab* pTab) {
     } else {
         // Single-page clamping
         if (pTab->currentPage >= pTab->document.GetPageCount()) return;
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pTab->currentPage);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pTab->currentPage);
         if (pSize.width <= 0.0f || pSize.height <= 0.0f) return;
 
         float renderedW = pSize.width * pTab->zoom;
@@ -4759,7 +4802,7 @@ bool AppWindow::HitTestDictionaryCard(POINT pt) const {
 std::wstring AppWindow::GetSelectedWordOrText(D2D1_RECT_F& outAnchorRect) {
     auto* pTab = GetActiveTab();
     if (!pTab) return L"";
-    return m_selectionController.GetSelectedWordOrText(pTab, m_renderer.GetDpi(), GetTopOffset(), outAnchorRect);
+    return m_selectionController.GetSelectedWordOrText(pTab, (float)m_renderer.GetWidth(), m_renderer.GetDpi(), GetTopOffset(), outAnchorRect);
 }
 
 void AppWindow::CopyDictionaryDefinitionToClipboard() {
@@ -4791,7 +4834,7 @@ void AppWindow::ToggleReadAloud() {
             auto page = pTab->document.GetPage(pTab->currentPage);
             auto pSize = pTab->document.GetPageSize(pTab->currentPage);
             OcrPageItem ocrItem;
-            if (ExtractBilingualPageOcr(page, pTab->currentPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem)) {
+            if (ExtractBilingualPageOcr(page, pTab->currentPage, pSize.width, pSize.height, engines.arEngine, engines.enEngine, ocrItem, 2.0f, pTab->GetPageRotation(pTab->currentPage))) {
                 PopulatePageTextFromOcr(ocrItem, *pageText);
             }
         }
@@ -5124,6 +5167,8 @@ void AppWindow::HandleContextMenu(POINT ptScreen) {
         data.isDocumentLoaded = true;
         data.currentPage = pTab->currentPage;
         data.totalPages = pTab->document.GetPageCount();
+        data.currentRotationTurns = pTab->GetPageRotation(pTab->currentPage);
+        data.hasAnyRotation = pTab->HasAnyRotation();
         data.isContinuousScroll = pTab->continuousScroll;
         data.isPasswordProtected = pTab->document.IsPasswordProtected() || (pTab->parser && pTab->parser->IsEncrypted());
         if (!data.isPasswordProtected && pTab->document.GetPageCount() > 0) {
@@ -5288,6 +5333,18 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
     case ID_CTX_CONTINUOUS_SCROLL:
         ToggleContinuousScroll();
         break;
+    case ID_CTX_ROTATE_CW:
+        RotateCurrentPage(1);
+        break;
+    case ID_CTX_ROTATE_CCW:
+        RotateCurrentPage(-1);
+        break;
+    case ID_CTX_ROTATE_ALL_CW:
+        RotateAllPages(1);
+        break;
+    case ID_CTX_ROTATE_RESET:
+        ResetRotation();
+        break;
     case ID_CTX_READ_ALOUD:
         ToggleReadAloud();
         break;
@@ -5356,4 +5413,114 @@ void AppWindow::ExecuteContextMenuCommand(UINT_PTR cmd, const ContextMenuData& d
         }
         break;
     }
+}
+
+void AppWindow::EvictStaleOcrCacheForTab(DocumentTab* pTab) {
+    if (!pTab || !pTab->textCache) return;
+    std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
+    for (uint32_t i = 0; i < (uint32_t)pTab->textCache->pages.size(); ++i) {
+        const auto& entry = pTab->textCache->pages[i];
+        if (entry && entry->isFromOcr && entry->coordinateRotationTurns != pTab->GetPageRotation(i) &&
+            entry->chars.size() < 200) {
+            pTab->textCache->pages[i].reset();
+        }
+    }
+}
+
+void AppWindow::RotateCurrentPage(int deltaQuarterTurns) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    uint32_t anchorPage = pTab->currentPage;
+    float relScrollY = 0.0f;
+    if (pTab->continuousScroll) {
+        relScrollY = pTab->scrollY - GetPageYOffset(pTab, anchorPage);
+    }
+
+    uint8_t newTurns = m_tabController.RotatePage(pTab, anchorPage, deltaQuarterTurns);
+    EvictStaleOcrCacheForTab(pTab);
+    InvalidateSearchHighlights();
+
+    RecalculateLayout();
+    if (pTab->continuousScroll) {
+        float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+        float maxScroll = std::max(0.0f, GetTotalDocumentHeight(pTab) - dipH);
+        pTab->scrollY = std::clamp(GetPageYOffset(pTab, anchorPage) + relScrollY, 0.0f, maxScroll);
+        pTab->currentPage = anchorPage;
+    }
+
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+
+    int deg = RotationUtils::QuarterTurnsToDegrees(newTurns);
+    if (deg == 90) ShowToast(L"Rotated 90\x00B0 CW");
+    else if (deg == 180) ShowToast(L"Rotated 180\x00B0");
+    else if (deg == 270) ShowToast(L"Rotated 270\x00B0 CW");
+    else ShowToast(L"Rotated 0\x00B0 (Original)");
+
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::RotateAllPages(int deltaQuarterTurns) {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    uint32_t anchorPage = pTab->currentPage;
+    float relScrollY = 0.0f;
+    if (pTab->continuousScroll) {
+        relScrollY = pTab->scrollY - GetPageYOffset(pTab, anchorPage);
+    }
+
+    m_tabController.RotateAllPages(pTab, deltaQuarterTurns);
+    EvictStaleOcrCacheForTab(pTab);
+    InvalidateSearchHighlights();
+
+    RecalculateLayout();
+    if (pTab->continuousScroll) {
+        float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+        float maxScroll = std::max(0.0f, GetTotalDocumentHeight(pTab) - dipH);
+        pTab->scrollY = std::clamp(GetPageYOffset(pTab, anchorPage) + relScrollY, 0.0f, maxScroll);
+        pTab->currentPage = anchorPage;
+    }
+
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+
+    ShowToast((deltaQuarterTurns >= 0) ? L"All pages rotated 90\x00B0 CW" : L"All pages rotated 90\x00B0 CCW");
+    UpdateTitle();
+    Render();
+}
+
+void AppWindow::ResetRotation() {
+    auto* pTab = GetActiveTab();
+    if (!pTab || !pTab->document.IsLoaded() || pTab->document.GetPageCount() == 0) return;
+
+    uint32_t anchorPage = pTab->currentPage;
+    float relScrollY = 0.0f;
+    if (pTab->continuousScroll) {
+        relScrollY = pTab->scrollY - GetPageYOffset(pTab, anchorPage);
+    }
+
+    m_tabController.ResetAllRotations(pTab);
+    EvictStaleOcrCacheForTab(pTab);
+    InvalidateSearchHighlights();
+
+    RecalculateLayout();
+    if (pTab->continuousScroll) {
+        float dipH = (m_renderer.GetHeight() * (96.0f / m_renderer.GetDpi())) - GetTopOffset();
+        float maxScroll = std::max(0.0f, GetTotalDocumentHeight(pTab) - dipH);
+        pTab->scrollY = std::clamp(GetPageYOffset(pTab, anchorPage) + relScrollY, 0.0f, maxScroll);
+        pTab->currentPage = anchorPage;
+    }
+
+    if (m_showProperties) {
+        ShowDocumentProperties();
+    }
+
+    ShowToast(L"Page rotation reset");
+    UpdateTitle();
+    Render();
 }

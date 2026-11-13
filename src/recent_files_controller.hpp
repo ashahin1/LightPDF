@@ -33,6 +33,7 @@ struct ClosedTabInfo {
     float scrollY = 0.0f;           ///< Continuous vertical scroll offset
     ZoomMode zoomMode = ZoomMode::FitPage; ///< Zoom mode
     bool continuousScroll = false;  ///< Whether continuous scroll was enabled
+    std::vector<uint8_t> pageRotations; ///< Saved per-page quarter-turn rotations
 };
 
 /// @brief Pure layout geometry for rendering a recent document card or row.

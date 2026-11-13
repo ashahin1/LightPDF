@@ -47,6 +47,7 @@ BilingualOcrEngines CreateBilingualOcrEngines();
  * @param enEngine Active English/Latin OCR engine.
  * @param outOcrPage Receives extracted words and bounding boxes.
  * @param scale Supersampling scale factor (default 2.0f).
+ * @param rotationTurns Clockwise quarter-turn rotation applied before OCR (0..3).
  * @return true if any words were successfully extracted.
  */
 bool ExtractBilingualPageOcr(
@@ -57,7 +58,8 @@ bool ExtractBilingualPageOcr(
     winrt::Windows::Media::Ocr::OcrEngine arEngine,
     winrt::Windows::Media::Ocr::OcrEngine enEngine,
     OcrPageItem& outOcrPage,
-    float scale = 2.0f
+    float scale = 2.0f,
+    uint8_t rotationTurns = 0
 );
 
 /**
@@ -74,6 +76,7 @@ struct SearchMatch {
     D2D1_RECT_F pageRect = { 0, 0, 0, 0 };  ///< Page coordinates in DIPs (union bounding box)
     std::vector<D2D1_RECT_F> rects;         ///< Individual line rectangles for multi-line text matches
     std::wstring matchedText;               ///< Matched text content
+    uint8_t coordRotationTurns = 0;         ///< Clockwise quarter-turns of the coordinate space (0=intrinsic, OCR=upright rotation)
 };
 
 /// @brief Checks if a string contains any Unicode characters in the Arabic script range.
@@ -123,6 +126,7 @@ public:
      * @param ocrEnabled Whether to fall back to OCR for scanned/image-only pages.
      * @param doc Optional WinRT document instance (used for OCR fallback).
      * @param textCache Optional shared page text cache to avoid re-parsing already loaded pages.
+     * @param pageRotations Optional snapshot of per-page clockwise quarter-turn rotations for OCR fallback.
      */
     void StartSearch(
         HWND hwndNotify,
@@ -132,7 +136,8 @@ public:
         bool matchCase,
         bool ocrEnabled,
         winrt::Windows::Data::Pdf::PdfDocument doc = nullptr,
-        std::shared_ptr<PageTextCache> textCache = nullptr
+        std::shared_ptr<PageTextCache> textCache = nullptr,
+        std::vector<uint8_t> pageRotations = {}
     );
 
     /// @brief Cancels any ongoing search synchronously and joins the worker thread.
@@ -183,7 +188,8 @@ private:
         bool matchCase,
         bool ocrEnabled,
         winrt::Windows::Data::Pdf::PdfDocument doc,
-        std::shared_ptr<PageTextCache> textCache
+        std::shared_ptr<PageTextCache> textCache,
+        std::vector<uint8_t> pageRotations = {}
     );
 
     mutable std::mutex m_mutex;

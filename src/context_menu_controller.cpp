@@ -130,6 +130,13 @@ HMENU ContextMenuController::CreateMenuForContext(ContextMenuContext context, co
         AppendMenuW(hMenu, MF_STRING, ID_CTX_FIT_WIDTH, L"Fit to Width\tCtrl+2");
         AppendMenuW(hMenu, MF_STRING | (data.isContinuousScroll ? MF_CHECKED : MF_UNCHECKED), ID_CTX_CONTINUOUS_SCROLL, L"Continuous Scrolling\tCtrl+3");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ROTATE_CW, L"Rotate Clockwise (90\x00B0)\tR");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ROTATE_CCW, L"Rotate Counter-Clockwise (90\x00B0)\tShift+R");
+        AppendMenuW(hMenu, MF_STRING, ID_CTX_ROTATE_ALL_CW, L"Rotate All Pages Clockwise\tCtrl+Shift+R");
+        if (data.currentRotationTurns != 0 || data.hasAnyRotation) {
+            AppendMenuW(hMenu, MF_STRING, ID_CTX_ROTATE_RESET, L"Reset Page Rotation");
+        }
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(hMenu, MF_STRING, ID_CTX_READ_ALOUD, L"Read Aloud\tCtrl+R");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_FIND, L"Find in Page...\tCtrl+F");
         AppendMenuW(hMenu, MF_STRING, ID_CTX_PRINT, L"Print...\tCtrl+P");

@@ -39,7 +39,8 @@ enum class PdfLoadStatus {
 
 /// @brief Thread-safe shared container for asynchronous page size caching.
 struct PageSizesData {
-    std::mutex mutex;                   ///< Synchronizes access between prefetch thread and UI thread
+    std::mutex mutex;                   ///< Synchronizes access to cached page sizes between prefetch thread and UI thread
+    std::mutex docMutex;                ///< Synchronizes WinRT PdfDocument::GetPage calls across UI and prefetch threads
     std::vector<D2D1_SIZE_F> sizes;     ///< Cached page dimensions in DIPs
     std::atomic<bool> cancel{ false };  ///< Cancellation flag signaled when document closes
 };

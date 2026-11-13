@@ -143,6 +143,27 @@ private:
     void ToggleLaserPointer();
     void CycleLaserColor();
 
+    /**
+     * @brief Rotates the active page by the given quarter-turn delta and updates layout cleanly.
+     * @param deltaQuarterTurns Clockwise quarter-turn step delta (e.g. +1 CW, -1 CCW).
+     */
+    void RotateCurrentPage(int deltaQuarterTurns);
+
+    /**
+     * @brief Rotates all pages in the active document tab by the given quarter-turn delta.
+     * @param deltaQuarterTurns Clockwise quarter-turn step delta (e.g. +1 CW, -1 CCW).
+     */
+    void RotateAllPages(int deltaQuarterTurns);
+
+    /// @brief Resets all per-page live rotations on the active document tab back to 0 degrees.
+    void ResetRotation();
+
+    /**
+     * @brief Evicts cached OCR-derived page text entries whose coordinate rotation no longer matches the tab's view rotation.
+     * @param pTab Target document tab.
+     */
+    void EvictStaleOcrCacheForTab(DocumentTab* pTab);
+
     float GetTopOffset() const { return m_tabController.GetTopOffset(); }
     int HitTestTab(POINT pt, bool& outClose, bool& outAdd) const;
     std::vector<TabRenderInfo> GetTabRenderInfos() const;
@@ -307,6 +328,7 @@ private:
         ZoomMode restoreZoomMode = ZoomMode::FitPage;
         float restoreScrollY = 0.0f;
         bool restoreContinuous = true;
+        std::vector<uint8_t> restoreRotations;
     };
 
     bool m_showPasswordOverlay = false;

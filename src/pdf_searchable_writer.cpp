@@ -5,6 +5,7 @@
 
 #include "pdf_searchable_writer.hpp"
 #include "pdf_parser.hpp"
+#include "common_utils.hpp"
 #include <fstream>
 #include <sstream>
 #include <set>
@@ -248,6 +249,8 @@ bool PdfSearchableWriter::WriteSearchablePdf(
                 rotate = ParseRotateHelper(parentDict);
             }
         }
+        int deltaDeg = (int)RotationUtils::NormalizeQuarterTurns(pg.rotationTurns) * 90;
+        int effectiveRotate = (((rotate + deltaDeg) % 360) + 360) % 360;
 
         // Build invisible text content stream
         std::string contentStream;
@@ -267,17 +270,17 @@ bool PdfSearchableWriter::WriteSearchablePdf(
 
             float pdfX = 0.0f, pdfY = 0.0f, pdfW = 0.0f, pdfH = 0.0f;
 
-            if (rotate == 90) {
+            if (effectiveRotate == 90) {
                 pdfX = x0 + dipTop * (72.0f / 96.0f);
                 pdfY = y0 + dipLeft * (72.0f / 96.0f);
                 pdfW = dipH * (72.0f / 96.0f);
                 pdfH = dipW * (72.0f / 96.0f);
-            } else if (rotate == 180) {
+            } else if (effectiveRotate == 180) {
                 pdfX = x1 - dipRight * (72.0f / 96.0f);
                 pdfY = y0 + dipTop * (72.0f / 96.0f);
                 pdfW = dipW * (72.0f / 96.0f);
                 pdfH = dipH * (72.0f / 96.0f);
-            } else if (rotate == 270) {
+            } else if (effectiveRotate == 270) {
                 pdfX = x1 - dipBottom * (72.0f / 96.0f);
                 pdfY = y1 - dipRight * (72.0f / 96.0f);
                 pdfW = dipH * (72.0f / 96.0f);
@@ -430,6 +433,23 @@ bool PdfSearchableWriter::WriteSearchablePdf(
                     }
                 } else {
                     body += " /Resources << /Font << /F_OCR " + std::to_string(objType0Font) + " 0 R >> >> ";
+                }
+            }
+
+            if (deltaDeg != 0) {
+                size_t rotPos = body.find("/Rotate");
+                if (rotPos != std::string::npos) {
+                    size_t valStart = body.find_first_not_of(" \t\r\n", rotPos + 7);
+                    if (valStart != std::string::npos) {
+                        size_t valEnd = valStart;
+                        if (body[valEnd] == '-' || body[valEnd] == '+') ++valEnd;
+                        while (valEnd < body.size() && body[valEnd] >= '0' && body[valEnd] <= '9') ++valEnd;
+                        if (valEnd > valStart) {
+                            body.replace(valStart, valEnd - valStart, std::to_string(effectiveRotate));
+                        }
+                    }
+                } else {
+                    body += " /Rotate " + std::to_string(effectiveRotate) + " ";
                 }
             }
 

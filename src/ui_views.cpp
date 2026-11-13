@@ -546,9 +546,9 @@ void HelpOverlayView::Render(
 
     // 4. Category Tabs
     static const wchar_t* tabLabels[5] = {
-        L"All (38)",
+        L"All (40)",
         L"Navigation (10)",
-        L"Zoom & View (8)",
+        L"Zoom & View (10)",
         L"Tabs & Files (10)",
         L"Search & Tools (10)"
     };
@@ -625,7 +625,9 @@ void HelpOverlayView::Render(
         { L"Ctrl + 3",              L"Toggle continuous vertical scroll" },
         { L"Double Click",          L"Fit Page / Fit Width" },
         { L"F11",                   L"Toggle borderless fullscreen" },
-        { L"Scrollbar Drag",        L"Scrub through document pages" }
+        { L"Scrollbar Drag",        L"Scrub through document pages" },
+        { L"R / Shift + R",         L"Rotate page 90\x00B0 CW / CCW" },
+        { L"Ctrl + Shift + R",      L"Rotate all pages 90\x00B0 CW" }
     };
 
     static const ShortcutItem tabItems[] = {
@@ -1960,7 +1962,7 @@ void AboutOverlayView::Render(
         ctx->DrawText(titleStr, (UINT32)wcslen(titleStr), res.textFormatTitle, titleRect, res.brushText);
     }
 
-    // Version pill badge (e.g. "v2.5.0") - positioned right after title
+    // Version pill badge (e.g. "v2.6.0") - positioned right after title
     float pillLeft = card.left + 114.0f;
     float pillTop = card.top + 19.0f;
     float pillRight = pillLeft + 58.0f;
@@ -1970,7 +1972,7 @@ void AboutOverlayView::Render(
         ctx->FillRoundedRectangle(D2D1::RoundedRect(pillRect, 4.0f, 4.0f), res.brushSuccess);
     }
     if (res.textFormatBtn && res.brushText) {
-        std::wstring verStr = info.version.empty() ? L"v2.5.0" : info.version;
+        std::wstring verStr = info.version.empty() ? L"v2.6.0" : info.version;
         ctx->DrawText(verStr.c_str(), (UINT32)verStr.length(), res.textFormatBtn, pillRect, res.brushText);
     }
 

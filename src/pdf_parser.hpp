@@ -58,6 +58,8 @@ struct PdfPageText {
     std::vector<PdfTextChar> chars;     ///< Glyph-by-glyph character list with bounding boxes
     std::vector<PdfLink> links;         ///< Interactive links (/Annots + auto-detected URLs) in page DIPs
     bool hasDigitalText = false;        ///< Flag indicating if extractable digital text was found
+    uint8_t coordinateRotationTurns = 0;///< Quarter-turn orientation in which chars/links are expressed
+    bool isFromOcr = false;             ///< True if populated via Windows OCR fallback
 };
 
 /// @brief Font metrics and CMap unicode decoding table for PDF text interpretation.

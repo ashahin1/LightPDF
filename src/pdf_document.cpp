@@ -196,6 +196,10 @@ PdfLoadStatus PdfDocumentWrapper::OpenWithPassword(
             }
 
             m_prefetchThread = std::thread([data, docInst, count, p0, hwndNotify]() {
+                try {
+                    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+                } catch (...) {}
+
                 bool anyDiffer = false;
                 for (uint32_t i = 1; i < count; ++i) {
                     if (data->cancel.load()) break;
@@ -210,10 +214,18 @@ PdfLoadStatus PdfDocumentWrapper::OpenWithPassword(
 
                     if (!alreadyKnown) {
                         try {
-                            auto page = docInst.GetPage(i);
-                            if (page) {
-                                auto sz = page.Size();
-                                D2D1_SIZE_F size = D2D1::SizeF(sz.Width, sz.Height);
+                            D2D1_SIZE_F size = D2D1::SizeF(0.0f, 0.0f);
+                            bool gotSize = false;
+                            {
+                                std::lock_guard<std::mutex> docLock(data->docMutex);
+                                auto page = docInst.GetPage(i);
+                                if (page) {
+                                    auto sz = page.Size();
+                                    size = D2D1::SizeF(sz.Width, sz.Height);
+                                    gotSize = true;
+                                }
+                            }
+                            if (gotSize) {
                                 {
                                     std::lock_guard<std::mutex> lock(data->mutex);
                                     data->sizes[i] = size;
@@ -271,12 +283,22 @@ winrt::Windows::Data::Pdf::PdfPage PdfDocumentWrapper::GetPage(uint32_t pageInde
         return nullptr;
     }
     try {
-        auto page = m_doc.GetPage(pageIndex);
+        winrt::Windows::Data::Pdf::PdfPage page{ nullptr };
+        D2D1_SIZE_F sz = D2D1::SizeF(0.0f, 0.0f);
+        if (m_sizesData) {
+            std::lock_guard<std::mutex> docLock(m_sizesData->docMutex);
+            page = m_doc.GetPage(pageIndex);
+            if (page) {
+                auto size = page.Size();
+                sz = D2D1::SizeF(size.Width, size.Height);
+            }
+        } else {
+            page = m_doc.GetPage(pageIndex);
+        }
         if (page && m_sizesData) {
-            auto size = page.Size();
             std::lock_guard<std::mutex> lock(m_sizesData->mutex);
             if (pageIndex < m_sizesData->sizes.size()) {
-                m_sizesData->sizes[pageIndex] = D2D1::SizeF(size.Width, size.Height);
+                m_sizesData->sizes[pageIndex] = sz;
             }
         }
         return page;
@@ -307,10 +329,18 @@ D2D1_SIZE_F PdfDocumentWrapper::GetPageSize(uint32_t pageIndex) const {
     }
 
     try {
-        auto page = m_doc.GetPage(pageIndex);
-        if (page) {
-            auto size = page.Size();
-            D2D1_SIZE_F s = D2D1::SizeF(size.Width, size.Height);
+        D2D1_SIZE_F s = D2D1::SizeF(0.0f, 0.0f);
+        bool gotSize = false;
+        {
+            std::lock_guard<std::mutex> docLock(m_sizesData->docMutex);
+            auto page = m_doc.GetPage(pageIndex);
+            if (page) {
+                auto size = page.Size();
+                s = D2D1::SizeF(size.Width, size.Height);
+                gotSize = true;
+            }
+        }
+        if (gotSize) {
             std::lock_guard<std::mutex> lock(m_sizesData->mutex);
             m_sizesData->sizes[pageIndex] = s;
             return s;

@@ -315,6 +315,7 @@ SelectionHighlightSpan ReadAloudController::GetActiveWordSpan() const {
         span.pageIndex = m_highlightPage;
         span.rects = { m_activeWordRect };
         span.isTtsHighlight = true;
+        span.coordRotationTurns = m_pageText ? m_pageText->coordinateRotationTurns : 0u;
     }
     return span;
 }

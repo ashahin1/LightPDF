@@ -57,6 +57,7 @@ const std::vector<SearchHighlight>& SearchController::GetSearchHighlights() cons
             hl.pageRect = matches[i].pageRect;
             hl.rects = matches[i].rects;
             hl.isActive = ((int)i == activeIdx);
+            hl.coordRotationTurns = matches[i].coordRotationTurns;
             m_cachedHighlights.push_back(std::move(hl));
         }
         m_highlightsDirty = false;
@@ -113,7 +114,8 @@ void SearchController::StartSearch(HWND hwnd, DocumentTab* pTab) {
         m_searchMatchCase,
         m_searchOcrEnabled,
         pTab->document.GetDoc(),
-        pTab->textCache
+        pTab->textCache,
+        pTab->pageRotations
     );
 }
 

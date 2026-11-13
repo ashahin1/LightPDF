@@ -56,6 +56,12 @@ enum ContextMenuCommand : UINT_PTR {
     ID_CTX_OPTIONS,
     ID_CTX_ABOUT,
 
+    // Page rotation commands
+    ID_CTX_ROTATE_CW = 2036,
+    ID_CTX_ROTATE_CCW = 2037,
+    ID_CTX_ROTATE_ALL_CW = 2038,
+    ID_CTX_ROTATE_RESET = 2039,
+
     // Tab commands
     ID_CTX_TAB_CLOSE = 2040,
     ID_CTX_TAB_CLOSE_OTHERS,
@@ -74,6 +80,8 @@ struct ContextMenuData {
     bool isContinuousScroll = false;
     uint32_t currentPage = 0;
     uint32_t totalPages = 0;
+    uint8_t currentRotationTurns = 0;
+    bool hasAnyRotation = false;
 
     // Selection state
     bool hasSelection = false;

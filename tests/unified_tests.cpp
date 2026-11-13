@@ -6,9 +6,14 @@
 #endif
 
 #include <windows.h>
+#include <d3d11.h>
+#include <d2d1_1.h>
+#include <windows.data.pdf.interop.h>
+#include <wrl/client.h>
 #include <string>
 #include <vector>
 #include <memory>
+#include <limits>
 #include <fstream>
 #include <filesystem>
 #include <chrono>
@@ -368,6 +373,88 @@ TEST_CASE("Document: Validate Test PDFs in tests/PDF/") {
             }
         }
     }
+
+    // Regression test for lab2.pdf (PDF shading patterns + luminosity soft-mask transparency groups):
+    // Requires D2D1_FACTORY_TYPE_MULTI_THREADED so IPdfRendererNative::RenderPageToDeviceContext does not
+    // silently produce a blank white page while background prefetching is active.
+    const std::wstring lab2Path = L"tests\\PDF\\lab2.pdf";
+    if (std::filesystem::exists(lab2Path)) {
+        HRESULT hrCo = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        PdfDocumentWrapper wrapper;
+        REQUIRE(wrapper.OpenWithPassword(lab2Path) == PdfLoadStatus::Success);
+        auto page = wrapper.GetPage(0);
+        REQUIRE(page != nullptr);
+        D2D1_SIZE_F pSize = wrapper.GetPageSize(0);
+        UINT32 w = (UINT32)pSize.width;
+        UINT32 h = (UINT32)pSize.height;
+        REQUIRE(w > 0);
+        REQUIRE(h > 0);
+
+        Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice;
+        Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3dCtx;
+        D3D_FEATURE_LEVEL fl;
+        HRESULT hrD3d = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, &fl, &d3dCtx);
+        if (FAILED(hrD3d)) {
+            hrD3d = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, 0, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3dDevice, &fl, &d3dCtx);
+        }
+        REQUIRE(SUCCEEDED(hrD3d));
+        Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+        REQUIRE(SUCCEEDED(d3dDevice.As(&dxgiDevice)));
+
+        Microsoft::WRL::ComPtr<ID2D1Factory1> d2dFactory;
+        REQUIRE(SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, __uuidof(ID2D1Factory1), nullptr, &d2dFactory)));
+        Microsoft::WRL::ComPtr<ID2D1Device> d2dDevice;
+        REQUIRE(SUCCEEDED(d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice)));
+        Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dCtx;
+        REQUIRE(SUCCEEDED(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dCtx)));
+
+        Microsoft::WRL::ComPtr<IPdfRendererNative> pdfRenderer;
+        REQUIRE(SUCCEEDED(PdfCreateRenderer(dxgiDevice.Get(), &pdfRenderer)));
+
+        D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+        );
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> bmp;
+        REQUIRE(SUCCEEDED(d2dCtx->CreateBitmap(D2D1::SizeU(w, h), nullptr, 0, &bp, &bmp)));
+        d2dCtx->SetTarget(bmp.Get());
+        d2dCtx->BeginDraw();
+        d2dCtx->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+        PDF_RENDER_PARAMS params = {};
+        params.DestinationWidth = w;
+        params.DestinationHeight = h;
+        params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+        CHECK(SUCCEEDED(pdfRenderer->RenderPageToDeviceContext((IUnknown*)winrt::get_abi(page), d2dCtx.Get(), &params)));
+        CHECK(SUCCEEDED(d2dCtx->EndDraw()));
+        d2dCtx->SetTarget(nullptr);
+
+        D2D1_BITMAP_PROPERTIES1 cpuBp = D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)
+        );
+        Microsoft::WRL::ComPtr<ID2D1Bitmap1> cpuBmp;
+        REQUIRE(SUCCEEDED(d2dCtx->CreateBitmap(D2D1::SizeU(w, h), nullptr, 0, &cpuBp, &cpuBmp)));
+        D2D1_POINT_2U dstPt = { 0, 0 };
+        D2D1_RECT_U srcRect = { 0, 0, w, h };
+        REQUIRE(SUCCEEDED(cpuBmp->CopyFromBitmap(&dstPt, bmp.Get(), &srcRect)));
+        D2D1_MAPPED_RECT mapped = {};
+        REQUIRE(SUCCEEDED(cpuBmp->Map(D2D1_MAP_OPTIONS_READ, &mapped)));
+        size_t nonWhitePixels = 0;
+        for (UINT32 y = 0; y < h; ++y) {
+            const UINT32* row = reinterpret_cast<const UINT32*>(mapped.bits + y * mapped.pitch);
+            for (UINT32 x = 0; x < w; ++x) {
+                if (row[x] != 0xFFFFFFFFu) {
+                    nonWhitePixels++;
+                }
+            }
+        }
+        cpuBmp->Unmap();
+        CHECK(nonWhitePixels > 100000);
+        wrapper.Close();
+        if (SUCCEEDED(hrCo)) {
+            CoUninitialize();
+        }
+    }
 }
 
 // ============================================================================
@@ -438,6 +525,30 @@ TEST_CASE("OCR: Bilingual OCR on Scanned Document (123.pdf)") {
         bakedParser.Close();
         std::error_code ec;
         std::filesystem::remove(outBaked, ec);
+
+        // Regression test: searching an upright Arabic scanned PDF (123.pdf & 1234.pdf)
+        // after rotating the view 90 deg CW still extracts upright Arabic words via 0 deg scoring
+        for (const auto& candidate : { std::wstring(L"tests\\PDF\\1234.pdf"), testPath }) {
+            if (!std::filesystem::exists(candidate)) continue;
+            std::filesystem::path rotAbs = std::filesystem::absolute(candidate);
+            auto rotFile = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(rotAbs.wstring()).get();
+            auto rotDoc = winrt::Windows::Data::Pdf::PdfDocument::LoadFromFileAsync(rotFile).get();
+            REQUIRE(rotDoc != nullptr);
+            auto rotPage = rotDoc.GetPage(0);
+            REQUIRE(rotPage != nullptr);
+            auto rotSz = rotPage.Size();
+            OcrPageItem rotOcr;
+            bool rotOk = ExtractBilingualPageOcr(rotPage, 0, rotSz.Width, rotSz.Height, engines.arEngine, engines.enEngine, rotOcr, 2.0f, 1);
+            CHECK(rotOk);
+            PdfPageText rotPageText;
+            PopulatePageTextFromOcr(rotOcr, rotPageText);
+            CHECK(ContainsArabic(rotPageText.fullText));
+            CHECK(rotPageText.chars.size() >= 200);
+            CHECK(rotPageText.coordinateRotationTurns == 0);
+            std::wstring normText = NormalizeArabic(rotPageText.fullText);
+            CHECK((normText.find(NormalizeArabic(L"جامعة")) != std::wstring::npos ||
+                   normText.find(NormalizeArabic(L"شهادة")) != std::wstring::npos));
+        }
     } catch (...) {
         CHECK(false);
     }
@@ -1816,4 +1927,150 @@ TEST_CASE("Print: Automatic Orientation Detection, Copy Resolution, and Collatio
         CHECK(elevenCopies[20] == 0);
         CHECK(elevenCopies[21] == 1);
     }
+}
+
+// ============================================================================
+// Live Page Rotation Tests
+// ============================================================================
+TEST_CASE("Rotation: Quarter-Turn Math, Coordinate Round-Trips, Matrix, and Print Orientation [rotation]") {
+    SUBCASE("Normalization, Degrees, and Size Swapping") {
+        CHECK(RotationUtils::NormalizeQuarterTurns(0) == 0);
+        CHECK(RotationUtils::NormalizeQuarterTurns(1) == 1);
+        CHECK(RotationUtils::NormalizeQuarterTurns(4) == 0);
+        CHECK(RotationUtils::NormalizeQuarterTurns(7) == 3);
+        CHECK(RotationUtils::NormalizeQuarterTurns(-1) == 3);
+        CHECK(RotationUtils::NormalizeQuarterTurns(-5) == 3);
+
+        CHECK(RotationUtils::QuarterTurnsToDegrees(0) == 0);
+        CHECK(RotationUtils::QuarterTurnsToDegrees(1) == 90);
+        CHECK(RotationUtils::QuarterTurnsToDegrees(2) == 180);
+        CHECK(RotationUtils::QuarterTurnsToDegrees(3) == 270);
+        CHECK(RotationUtils::QuarterTurnsToDegrees(5) == 90);
+
+        D2D1_SIZE_F intrinsic = D2D1::SizeF(612.0f, 792.0f);
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 0).width == doctest::Approx(612.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 0).height == doctest::Approx(792.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 1).width == doctest::Approx(792.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 1).height == doctest::Approx(612.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 2).width == doctest::Approx(612.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 2).height == doctest::Approx(792.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 3).width == doctest::Approx(792.0f));
+        CHECK(RotationUtils::GetRotatedSize(intrinsic, 3).height == doctest::Approx(612.0f));
+
+        D2D1_SIZE_F guarded = RotationUtils::GetRotatedSize(D2D1::SizeF(-10.0f, std::numeric_limits<float>::quiet_NaN()), 1);
+        CHECK(guarded.width == doctest::Approx(0.0f));
+        CHECK(guarded.height == doctest::Approx(0.0f));
+    }
+
+    SUBCASE("Point and Rect Inverse Mapping Across All 4 Orientations") {
+        D2D1_SIZE_F sz = D2D1::SizeF(612.0f, 792.0f);
+        D2D1_POINT_2F srcPt = D2D1::Point2F(125.0f, 240.0f);
+        D2D1_RECT_F srcRect = D2D1::RectF(100.0f, 150.0f, 280.0f, 320.0f);
+
+        for (uint8_t t = 0; t < 4; ++t) {
+            D2D1_POINT_2F dispPt = RotationUtils::IntrinsicToDisplayPoint(srcPt, sz, t);
+            D2D1_POINT_2F roundPt = RotationUtils::DisplayToIntrinsicPoint(dispPt, sz, t);
+            CHECK(roundPt.x == doctest::Approx(srcPt.x));
+            CHECK(roundPt.y == doctest::Approx(srcPt.y));
+
+            D2D1_RECT_F dispRect = RotationUtils::IntrinsicToDisplayRect(srcRect, sz, t);
+            CHECK(dispRect.left < dispRect.right);
+            CHECK(dispRect.top < dispRect.bottom);
+            D2D1_RECT_F roundRect = RotationUtils::DisplayToIntrinsicRect(dispRect, sz, t);
+            CHECK(roundRect.left == doctest::Approx(srcRect.left));
+            CHECK(roundRect.top == doctest::Approx(srcRect.top));
+            CHECK(roundRect.right == doctest::Approx(srcRect.right));
+            CHECK(roundRect.bottom == doctest::Approx(srcRect.bottom));
+        }
+
+        // Specific spot checks for 90 deg CW (t=1)
+        D2D1_POINT_2F rot90 = RotationUtils::IntrinsicToDisplayPoint(D2D1::Point2F(100.0f, 50.0f), sz, 1);
+        CHECK(rot90.x == doctest::Approx(742.0f));
+        CHECK(rot90.y == doctest::Approx(100.0f));
+    }
+
+    SUBCASE("Direct2D Display Matrix Corner Alignment") {
+        float w = 300.0f;
+        float h = 500.0f;
+        float ox = 40.0f;
+        float oy = 25.0f;
+        D2D1_POINT_2F testPt = D2D1::Point2F(60.0f, 120.0f);
+
+        for (uint8_t t = 0; t < 4; ++t) {
+            D2D1::Matrix3x2F mat = RotationUtils::BuildPageDisplayMatrix(t, w, h, ox, oy);
+            D2D1_POINT_2F mapped = mat.TransformPoint(testPt);
+            D2D1_POINT_2F expected = RotationUtils::IntrinsicToDisplayPoint(testPt, D2D1::SizeF(w, h), t);
+            CHECK(mapped.x == doctest::Approx(ox + expected.x));
+            CHECK(mapped.y == doctest::Approx(oy + expected.y));
+        }
+    }
+
+    SUBCASE("Rotated Print Orientation Detection") {
+        D2D1_SIZE_F a4Portrait = D2D1::SizeF(595.0f, 842.0f);
+        CHECK(PrintUtils::DetectOrientation(RotationUtils::GetRotatedSize(a4Portrait, 0)) == DMORIENT_PORTRAIT);
+        CHECK(PrintUtils::DetectOrientation(RotationUtils::GetRotatedSize(a4Portrait, 1)) == DMORIENT_LANDSCAPE);
+        CHECK(PrintUtils::DetectOrientation(RotationUtils::GetRotatedSize(a4Portrait, 2)) == DMORIENT_PORTRAIT);
+        CHECK(PrintUtils::DetectOrientation(RotationUtils::GetRotatedSize(a4Portrait, 3)) == DMORIENT_LANDSCAPE);
+    }
+}
+
+TEST_CASE("Rotation: DocumentTab Per-Page State, ClosedTabInfo, and Invalidation [tab]") {
+    DocumentTab tab;
+    CHECK(tab.GetPageRotation(0) == 0);
+    CHECK(tab.GetPageRotation(99) == 0);
+    CHECK(!tab.HasAnyRotation());
+
+    TabController tabs;
+    CHECK(tabs.GetPageRotation(nullptr, 0) == 0);
+    CHECK(tabs.RotatePage(&tab, 0, 1) == 0); // Safely no-op when document not loaded
+
+    tab.pageRotations = { 0, 1, 2, 3 };
+    CHECK(tab.GetPageRotation(0) == 0);
+    CHECK(tab.GetPageRotation(1) == 1);
+    CHECK(tab.GetPageRotation(2) == 2);
+    CHECK(tab.GetPageRotation(3) == 3);
+    CHECK(tab.GetPageRotation(4) == 0);
+    CHECK(tab.HasAnyRotation());
+
+    tab.pageOffsets = { 24.0f, 828.0f };
+    tab.totalDocHeight = 1600.0f;
+    tab.lastOffsetsZoom = 1.0f;
+    tabs.InvalidateContinuousLayout(&tab);
+    CHECK(tab.pageOffsets.empty());
+    CHECK(tab.totalDocHeight == doctest::Approx(0.0f));
+    CHECK(tab.lastOffsetsZoom < 0.0f);
+
+    ClosedTabInfo closed;
+    closed.pageRotations = tab.pageRotations;
+    REQUIRE(closed.pageRotations.size() == 4);
+    CHECK(closed.pageRotations[1] == 1);
+    CHECK(closed.pageRotations[3] == 3);
+}
+
+TEST_CASE("UI: Canvas Context Menu Rotation Items and Help Overlay Layout [menu]") {
+    ContextMenuData data;
+    data.isDocumentLoaded = true;
+    data.currentPage = 0;
+    data.totalPages = 5;
+    data.currentRotationTurns = 0;
+    data.hasAnyRotation = false;
+
+    HMENU hUnrotated = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, data);
+    REQUIRE(hUnrotated != nullptr);
+    CHECK(GetMenuState(hUnrotated, ID_CTX_ROTATE_CW, MF_BYCOMMAND) != 0xFFFFFFFF);
+    CHECK(GetMenuState(hUnrotated, ID_CTX_ROTATE_CCW, MF_BYCOMMAND) != 0xFFFFFFFF);
+    CHECK(GetMenuState(hUnrotated, ID_CTX_ROTATE_ALL_CW, MF_BYCOMMAND) != 0xFFFFFFFF);
+    CHECK(GetMenuState(hUnrotated, ID_CTX_ROTATE_RESET, MF_BYCOMMAND) == 0xFFFFFFFF);
+    DestroyMenu(hUnrotated);
+
+    data.currentRotationTurns = 1;
+    HMENU hRotated = ContextMenuController::CreateMenuForContext(ContextMenuContext::Canvas, data);
+    REQUIRE(hRotated != nullptr);
+    CHECK(GetMenuState(hRotated, ID_CTX_ROTATE_RESET, MF_BYCOMMAND) != 0xFFFFFFFF);
+    DestroyMenu(hRotated);
+
+    D2D1_RECT_F card = D2D1::RectF(100.0f, 100.0f, 760.0f, 520.0f);
+    D2D1_RECT_F tab2 = HelpOverlayLayout::GetCategoryTabRect(card, 2);
+    D2D1_RECT_F tab3 = HelpOverlayLayout::GetCategoryTabRect(card, 3);
+    CHECK(tab2.right < tab3.left);
 }

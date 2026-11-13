@@ -212,13 +212,68 @@ void TabController::UpdateContinuousOffsets(const DocumentTab* pTab, float /*win
     float gap = 12.0f;
     for (uint32_t i = 0; i < count; ++i) {
         pTab->pageOffsets[i] = y;
-        y += pTab->document.GetPageSize(i).height * pTab->zoom;
+        y += pTab->GetEffectivePageSize(i).height * pTab->zoom;
         if (i + 1 < count) {
             y += gap;
         }
     }
     pTab->totalDocHeight = y + 24.0f;
     pTab->lastOffsetsZoom = pTab->zoom;
+}
+
+uint8_t TabController::GetPageRotation(const DocumentTab* pTab, uint32_t pageIndex) const {
+    return pTab ? pTab->GetPageRotation(pageIndex) : 0u;
+}
+
+D2D1_SIZE_F TabController::GetEffectivePageSize(const DocumentTab* pTab, uint32_t pageIndex) const {
+    return pTab ? pTab->GetEffectivePageSize(pageIndex) : D2D1::SizeF(0.0f, 0.0f);
+}
+
+void TabController::InvalidateContinuousLayout(DocumentTab* pTab) const {
+    if (!pTab) return;
+    pTab->pageOffsets.clear();
+    pTab->totalDocHeight = 0.0f;
+    pTab->lastOffsetsZoom = -1.0f;
+}
+
+uint8_t TabController::RotatePage(DocumentTab* pTab, uint32_t pageIndex, int deltaQuarterTurns) {
+    if (!pTab || !pTab->document.IsLoaded()) return 0u;
+    uint32_t count = pTab->document.GetPageCount();
+    if (pageIndex >= count) return 0u;
+
+    if (pTab->pageRotations.size() < count) {
+        pTab->pageRotations.resize(count, 0u);
+    }
+    uint8_t next = RotationUtils::NormalizeQuarterTurns(static_cast<int>(pTab->pageRotations[pageIndex]) + deltaQuarterTurns);
+    pTab->pageRotations[pageIndex] = next;
+    InvalidateContinuousLayout(pTab);
+    return next;
+}
+
+void TabController::RotateAllPages(DocumentTab* pTab, int deltaQuarterTurns) {
+    if (!pTab || !pTab->document.IsLoaded()) return;
+    uint32_t count = pTab->document.GetPageCount();
+    if (count == 0) return;
+
+    if (pTab->pageRotations.size() < count) {
+        pTab->pageRotations.resize(count, 0u);
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        pTab->pageRotations[i] = RotationUtils::NormalizeQuarterTurns(static_cast<int>(pTab->pageRotations[i]) + deltaQuarterTurns);
+    }
+    InvalidateContinuousLayout(pTab);
+}
+
+void TabController::ResetPageRotation(DocumentTab* pTab, uint32_t pageIndex) {
+    if (!pTab || pageIndex >= pTab->pageRotations.size()) return;
+    pTab->pageRotations[pageIndex] = 0u;
+    InvalidateContinuousLayout(pTab);
+}
+
+void TabController::ResetAllRotations(DocumentTab* pTab) {
+    if (!pTab) return;
+    pTab->pageRotations.clear();
+    InvalidateContinuousLayout(pTab);
 }
 
 float TabController::GetTotalDocumentHeight(const DocumentTab* pTab) const {

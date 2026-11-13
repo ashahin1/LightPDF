@@ -4,6 +4,7 @@
  */
 
 #include "d2d_renderer.hpp"
+#include "common_utils.hpp"
 #include "settings_controller.hpp"
 #include "ui_views.hpp"
 #include <cmath>
@@ -150,7 +151,7 @@ bool CreateFormat(
 bool D2DRenderer::CreateDeviceIndependentResources() {
     D2D1_FACTORY_OPTIONS options = {};
     HRESULT hr = D2D1CreateFactory(
-        D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        D2D1_FACTORY_TYPE_MULTI_THREADED,
         __uuidof(ID2D1Factory1),
         &options,
         &m_d2dFactory
@@ -759,7 +760,8 @@ void D2DRenderer::RenderPage(
     const PasswordOverlayRenderInfo* pPasswordOverlay,
     const LinkHoverRenderInfo* pLinkHover,
     const OptionsOverlayRenderInfo* pOptionsOverlay,
-    const AboutOverlayRenderInfo* pAboutOverlay
+    const AboutOverlayRenderInfo* pAboutOverlay,
+    uint8_t rotationTurns
 ) {
     if (!m_d2dContext || !m_swapChain) return;
 
@@ -799,6 +801,7 @@ void D2DRenderer::RenderPage(
     info.yOffset = offsetY;
     info.pageIndex = currentPageIndex;
     info.hasType3Font = hasType3Font;
+    info.rotationTurns = rotationTurns;
     visiblePages.push_back(std::move(info));
 
     RenderContinuous(
@@ -910,16 +913,20 @@ void D2DRenderer::RenderContinuous(
                     params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
                     params.IgnoreHighContrast = FALSE;
 
-                    m_pdfRenderer->RenderPageToDeviceContext(
+                    HRESULT hrRender = m_pdfRenderer->RenderPageToDeviceContext(
                         (IUnknown*)winrt::get_abi(vp.page),
                         m_d2dContext.Get(),
                         &params
                     );
-                    m_d2dContext->EndDraw();
+                    HRESULT hrEnd = m_d2dContext->EndDraw();
 
                     // Restore main swapchain target
                     m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
-                    success = true;
+                    success = SUCCEEDED(hrRender) && SUCCEEDED(hrEnd);
+                    if (!success) {
+                        pageBitmap.Reset();
+                        success = RasterizePageViaStream(vp.page, renderW, renderH, pageBitmap);
+                    }
                 }
             }
 
@@ -956,10 +963,15 @@ void D2DRenderer::RenderContinuous(
     for (const auto& vp : visiblePages) {
         if (!vp.page) continue;
 
+        uint8_t viewTurns = RotationUtils::NormalizeQuarterTurns(vp.rotationTurns);
+        D2D1_SIZE_F dispSize = RotationUtils::GetRotatedSize(vp.pageSize, viewTurns);
+
         float pageX = vp.xOffset;
         float pageY = vp.yOffset + topOffset;
-        float destW = vp.pageSize.width * zoom;
-        float destH = vp.pageSize.height * zoom;
+        float destW = dispSize.width * zoom;
+        float destH = dispSize.height * zoom;
+        float intrinsicScaledW = vp.pageSize.width * zoom;
+        float intrinsicScaledH = vp.pageSize.height * zoom;
 
         // 1. Draw Page Drop Shadow
         D2D1_RECT_F shadowRect = D2D1::RectF(
@@ -999,17 +1011,24 @@ void D2DRenderer::RenderContinuous(
             }
         }
 
+        D2D1::Matrix3x2F pageMatrix = RotationUtils::BuildPageDisplayMatrix(
+            viewTurns, intrinsicScaledW, intrinsicScaledH, pageX, pageY
+        );
+        D2D1_RECT_F intrinsicRect = D2D1::RectF(0.0f, 0.0f, intrinsicScaledW, intrinsicScaledH);
+
         if (pCachedBmp) {
-            DrawPageBitmapWithTheme(pCachedBmp, pageRect);
+            m_d2dContext->SetTransform(pageMatrix);
+            DrawPageBitmapWithTheme(pCachedBmp, intrinsicRect);
+            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         } else if (!vp.hasType3Font && m_pdfRenderer) {
             PDF_RENDER_PARAMS params = {};
             params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
-            params.DestinationWidth = (UINT32)std::max(1.0f, std::round(destW));
-            params.DestinationHeight = (UINT32)std::max(1.0f, std::round(destH));
+            params.DestinationWidth = (UINT32)std::max(1.0f, std::round(intrinsicScaledW));
+            params.DestinationHeight = (UINT32)std::max(1.0f, std::round(intrinsicScaledH));
             params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
             params.IgnoreHighContrast = FALSE;
 
-            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Translation(pageX, pageY));
+            m_d2dContext->SetTransform(pageMatrix);
             m_pdfRenderer->RenderPageToDeviceContext(
                 (IUnknown*)winrt::get_abi(vp.page),
                 m_d2dContext.Get(),
@@ -1018,15 +1037,21 @@ void D2DRenderer::RenderContinuous(
             m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         }
 
+        auto setOverlayTransform = [&](uint8_t coordTurns) {
+            uint8_t normCoord = RotationUtils::NormalizeQuarterTurns(coordTurns);
+            D2D1_SIZE_F coordSize = RotationUtils::GetRotatedSize(vp.pageSize, normCoord);
+            uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)normCoord);
+            m_d2dContext->SetTransform(RotationUtils::BuildPageDisplayMatrix(
+                deltaTurns, coordSize.width * zoom, coordSize.height * zoom, pageX, pageY
+            ));
+        };
+
         // 3a. Draw Text Selection Highlights for this page
         for (const auto& span : selectionSpans) {
             if (span.pageIndex == vp.pageIndex) {
+                setOverlayTransform(span.coordRotationTurns);
                 for (const auto& pr : span.rects) {
-                    float hx = pageX + pr.left * zoom;
-                    float hy = pageY + pr.top * zoom;
-                    float hw = (pr.right - pr.left) * zoom;
-                    float hh = (pr.bottom - pr.top) * zoom;
-                    D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                    D2D1_RECT_F r = D2D1::RectF(pr.left * zoom, pr.top * zoom, pr.right * zoom, pr.bottom * zoom);
                     if (span.isTtsHighlight && m_brushTtsHighlight) {
                         m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 3.0f, 3.0f), m_brushTtsHighlight.Get());
                     } else if (m_brushTextSelection) {
@@ -1044,12 +1069,9 @@ void D2DRenderer::RenderContinuous(
         auto hlRange = std::equal_range(highlights.begin(), highlights.end(), vp.pageIndex, HighlightPageComp{});
         for (auto it = hlRange.first; it != hlRange.second; ++it) {
             const auto& hl = *it;
+            setOverlayTransform(hl.coordRotationTurns);
             auto drawBox = [&](const D2D1_RECT_F& pr) {
-                float hx = pageX + pr.left * zoom;
-                float hy = pageY + pr.top * zoom;
-                float hw = (pr.right - pr.left) * zoom;
-                float hh = (pr.bottom - pr.top) * zoom;
-                D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+                D2D1_RECT_F r = D2D1::RectF(pr.left * zoom, pr.top * zoom, pr.right * zoom, pr.bottom * zoom);
                 if (hl.isActive) {
                     m_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveHighlight.Get());
                     m_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(r, 2.0f, 2.0f), m_brushSearchActiveBorder.Get(), 1.5f);
@@ -1067,11 +1089,9 @@ void D2DRenderer::RenderContinuous(
 
         // 3c. Draw Link Hover Highlight for this page
         if (pLinkHover && pLinkHover->active && pLinkHover->pageIndex == vp.pageIndex) {
-            float hx = pageX + pLinkHover->pageRect.left * zoom;
-            float hy = pageY + pLinkHover->pageRect.top * zoom;
-            float hw = (pLinkHover->pageRect.right - pLinkHover->pageRect.left) * zoom;
-            float hh = (pLinkHover->pageRect.bottom - pLinkHover->pageRect.top) * zoom;
-            D2D1_RECT_F r = D2D1::RectF(hx, hy, hx + hw, hy + hh);
+            setOverlayTransform(pLinkHover->coordRotationTurns);
+            const auto& lr = pLinkHover->pageRect;
+            D2D1_RECT_F r = D2D1::RectF(lr.left * zoom, lr.top * zoom, lr.right * zoom, lr.bottom * zoom);
             D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, 2.0f, 2.0f);
             if (m_brushTextSelection) {
                 m_d2dContext->FillRoundedRectangle(rr, m_brushTextSelection.Get());
@@ -1080,6 +1100,8 @@ void D2DRenderer::RenderContinuous(
                 m_d2dContext->DrawLine(D2D1::Point2F(r.left, r.bottom), D2D1::Point2F(r.right, r.bottom), m_brushTabAccent.Get(), 1.2f);
             }
         }
+
+        m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
 
         // 4. Draw 1px crisp outline around page (Theme-aware)
         ID2D1SolidColorBrush* pBorderBrush = (m_pageTheme == PageTheme::Night && m_brushThemeNightBorder) ?
@@ -1422,7 +1444,8 @@ bool D2DRenderer::PrintPageToHdc(
     winrt::Windows::Data::Pdf::PdfPage page,
     HDC hdc,
     D2D1_SIZE_F pageSize,
-    bool hasType3Font
+    bool hasType3Font,
+    uint8_t rotationTurns
 ) {
     if (!m_d3dDevice || !m_d3dContext || (!hasType3Font && !m_pdfRenderer) || !m_d2dContext || !page) {
         return false;
@@ -1431,6 +1454,9 @@ bool D2DRenderer::PrintPageToHdc(
     if (pageSize.width <= 0.0f || pageSize.height <= 0.0f) {
         return false;
     }
+
+    uint8_t normTurns = RotationUtils::NormalizeQuarterTurns(rotationTurns);
+    D2D1_SIZE_F dispSize = RotationUtils::GetRotatedSize(pageSize, normTurns);
 
     // 1. Query physical printer dimensions and DPI
     int pagePixelW = GetDeviceCaps(hdc, HORZRES);
@@ -1443,8 +1469,8 @@ bool D2DRenderer::PrintPageToHdc(
     // 2. High-quality print raster target (300 DPI)
     float printDpi = 300.0f;
     float scale = printDpi / 72.0f;
-    UINT32 renderW = (UINT32)std::round(pageSize.width * scale);
-    UINT32 renderH = (UINT32)std::round(pageSize.height * scale);
+    UINT32 renderW = (UINT32)std::round(dispSize.width * scale);
+    UINT32 renderH = (UINT32)std::round(dispSize.height * scale);
 
     // Bound max texture dimension to 4096 to protect GPU VRAM
     if (renderW > 4096) {
@@ -1463,7 +1489,7 @@ bool D2DRenderer::PrintPageToHdc(
 
     // 3. Compute destination rectangle preserving aspect ratio centered on printable paper area
     float paperAspect = (float)pagePixelW / (float)pagePixelH;
-    float pdfAspect = pageSize.width / pageSize.height;
+    float pdfAspect = dispSize.width / dispSize.height;
 
     int destX = 0, destY = 0, destW = 0, destH = 0;
     if (pdfAspect > paperAspect) {
@@ -1522,15 +1548,71 @@ bool D2DRenderer::PrintPageToHdc(
         }
 
         // 5. Render PDF Page onto the texture
+        ComPtr<ID2D1Bitmap1> rawBmp;
+        UINT32 rawW = (normTurns == 1 || normTurns == 3) ? renderH : renderW;
+        UINT32 rawH = (normTurns == 1 || normTurns == 3) ? renderW : renderH;
+
+        if (normTurns != 0) {
+            if (hasType3Font) {
+                if (!RasterizePageViaStream(page, rawW, rawH, rawBmp) || !rawBmp) {
+                    return false;
+                }
+            } else if (m_pdfRenderer) {
+                D2D1_BITMAP_PROPERTIES1 rawBp = D2D1::BitmapProperties1(
+                    D2D1_BITMAP_OPTIONS_TARGET,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                    printDpi, printDpi
+                );
+                HRESULT hrRaw = m_d2dContext->CreateBitmap(D2D1::SizeU(rawW, rawH), nullptr, 0, &rawBp, &rawBmp);
+                if (FAILED(hrRaw) || !rawBmp) {
+                    return false;
+                }
+                m_d2dContext->SetTarget(rawBmp.Get());
+                m_d2dContext->BeginDraw();
+                m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+                m_d2dContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
+
+                PDF_RENDER_PARAMS params = {};
+                params.SourceRect = D2D1::RectF(0.0f, 0.0f, 0.0f, 0.0f);
+                params.DestinationWidth = rawW;
+                params.DestinationHeight = rawH;
+                params.BackgroundColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
+                params.IgnoreHighContrast = FALSE;
+
+                m_pdfRenderer->RenderPageToDeviceContext(
+                    (IUnknown*)winrt::get_abi(page),
+                    m_d2dContext.Get(),
+                    &params
+                );
+                HRESULT hrEndRaw = m_d2dContext->EndDraw();
+                if (m_d2dTargetBitmap) {
+                    m_d2dContext->SetTarget(m_d2dTargetBitmap.Get());
+                }
+                if (FAILED(hrEndRaw)) {
+                    return false;
+                }
+            }
+        }
+
         m_d2dContext->SetTarget(m_printTargetBitmap.Get());
         m_d2dContext->BeginDraw();
         m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
         m_d2dContext->Clear(D2D1::ColorF(D2D1::ColorF::White));
 
-        if (hasType3Font) {
+        if (normTurns != 0 && rawBmp) {
+            m_d2dContext->SetUnitMode(D2D1_UNIT_MODE_PIXELS);
+            m_d2dContext->SetTransform(RotationUtils::BuildPageDisplayMatrix(
+                normTurns, (float)rawW, (float)rawH, 0.0f, 0.0f
+            ));
+            m_d2dContext->DrawBitmap(rawBmp.Get(), D2D1::RectF(0.0f, 0.0f, (float)rawW, (float)rawH));
+            m_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
+            m_d2dContext->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+        } else if (hasType3Font) {
             ComPtr<ID2D1Bitmap1> safeBmp;
             if (RasterizePageViaStream(page, renderW, renderH, safeBmp) && safeBmp) {
+                m_d2dContext->SetUnitMode(D2D1_UNIT_MODE_PIXELS);
                 m_d2dContext->DrawBitmap(safeBmp.Get(), D2D1::RectF(0.0f, 0.0f, (float)renderW, (float)renderH));
+                m_d2dContext->SetUnitMode(D2D1_UNIT_MODE_DIPS);
             }
         } else if (m_pdfRenderer) {
             PDF_RENDER_PARAMS params = {};

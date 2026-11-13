@@ -42,7 +42,7 @@ build.bat /clean
 Always run the automated test suite before opening a pull request:
 
 ```powershell
-# Run the unified test suite (33 test cases, 525 assertions)
+# Run the unified test suite (36 test cases, 650 assertions)
 .\tests\run_test.ps1
 ```
 

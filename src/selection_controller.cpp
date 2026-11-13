@@ -98,7 +98,11 @@ std::shared_ptr<PdfPageText> SelectionController::GetOrExtractPageText(DocumentT
     {
         std::lock_guard<std::mutex> lock(pTab->textCache->mutex);
         if (pageIndex < pTab->textCache->pages.size() && pTab->textCache->pages[pageIndex]) {
-            return pTab->textCache->pages[pageIndex];
+            const auto& cached = pTab->textCache->pages[pageIndex];
+            if (!cached->isFromOcr || cached->coordinateRotationTurns == pTab->GetPageRotation(pageIndex) ||
+                cached->chars.size() >= 200) {
+                return cached;
+            }
         }
     }
 
@@ -158,7 +162,7 @@ bool SelectionController::HitTestPageText(
         }
         if (pageIdx >= count) return false;
 
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pageIdx);
         float pageW = pSize.width * pTab->zoom;
         float pageH = pSize.height * pTab->zoom;
         float dipW = winWidth * dipScale;
@@ -177,13 +181,19 @@ bool SelectionController::HitTestPageText(
         auto pageText = GetOrExtractPageText(pTab, pageIdx);
         if (!pageText || pageText->chars.empty()) return false;
 
+        uint8_t viewTurns = pTab->GetPageRotation(pageIdx);
+        uint8_t textTurns = pageText->coordinateRotationTurns;
+        uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)textTurns);
+        D2D1_SIZE_F textBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(pageIdx), textTurns);
+        D2D1_POINT_2F textPt = RotationUtils::DisplayToIntrinsicPoint(D2D1::Point2F(pdfX, pdfY), textBaseSize, deltaTurns);
+
         outPage = pageIdx;
-        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
+        return HitTestCharInPage(*pageText, textPt.x, textPt.y, outCharIndex, outAfterChar);
     } else {
         uint32_t pageIdx = pTab->currentPage;
         if (pageIdx >= pTab->document.GetPageCount()) return false;
 
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pageIdx);
         float pageW = pSize.width * pTab->zoom;
         float pageH = pSize.height * pTab->zoom;
         float pageX = pTab->offsetX;
@@ -200,8 +210,14 @@ bool SelectionController::HitTestPageText(
         auto pageText = GetOrExtractPageText(pTab, pageIdx);
         if (!pageText || pageText->chars.empty()) return false;
 
+        uint8_t viewTurns = pTab->GetPageRotation(pageIdx);
+        uint8_t textTurns = pageText->coordinateRotationTurns;
+        uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)textTurns);
+        D2D1_SIZE_F textBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(pageIdx), textTurns);
+        D2D1_POINT_2F textPt = RotationUtils::DisplayToIntrinsicPoint(D2D1::Point2F(pdfX, pdfY), textBaseSize, deltaTurns);
+
         outPage = pageIdx;
-        return HitTestCharInPage(*pageText, pdfX, pdfY, outCharIndex, outAfterChar);
+        return HitTestCharInPage(*pageText, textPt.x, textPt.y, outCharIndex, outAfterChar);
     }
 }
 
@@ -234,7 +250,7 @@ bool SelectionController::HitTestPageLink(
         }
         if (pageIdx >= count) return false;
 
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pageIdx);
         float pageW = pSize.width * pTab->zoom;
         float pageH = pSize.height * pTab->zoom;
         float dipW = winWidth * dipScale;
@@ -251,9 +267,15 @@ bool SelectionController::HitTestPageLink(
         auto pageText = GetOrExtractPageText(pTab, pageIdx);
         if (!pageText || pageText->links.empty()) return false;
 
+        uint8_t viewTurns = pTab->GetPageRotation(pageIdx);
+        uint8_t linkTurns = pageText->isFromOcr ? pageText->coordinateRotationTurns : 0u;
+        uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)linkTurns);
+        D2D1_SIZE_F linkBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(pageIdx), linkTurns);
+        D2D1_POINT_2F linkPt = RotationUtils::DisplayToIntrinsicPoint(D2D1::Point2F(pdfX, pdfY), linkBaseSize, deltaTurns);
+
         for (const auto& link : pageText->links) {
-            if (pdfX >= link.rect.left - 1.5f && pdfX <= link.rect.right + 1.5f &&
-                pdfY >= link.rect.top - 1.5f && pdfY <= link.rect.bottom + 1.5f) {
+            if (linkPt.x >= link.rect.left - 1.5f && linkPt.x <= link.rect.right + 1.5f &&
+                linkPt.y >= link.rect.top - 1.5f && linkPt.y <= link.rect.bottom + 1.5f) {
                 outPageIndex = pageIdx;
                 outLink = link;
                 return true;
@@ -263,7 +285,7 @@ bool SelectionController::HitTestPageLink(
         uint32_t pageIdx = pTab->currentPage;
         if (pageIdx >= pTab->document.GetPageCount()) return false;
 
-        D2D1_SIZE_F pSize = pTab->document.GetPageSize(pageIdx);
+        D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(pageIdx);
         float pageW = pSize.width * pTab->zoom;
         float pageH = pSize.height * pTab->zoom;
         float pageX = pTab->offsetX;
@@ -278,9 +300,15 @@ bool SelectionController::HitTestPageLink(
         auto pageText = GetOrExtractPageText(pTab, pageIdx);
         if (!pageText || pageText->links.empty()) return false;
 
+        uint8_t viewTurns = pTab->GetPageRotation(pageIdx);
+        uint8_t linkTurns = pageText->isFromOcr ? pageText->coordinateRotationTurns : 0u;
+        uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)linkTurns);
+        D2D1_SIZE_F linkBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(pageIdx), linkTurns);
+        D2D1_POINT_2F linkPt = RotationUtils::DisplayToIntrinsicPoint(D2D1::Point2F(pdfX, pdfY), linkBaseSize, deltaTurns);
+
         for (const auto& link : pageText->links) {
-            if (pdfX >= link.rect.left - 1.5f && pdfX <= link.rect.right + 1.5f &&
-                pdfY >= link.rect.top - 1.5f && pdfY <= link.rect.bottom + 1.5f) {
+            if (linkPt.x >= link.rect.left - 1.5f && linkPt.x <= link.rect.right + 1.5f &&
+                linkPt.y >= link.rect.top - 1.5f && linkPt.y <= link.rect.bottom + 1.5f) {
                 outPageIndex = pageIdx;
                 outLink = link;
                 return true;
@@ -310,6 +338,7 @@ std::vector<SelectionHighlightSpan> SelectionController::GetSelectionSpans(Docum
 
         SelectionHighlightSpan span;
         span.pageIndex = p;
+        span.coordRotationTurns = pageText->coordinateRotationTurns;
 
         D2D1_RECT_F curBand = { 0, 0, 0, 0 };
         bool hasBand = false;
@@ -433,6 +462,7 @@ bool SelectionController::SelectWordAtChar(DocumentTab* pTab, uint32_t pageIndex
 
 std::wstring SelectionController::GetSelectedWordOrText(
     DocumentTab* pTab,
+    float winWidth,
     float dpi,
     float topOffset,
     D2D1_RECT_F& outAnchorRect
@@ -450,6 +480,8 @@ std::wstring SelectionController::GetSelectedWordOrText(
     D2D1_RECT_F pageBounds = { 1e9f, 1e9f, -1e9f, -1e9f };
     bool hasBounds = false;
     uint32_t primaryPage = startPage;
+    uint8_t primaryCoordTurns = 0;
+    bool capturedPrimary = false;
 
     for (uint32_t p = startPage; p <= endPage; ++p) {
         auto pageText = GetOrExtractPageText(pTab, p);
@@ -470,6 +502,11 @@ std::wstring SelectionController::GetSelectedWordOrText(
                 result += ch.ch;
             }
             if (ch.rect.right > ch.rect.left && ch.rect.bottom > ch.rect.top) {
+                if (!capturedPrimary) {
+                    primaryPage = p;
+                    primaryCoordTurns = pageText->coordinateRotationTurns;
+                    capturedPrimary = true;
+                }
                 pageBounds.left = (std::min)(pageBounds.left, ch.rect.left);
                 pageBounds.top = (std::min)(pageBounds.top, ch.rect.top);
                 pageBounds.right = (std::max)(pageBounds.right, ch.rect.right);
@@ -481,29 +518,34 @@ std::wstring SelectionController::GetSelectedWordOrText(
 
     if (result.empty() || !hasBounds) return L"";
 
+    uint8_t viewTurns = pTab->GetPageRotation(primaryPage);
+    uint8_t deltaTurns = RotationUtils::NormalizeQuarterTurns((int)viewTurns - (int)primaryCoordTurns);
+    D2D1_SIZE_F coordBaseSize = RotationUtils::GetRotatedSize(pTab->document.GetPageSize(primaryPage), primaryCoordTurns);
+    D2D1_RECT_F dispBounds = RotationUtils::IntrinsicToDisplayRect(pageBounds, coordBaseSize, deltaTurns);
+
     float dipScale = 96.0f / (dpi > 0.0f ? dpi : 96.0f);
 
     if (pTab->continuousScroll) {
         if (primaryPage < pTab->pageOffsets.size()) {
-            D2D1_SIZE_F pSize = pTab->document.GetPageSize(primaryPage);
+            D2D1_SIZE_F pSize = pTab->GetEffectivePageSize(primaryPage);
             float pageW = pSize.width * pTab->zoom;
-            float dipW = (float)GetSystemMetrics(SM_CXSCREEN) * dipScale;
+            float dipW = winWidth * dipScale;
             float margin = 24.0f;
             float pageX = (pageW <= dipW - margin * 2.0f) ? (dipW - pageW) * 0.5f + pTab->offsetX : margin + pTab->offsetX;
             float pageTopY = pTab->pageOffsets[primaryPage] - pTab->scrollY + topOffset;
 
-            outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
-            outAnchorRect.top = pageTopY + pageBounds.top * pTab->zoom;
-            outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
-            outAnchorRect.bottom = pageTopY + pageBounds.bottom * pTab->zoom;
+            outAnchorRect.left = pageX + dispBounds.left * pTab->zoom;
+            outAnchorRect.top = pageTopY + dispBounds.top * pTab->zoom;
+            outAnchorRect.right = pageX + dispBounds.right * pTab->zoom;
+            outAnchorRect.bottom = pageTopY + dispBounds.bottom * pTab->zoom;
         }
     } else {
         float pageX = pTab->offsetX;
         float pageY = pTab->offsetY + topOffset;
-        outAnchorRect.left = pageX + pageBounds.left * pTab->zoom;
-        outAnchorRect.top = pageY + pageBounds.top * pTab->zoom;
-        outAnchorRect.right = pageX + pageBounds.right * pTab->zoom;
-        outAnchorRect.bottom = pageY + pageBounds.bottom * pTab->zoom;
+        outAnchorRect.left = pageX + dispBounds.left * pTab->zoom;
+        outAnchorRect.top = pageY + dispBounds.top * pTab->zoom;
+        outAnchorRect.right = pageX + dispBounds.right * pTab->zoom;
+        outAnchorRect.bottom = pageY + dispBounds.bottom * pTab->zoom;
     }
 
     return result;

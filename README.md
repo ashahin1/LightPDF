@@ -4,18 +4,18 @@
 
 <p>
   <b>An ultra-fast, minimalist, hardware-accelerated PDF viewer for Windows.</b><br>
-  <sub>1,014 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
+  <sub>1,034 KB · 159 ms cold launch · 8.7 MB RAM · Zero runtime DLLs · C++20 · Direct2D/Direct3D 11</sub>
 </p>
 
 <p>
   <a href="https://isocpp.org/"><img src="https://img.shields.io/badge/C%2B%2B-20-blue.svg?style=flat-square" alt="C++20"></a>
   <a href="https://www.microsoft.com/windows"><img src="https://img.shields.io/badge/platform-Windows_10%2F11-0078D6?style=flat-square" alt="Windows"></a>
-  <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/badge/release-v2.5.0-blue?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/ashahin1/LightPDF/releases"><img src="https://img.shields.io/badge/release-v2.6.0-blue?style=flat-square" alt="Release"></a>
   <a href="https://github.com/ashahin1/LightPDF/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ashahin1/LightPDF/build.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
-  <img src="https://img.shields.io/badge/binary-1014_KB-brightgreen?style=flat-square" alt="Size">
+  <img src="https://img.shields.io/badge/binary-1034_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-33%20passed%20%7C%20525%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-36%20passed%20%7C%20650%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -122,7 +122,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 | Metric | LightPDF | SumatraPDF | Adobe Acrobat | Microsoft Edge | Electron Viewers |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Binary Size** | **1,014 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
+| **Binary Size** | **1,034 KB** | ~14 MB | ~250 MB | ~180 MB | ~120 MB |
 | **External DLLs** | **0** | 0 | 80+ | 50+ | 60+ |
 | **Cold Startup** | **159 ms** | ~180 ms | ~1,800 ms | ~950 ms | ~1,400 ms |
 | **Tab Forwarding** | **54 ms** | ~120 ms | ~1,200 ms | ~400 ms | ~850 ms |
@@ -136,7 +136,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 
 ### ⚡ Ultra-Fast Hardware-Accelerated Engine
 - **Instant Launch**: Cold starts in **159 ms** &mdash; faster than any mainstream PDF reader.
-- **Sub-Megabyte Footprint**: Single **1,014 KB** standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
+- **Sub-Megabyte Footprint**: Single **1,034 KB** standalone executable with zero external DLL dependencies and **8.7 MB** initial RAM.
 - **GPU Hardware Rendering**: Direct3D 11.1 + Direct2D 1.1 zero-copy pipeline via `IPdfRendererNative` + DXGI Flip Discard model.
 - **Chromeless Design**: No toolbars, ribbons, side panels, or telemetry &mdash; pure focus on your document.
 - **HiDPI Native**: Full PerMonitorV2 DPI awareness &mdash; razor-sharp on 4K, 8K, and mixed-scaling multi-monitor environments.
@@ -168,7 +168,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
   - **Tab Strip Menu**: Close Tab (`Ctrl+W`), Close Other Tabs, Close Tabs to Right, Reopen Closed Tab (`Ctrl+Shift+T`), Copy Full File Path, and Reveal in File Explorer (`/select`).
   - **Hyperlink Menu**: Default bold Open Link action, Copy Link Address, Fit Page (`Ctrl+0`), Actual Size (`Ctrl+1`), Fit Width (`Ctrl+2`), and Print (`Ctrl+P`).
   - **Text Selection Menu**: Copy (`Ctrl+C`), Look up in Dictionary (`D`), Read Aloud Selection, Search for Selection (`Ctrl+F`), Select All (`Ctrl+A`), and Deselect (`Esc`). Appears seamlessly whenever text is selected prior to right-clicking.
-  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page `Ctrl+0`, Actual Size `Ctrl+1`, Fit Width `Ctrl+2`, Continuous Scrolling `Ctrl+3` toggle checkmark), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, Document Properties (`Ctrl+D`), Options & Preferences (`Ctrl+,`), and About LightPDF...
+  - **Document Canvas Menu**: Page navigation (Next/Prev/Go to), View Modes (Fit Page `Ctrl+0`, Actual Size `Ctrl+1`, Fit Width `Ctrl+2`, Continuous Scrolling `Ctrl+3` toggle checkmark), Page Rotation (Rotate Clockwise `R`, Counter-Clockwise `Shift+R`, Rotate All Pages `Ctrl+Shift+R`, Reset Page Rotation), Read Aloud, Find, Print, Save Decrypted Copy / Save Searchable PDF, Document Properties (`Ctrl+D`), Options & Preferences (`Ctrl+,`), and About LightPDF...
 
 ### 🗣️ Native Read Aloud (TTS) & Technical Dictionary
 - **Bilingual Text-to-Speech**: Press `Ctrl+R` for high-fidelity speech playback with real-time visual word highlighting. Automatically routes Arabic to `Microsoft Naayf` and English to system voices via Windows OneCore & SAPI.
@@ -246,6 +246,8 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Double Click` | Fit Page / Fit Width toggle (or Open file if canvas empty) |
 | `F11` | Toggle borderless fullscreen |
 | `Scrollbar Drag` | Scrub through document pages with live preview tooltip |
+| `R` / `Shift + R` | Rotate active page 90° clockwise / counter-clockwise |
+| `Ctrl + Shift + R` | Rotate all pages 90° clockwise |
 
 ### Tabs & Document Management
 
@@ -401,7 +403,7 @@ build.bat /clean     :: Clean build artifacts
 | **Single File Modified** | 106.75 s | **13.17 s** | **8× faster** |
 | **Full Clean Rebuild** | 106.75 s | **21.39 s** | **5× faster** |
 
-Output: `bin\LightPDF.exe` (**1,013.5 KB** unsigned / **1,021.5 KB** signed Authenticode)
+Output: `bin\LightPDF.exe` (**1,034.0 KB** unsigned)
 
 ### Compiler & Linker Flags
 
@@ -444,10 +446,10 @@ tests\run_tests.bat
 
 ```
 ===============================================================================
-[LightPDF Test Runner] Executing 33 test cases...
+[LightPDF Test Runner] Executing 36 test cases...
 ===============================================================================
-  Test Cases: 33 passed | 0 failed | 33 total
-  Assertions: 525 passed | 0 failed | 525 total
+  Test Cases: 36 passed | 0 failed | 36 total
+  Assertions: 650 passed | 0 failed | 650 total
   Elapsed:    ~3.5 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
@@ -457,6 +459,7 @@ The test suite exercises all critical components:
 - **PDF Core Parser & Streams**: Incremental xref `/Prev` traversal, stream decompression (Flate / ASCII85), and font dictionary extraction.
 - **Security & Hardening Defenses**: MiniZlib 64 MB decompression limit & BitStream EOF overrun protection (SEC-01), Form XObject cycle breaker & per-page operator limits (SEC-11), safe external URI & mailto parameter sanitization (SEC-15), dictionary CWD isolation & record offset bounds validation (SEC-06, SEC-05), graphics state `q` stack clamping (SEC-07), and non-stream string decryption (SEC-12).
 - **Print Engine & Safe Copies**: Page aspect ratio automatic orientation detection (Landscape vs Portrait), DEVMODE/dialog copy resolution preventing driver N x N multiplier bugs, and collated/uncollated page spool scheduling.
+- **Live Page Rotation & Rendering Stability**: `RotationUtils` coordinate transforms (`0°`, `90°`, `180°`, `270°`), rotated hit-testing, score-based bilingual OCR orientation selection, and multi-threaded Direct2D rendering stability.
 - **Direct2D About Dialog & Diagnostics**: Hardware adapter discovery, display scaling, architecture specifications, and one-click diagnostics export.
 - **Path & Tab Deduplication**: 8.3 short filename canonicalization via `GetLongPathNameW` and duplicate tab prevention across external launches and pending password prompt sessions.
 - **CMap & Font Metrics**: Composite Type 0 fonts, CIDFontType2, and Adobe UCS `/ToUnicode` mapping.
@@ -523,7 +526,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~1,014 KB standalone binary (zero external DLLs, < 1 MB target / 1.5 MB ceiling)
+│   ├── LightPDF.exe              # ~1,034 KB standalone binary (zero external DLLs, < 1 MB target / 1.5 MB ceiling)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -553,7 +556,7 @@ LightPDF/
 │   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
 │   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
 │   ├── settings_controller.hpp/.cpp # Persistent settings model, registry serialization, options layout & hit-testing
-│   ├── common_utils.hpp          # Centralized header-only utilities (DpiUtils, PathUtils, StringUtils, ClipboardUtils, PrintUtils)
+│   ├── common_utils.hpp          # Centralized header-only utilities (DpiUtils, PathUtils, StringUtils, ClipboardUtils, PrintUtils, RotationUtils)
 │   ├── supported_formats.hpp     # Single source of truth for supported document extensions & dialog filters
 │   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
@@ -562,7 +565,7 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (33 test cases, 525 assertions, ~4s runtime)
+│   ├── unified_tests.cpp         # Complete test suite (36 test cases, 650 assertions, ~4s runtime)
 │   ├── run_test.ps1              # PowerShell incremental test runner (/W4 /permissive- /MP)
 │   ├── run_tests.bat             # CMD batch test compilation & execution script (/W4 /permissive-)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script

@@ -54,6 +54,7 @@ struct ContinuousPageInfo {
     float yOffset = 0.0f;
     uint32_t pageIndex = 0;
     bool hasType3Font = false;
+    uint8_t rotationTurns = 0; ///< Clockwise quarter-turn rotation (0..3)
 };
 
 /// @brief Visual state and metrics for rendering the interactive scrollbar track and thumb.
@@ -137,6 +138,7 @@ struct SearchHighlight {
     D2D1_RECT_F pageRect = { 0, 0, 0, 0 }; // PDF page coordinates in DIPs
     std::vector<D2D1_RECT_F> rects;        // Individual line rectangles
     bool isActive = false;
+    uint8_t coordRotationTurns = 0;        ///< Quarter-turn orientation of highlight coordinate space
 };
 
 /// @brief Geometric highlight bounding boxes for interactive text selection and TTS tracking.
@@ -144,6 +146,7 @@ struct SelectionHighlightSpan {
     uint32_t pageIndex = 0;
     std::vector<D2D1_RECT_F> rects;        // PDF page coordinates in DIPs
     bool isTtsHighlight = false;           // true = warm amber TTS word highlight, false = blue selection
+    uint8_t coordRotationTurns = 0;        ///< Quarter-turn orientation of selection coordinate space
 };
 
 /// @brief Render info for the floating TTS playback control bar.
@@ -269,6 +272,7 @@ struct LinkHoverRenderInfo {
     uint32_t pageIndex = 0;
     D2D1_RECT_F pageRect = { 0.0f, 0.0f, 0.0f, 0.0f }; ///< Link rect in page DIP space
     std::wstring label;                                ///< Formatted target text (e.g. "https://..." or "Go to Page 12")
+    uint8_t coordRotationTurns = 0;                    ///< Quarter-turn orientation of link rect coordinate space
 };
 
 /// @brief Layout geometry calculator for the password entry modal dialog.
@@ -438,7 +442,7 @@ struct HelpOverlayLayout {
     }
 
     static inline D2D1_RECT_F GetCategoryTabRect(const D2D1_RECT_F& card, int index) {
-        static const float widths[5] = { 80.0f, 132.0f, 132.0f, 136.0f, 152.0f };
+        static const float widths[5] = { 80.0f, 132.0f, 142.0f, 136.0f, 152.0f };
         static const float gap = 6.0f;
         float x = card.left + 24.0f;
         for (int i = 0; i < index && i < 5; ++i) {
@@ -464,7 +468,7 @@ enum AboutHitId {
 struct AboutOverlayRenderInfo {
     bool visible = false;                       ///< Modal visibility flag
     int hoveredId = 0;                          ///< Currently hovered AboutHitId button
-    std::wstring version = L"v2.5.0";           ///< Application version string
+    std::wstring version = L"v2.6.0";           ///< Application version string
     std::wstring gpuAdapterName;                ///< Detected GPU adapter description
     float dpiScale = 1.0f;                      ///< Active monitor DPI scale
 };
@@ -567,6 +571,7 @@ public:
      * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
      * @param pOptionsOverlay Optional options and preferences overlay descriptor.
      * @param pAboutOverlay Optional About LightPDF modal overlay descriptor.
+     * @param rotationTurns Clockwise quarter-turn viewer rotation (0..3).
      */
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -596,7 +601,8 @@ public:
         const PasswordOverlayRenderInfo* pPasswordOverlay = nullptr,
         const LinkHoverRenderInfo* pLinkHover = nullptr,
         const OptionsOverlayRenderInfo* pOptionsOverlay = nullptr,
-        const AboutOverlayRenderInfo* pAboutOverlay = nullptr
+        const AboutOverlayRenderInfo* pAboutOverlay = nullptr,
+        uint8_t rotationTurns = 0
     );
 
     /**
@@ -712,13 +718,15 @@ public:
      * @param hdc Printer device context.
      * @param pageSize Dimensions of page.
      * @param hasType3Font Whether page uses Type 3 fonts.
+     * @param rotationTurns Clockwise quarter-turn viewer rotation (0..3).
      * @return true on success.
      */
     bool PrintPageToHdc(
         winrt::Windows::Data::Pdf::PdfPage page,
         HDC hdc,
         D2D1_SIZE_F pageSize,
-        bool hasType3Font = false
+        bool hasType3Font = false,
+        uint8_t rotationTurns = 0
     );
 
     /// @brief Returns current monitor DPI.

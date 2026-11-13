@@ -18,6 +18,7 @@
 #include "pdf_document.hpp"
 #include "pdf_parser.hpp"
 #include "pdf_search.hpp"
+#include "common_utils.hpp"
 
 /// @brief Document viewing zoom mode configuration.
 enum class ZoomMode {
@@ -118,6 +119,38 @@ struct DocumentTab {
     // Navigation history stacks for internal link / GoTo jumps (Alt+Left / Alt+Right)
     std::vector<NavHistoryEntry> navBackStack;    ///< Back history stack (capped at 64 entries)
     std::vector<NavHistoryEntry> navForwardStack; ///< Forward history stack
+
+    // Live per-page clockwise quarter-turn deltas (0..3); empty until first rotation
+    std::vector<uint8_t> pageRotations;           ///< Per-page clockwise quarter-turn deltas (0..3)
+
+    /**
+     * @brief Returns the active clockwise quarter-turn rotation (0..3) for a page.
+     * @param pageIndex 0-based page index.
+     * @return Quarter turns normalized to [0, 3].
+     */
+    uint8_t GetPageRotation(uint32_t pageIndex) const {
+        return (pageIndex < pageRotations.size()) ? RotationUtils::NormalizeQuarterTurns(pageRotations[pageIndex]) : 0u;
+    }
+
+    /**
+     * @brief Returns the effective displayed page size in DIPs after applying user rotation.
+     * @param pageIndex 0-based page index.
+     * @return Rotated page size in DIPs.
+     */
+    D2D1_SIZE_F GetEffectivePageSize(uint32_t pageIndex) const {
+        return RotationUtils::GetRotatedSize(document.GetPageSize(pageIndex), GetPageRotation(pageIndex));
+    }
+
+    /**
+     * @brief Returns true if any page in the document currently has a non-zero rotation delta.
+     * @return true if at least one page is rotated.
+     */
+    bool HasAnyRotation() const {
+        for (uint8_t r : pageRotations) {
+            if ((r & 3u) != 0u) return true;
+        }
+        return false;
+    }
 };
 
 /**
@@ -262,6 +295,57 @@ public:
 
     /// @brief Calculates which page index is located at the current continuous scroll offset.
     uint32_t GetPageAtScrollOffset(const DocumentTab* pTab) const;
+
+    /**
+     * @brief Returns the active clockwise quarter-turn rotation (0..3) for a page in the given tab.
+     * @param pTab Target document tab.
+     * @param pageIndex 0-based page index.
+     * @return Quarter turns normalized to [0, 3].
+     */
+    uint8_t GetPageRotation(const DocumentTab* pTab, uint32_t pageIndex) const;
+
+    /**
+     * @brief Returns the effective displayed page size in DIPs after applying user rotation.
+     * @param pTab Target document tab.
+     * @param pageIndex 0-based page index.
+     * @return Rotated page size in DIPs.
+     */
+    D2D1_SIZE_F GetEffectivePageSize(const DocumentTab* pTab, uint32_t pageIndex) const;
+
+    /**
+     * @brief Invalidates cached continuous vertical layout offsets for the given tab.
+     * @param pTab Target document tab.
+     */
+    void InvalidateContinuousLayout(DocumentTab* pTab) const;
+
+    /**
+     * @brief Rotates a single page by a signed number of clockwise quarter turns and invalidates layout offsets.
+     * @param pTab Target document tab.
+     * @param pageIndex 0-based page index.
+     * @param deltaQuarterTurns Signed quarter-turn delta (e.g. +1 CW, -1 CCW).
+     * @return Resulting normalized quarter turns in [0, 3].
+     */
+    uint8_t RotatePage(DocumentTab* pTab, uint32_t pageIndex, int deltaQuarterTurns);
+
+    /**
+     * @brief Rotates all pages in the document by a signed number of clockwise quarter turns.
+     * @param pTab Target document tab.
+     * @param deltaQuarterTurns Signed quarter-turn delta.
+     */
+    void RotateAllPages(DocumentTab* pTab, int deltaQuarterTurns);
+
+    /**
+     * @brief Resets rotation on a single page back to 0 degrees.
+     * @param pTab Target document tab.
+     * @param pageIndex 0-based page index.
+     */
+    void ResetPageRotation(DocumentTab* pTab, uint32_t pageIndex);
+
+    /**
+     * @brief Clears all live page rotations across the document.
+     * @param pTab Target document tab.
+     */
+    void ResetAllRotations(DocumentTab* pTab);
 
 private:
     std::vector<DocumentTab> m_tabs;

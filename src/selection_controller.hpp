@@ -112,6 +112,7 @@ public:
     /**
      * @brief Retrieves selected text string and computes screen anchor rectangle for dictionary card positioning.
      * @param pTab Target document tab.
+     * @param winWidth Window client width in physical pixels.
      * @param dpi Monitor DPI.
      * @param topOffset Tab strip offset.
      * @param outAnchorRect Screen DIP bounding rectangle of the selected word.
@@ -119,6 +120,7 @@ public:
      */
     std::wstring GetSelectedWordOrText(
         DocumentTab* pTab,
+        float winWidth,
         float dpi,
         float topOffset,
         D2D1_RECT_F& outAnchorRect

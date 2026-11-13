@@ -27,6 +27,7 @@ struct OcrPageItem {
     uint32_t pageIndex = 0;                 ///< 0-based page index
     float pageWidthDip = 0.0f;              ///< Page width in DIPs
     float pageHeightDip = 0.0f;             ///< Page height in DIPs
+    uint8_t rotationTurns = 0;              ///< User viewer quarter-turn delta applied during OCR (0..3)
     std::vector<OcrWordItem> words;         ///< Extracted word elements
 };
 
