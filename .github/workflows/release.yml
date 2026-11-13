@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag (e.g. v2.0.0)'
+        description: 'Release Tag (e.g. v2.5.0)'
         required: true
-        default: 'v2.0.0'
+        default: 'v2.5.0'
 
 jobs:
   release:
@@ -38,10 +38,12 @@ jobs:
           cmd.exe /c tests\run_tests.bat
 
       - name: Package Release Assets & Compute Checksums
+        id: pkg
         shell: powershell
         run: |
           $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "${{ github.event.inputs.tag_name }}" }
-          if (-not $tag) { $tag = "v2.0.0" }
+          if (-not $tag) { $tag = "v2.5.0" }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           # Prepare zip payload in release_dist
           New-Item -ItemType Directory -Path "release_dist" -Force | Out-Null
@@ -68,7 +70,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: LightPDF ${{ github.ref_name || github.event.inputs.tag_name }}
+          name: LightPDF ${{ steps.pkg.outputs.tag }}
           draft: false
           prerelease: false
           generate_release_notes: true

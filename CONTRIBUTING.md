@@ -8,7 +8,7 @@ Before submitting contributions, please keep in mind the fundamental design goal
 
 1. **Extreme Performance**: Sub-200ms cold launch (baseline ~159 ms), instantaneous tab switching (< 60 ms via `WM_COPYDATA`), smooth continuous scrolling, and low memory profile (< 10 MB private RAM).
 2. **Zero External Runtime Dependencies**: Standalone single executable utilizing only native Windows 10/11 Win32, Direct2D 1.1, Direct3D 11, DirectWrite, and C++/WinRT (`Windows.Data.Pdf`, `Windows.Storage`, `Windows.Media.Ocr`) system APIs. **No external runtime DLLs**.
-3. **Strict Size Budget**: Total executable size must strictly remain under **1 MB** (1,024 KB / 1,048,576 bytes), targeting a 100 KB safety margin (<= 924 KB). Every byte counts.
+3. **Strict Size Budget**: Total executable size must remain strictly under the **1.5 MB ceiling** (1,572,864 bytes), with a **< 1 MB preferred target** (1,048,576 bytes) whenever possible. Every byte counts.
 4. **Clean Code & Toolchain**: Pure C++20 (`/std:c++20`), static CRT linking (`/MT`), warning-free compilation under `/W4`, and whole-program optimization (`/GL` + `/LTCG`).
 
 ---
@@ -41,8 +41,13 @@ build.bat /clean
 
 Always run the automated test suite before opening a pull request:
 
+```powershell
+# Run the unified test suite (33 test cases, 525 assertions)
+.\tests\run_test.ps1
+```
+
 ```cmd
-:: Run the unified test suite (33 test cases, 520 assertions)
+:: Or via Command Prompt batch runner
 cmd.exe /c tests\run_tests.bat
 ```
 
@@ -58,7 +63,7 @@ cmd.exe /c generate_docs.bat
 
 ## Coding Guidelines
 
-- **Code Formatting**: Format all C++ code using the repository's root `.clang-format` rules (4 spaces, WebKit/Chromium-aligned).
+- **Code Formatting**: Format all C++ code using the repository's root `.clang-format` rules (`BasedOnStyle: Google`, 4-space indentation, 120-column limit).
 - **High-DPI Awareness**: Maintain `PerMonitorV2` DPI scaling accuracy for all Direct2D drawing, font sizes, HUD overlays, and hit-testing coordinates.
 - **Resource Management**:
   - Always use `Microsoft::WRL::ComPtr` or RAII wrappers for COM / DirectX resources.

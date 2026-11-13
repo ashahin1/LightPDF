@@ -1,5 +1,6 @@
 @echo off
 setlocal
+cd /d "%~dp0"
 
 echo [LightPDF] Checking for Doxygen...
 where doxygen >nul 2>&1

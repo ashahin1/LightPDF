@@ -633,7 +633,7 @@ public:
 };
 
 // =========================================================================
-// 14. About Overlay View
+// 13. About Overlay View
 // =========================================================================
 
 /// @brief Pre-calculated geometric boundaries and layout metrics for the About modal.

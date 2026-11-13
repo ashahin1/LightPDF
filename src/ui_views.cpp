@@ -546,10 +546,10 @@ void HelpOverlayView::Render(
 
     // 4. Category Tabs
     static const wchar_t* tabLabels[5] = {
-        L"All (34)",
-        L"Navigation (8)",
+        L"All (38)",
+        L"Navigation (10)",
         L"Zoom & View (8)",
-        L"Tabs & Files (8)",
+        L"Tabs & Files (10)",
         L"Search & Tools (10)"
     };
 
@@ -689,7 +689,7 @@ void HelpOverlayView::Render(
             return y;
         };
 
-        // Left Column: Navigation (8) + Tabs & Files (8)
+        // Left Column: Navigation (10) + Tabs & Files (10)
         float curY1 = drawSection(col1Left, card.top + 86.0f, L"NAVIGATION", navItems, sizeof(navItems) / sizeof(navItems[0]));
         drawSection(col1Left, curY1 + 10.0f, L"TABS & FILES", tabItems, sizeof(tabItems) / sizeof(tabItems[0]));
 
@@ -1898,7 +1898,7 @@ void OptionsOverlayView::Render(
 }
 
 // =========================================================================
-// 14. About Overlay View
+// 13. About Overlay View
 // =========================================================================
 
 D2D1_RECT_F AboutOverlayLayout::GetCardRect(float dipWidth, float dipHeight) {

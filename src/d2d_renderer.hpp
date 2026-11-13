@@ -438,7 +438,7 @@ struct HelpOverlayLayout {
     }
 
     static inline D2D1_RECT_F GetCategoryTabRect(const D2D1_RECT_F& card, int index) {
-        static const float widths[5] = { 80.0f, 122.0f, 132.0f, 126.0f, 152.0f };
+        static const float widths[5] = { 80.0f, 132.0f, 132.0f, 136.0f, 152.0f };
         static const float gap = 6.0f;
         float x = card.left + 24.0f;
         for (int i = 0; i < index && i < 5; ++i) {
@@ -515,6 +515,7 @@ public:
      * @param pPasswordOverlay Optional password prompt overlay descriptor.
      * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
      * @param pOptionsOverlay Optional options and preferences overlay descriptor.
+     * @param pAboutOverlay Optional About LightPDF modal overlay descriptor.
      */
     void RenderBlank(
         const std::wstring& message,
@@ -565,6 +566,7 @@ public:
      * @param pPasswordOverlay Optional password prompt overlay descriptor.
      * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
      * @param pOptionsOverlay Optional options and preferences overlay descriptor.
+     * @param pAboutOverlay Optional About LightPDF modal overlay descriptor.
      */
     void RenderPage(
         winrt::Windows::Data::Pdf::PdfPage page,
@@ -623,6 +625,7 @@ public:
      * @param pPasswordOverlay Optional password prompt overlay descriptor.
      * @param pLinkHover Optional hyperlink hover tooltip/preview descriptor.
      * @param pOptionsOverlay Optional options and preferences overlay descriptor.
+     * @param pAboutOverlay Optional About LightPDF modal overlay descriptor.
      */
     void RenderContinuous(
         const std::vector<ContinuousPageInfo>& visiblePages,

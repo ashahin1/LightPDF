@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/binary-1014_KB-brightgreen?style=flat-square" alt="Size">
   <img src="https://img.shields.io/badge/startup-159_ms-2196F3?style=flat-square" alt="Startup">
   <img src="https://img.shields.io/badge/RAM-8.7_MB-7B1FA2?style=flat-square" alt="RAM">
-  <img src="https://img.shields.io/badge/tests-33%20passed%20%7C%20520%20assertions-success?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-33%20passed%20%7C%20525%20assertions-success?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/DLLs-zero-4CAF50?style=flat-square" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-9E9E9E?style=flat-square" alt="License"></a>
 </p>
@@ -45,6 +45,7 @@
   - [📄 Native Searchable PDF Baking & Multilingual Search](#-native-searchable-pdf-baking--multilingual-search)
   - [⚙️ Options & Preferences Dialog and Page Color Themes](#️-options--preferences-dialog-and-page-color-themes)
   - [💾 Context-Aware Save & Decrypted Save As Pipeline](#-context-aware-save--decrypted-save-as-pipeline)
+  - [💻 Direct2D Hardware Diagnostics & About Dialog](#-direct2d-hardware-diagnostics--about-dialog)
 - [Keyboard & Mouse Shortcuts](#keyboard--mouse-shortcuts)
 - [Architecture & Technical Design](#architecture--technical-design)
   - [Searchable PDF Baking Pipeline](#searchable-pdf-baking-pipeline)
@@ -145,7 +146,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Tab Forwarding**: Single-instance mutex; opening documents from Explorer forwards them into new tabs of the running window in **54 ms** via `WM_COPYDATA`.
 - **Closed Tab Recovery**: Press `Ctrl+Shift+T` to instantly restore recently closed tabs with exact page index, zoom factor, and continuous scroll position.
 - **Recent Documents & Switcher**: Interactive empty-state dashboard with numeric hotkeys `1`&ndash;`9`, hover removal, and MRU registry persistence (`HKCU\Software\LightPDF\RecentFiles`). Press `Ctrl+H` for a centered quick switcher modal.
-- **Document Jump History**: Internal 50-entry LIFO navigation stack &mdash; navigate back and forward with `Alt + ← / →` or mouse side buttons (`XBUTTON1`/`XBUTTON2`).
+- **Document Jump History**: Internal 64-entry LIFO navigation stack &mdash; navigate back and forward with `Alt + ← / →` or mouse side buttons (`XBUTTON1`/`XBUTTON2`).
 - **Hand & Selection Tools**: Seamlessly toggle between Hand Pan (`H` or `Middle Drag`) and Text Selection (`V` / `S`) with automatic laser dismissal and clipboard copy (`Ctrl+C`).
 
 ### 🌐 Interactive Hyperlinks & Smart URLs
@@ -158,7 +159,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 ### 🔒 Password-Protected PDFs & Decrypted Copy Export
 - **Fast Encrypted Document Handling**: Native detection and unlocking of password-protected PDF files using `Windows.Data.Pdf`.
 - **Sleek Direct2D Modal Prompt**: Dark glass card with masked password input, Show/Hide password toggle, clipboard paste (`Ctrl+V`), and error shake feedback.
-- **Zero RAM Plaintext Residue**: Clears all transient memory using `SecureZeroMemory` upon password submission, cancellation, or modal dismissal; renders masked dots from character lengths without copying plaintext across UI redraw frames.
+- **Transient Plaintext Scrubbing**: Clears transient input buffers using `SecureZeroMemory` upon password submission, cancellation, or modal dismissal; renders masked dots from character lengths without copying plaintext across UI redraw frames.
 - **Lossless Decrypted Copy Export**: Once unlocked, press `Ctrl+S` / `Ctrl+Shift+S` to export an unencrypted, password-free PDF copy without re-rendering or image recompression. Built on Windows CNG (`bcrypt.dll`), supporting Standard Security Handler Algorithm 2 (RC4-128, AES-128) and Algorithm 5 (AES-256) with automatic cross-reference reconstruction, non-stream string decryption (ISO 32000-1 §7.6.2), and verified atomic file replacement with automatic failure rollback.
 - **On-Demand OCR Fallback**: Enables full text selection, offline dictionary lookup, and search even on encrypted PDFs whose security flags disable standard digital text extraction.
 
@@ -181,7 +182,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **Intelligent 300 DPI Printing**: Native `PrintDlgExW` with automatic page orientation detection (Landscape vs. Portrait matching page dimensions), safe spool copy count resolution (preventing printer driver N x N multiplier bugs), and collated/uncollated page spool scheduling.
 
 ### ⚙️ Options & Preferences Dialog and Page Color Themes
-- **Tabbed Direct2D Options Modal (`Ctrl+,`)**: Centered, keyboard-accessible options dialog with categories for **View & Reading**, **Tools & Behavior**, and **System & History**.
+- **Tabbed Direct2D Options Modal (`Ctrl+,`)**: Centered, keyboard-accessible options dialog with categories for **View & Reading**, **Selection & Speech**, and **System & Privacy**.
   - Default Zoom Mode (Fit Page, Fit Width, 100% Zoom).
   - Continuous vertical scroll preference.
   - Page Color Theme selection with instant live preview.
@@ -189,7 +190,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
   - Double-click word dictionary lookup toggle.
   - Right-click auto-select toggle (approach 1: context menu appears when text is selected; approach 2: auto-select nearest word).
   - Auto-OCR scanned search trigger toggle.
-  - Default speech rate slider (0.75x to 2.0x).
+  - Default speech rate selector (`0.75x`, `1.0x`, `1.25x`, `1.5x`, `2.0x`).
   - Recent files history retention toggle with registry cleanup.
 - **Hardware-Accelerated Page Color Themes (`Ctrl+I`)**: Direct2D Color Matrix Effect filters providing high-contrast, eye-friendly document reading:
   - **Original**: Standard document rendering.
@@ -203,7 +204,7 @@ Measured on Windows 11 x64 with cold execution and hardware performance counters
 - **In-Place Decryption & File Replacement**: Allows replacing the encrypted file in-place on disk or exporting to a new filename.
 - **Post-Save Tab Switching**: Automatically binds the newly saved file to the active tab, updates tab captions, and keeps navigation fluid.
 
-### ℹ️ Direct2D Hardware Diagnostics & About Dialog
+### 💻 Direct2D Hardware Diagnostics & About Dialog
 - **Native Direct2D Modal Overlay**: Access via the Document Canvas Menu (`About LightPDF...`) or the Window System Menu. Renders specifications, runtime model, compiler security hardening flags, display scaling, and active GPU adapter description.
 - **One-Click Diagnostics Export**: Dedicated `Copy Diagnostics` button packages system specifications, DPI metrics, and hardware adapter details directly to the Windows clipboard for effortless troubleshooting.
 - **Direct GitHub Access**: One-click repository button for quick access to source code and documentation.
@@ -278,8 +279,8 @@ Press **`F1`** in-app to display the interactive, categorized Direct2D shortcuts
 | `Ctrl + F` | Find text in document (floating search bar) |
 | `F3` / `Shift + F3` | Next / previous search match |
 | `Enter` / `Shift + Enter` | Next / previous match in search bar |
-| `Ctrl + S` | Save Searchable PDF prompt (Overwrite original or Save As new copy) |
-| `Ctrl + Shift + S` | Save Searchable PDF directly to a new file destination |
+| `Ctrl + S` | Context-aware Save: Decrypted Copy (encrypted PDF) or Searchable PDF (Overwrite original or Save As new copy) |
+| `Ctrl + Shift + S` | Context-aware Save As: Decrypted Copy or Searchable PDF directly to a new file destination |
 | `L` | Toggle Presentation Laser Pointer |
 | `C` | Cycle Laser Pointer Color (Red, Green, Cyan, Gold) |
 | `Right Click Canvas` | Document Canvas Menu (Navigation, View Modes, Scroll Toggle, Search, Print, Properties, Options, About) |
@@ -400,7 +401,7 @@ build.bat /clean     :: Clean build artifacts
 | **Single File Modified** | 106.75 s | **13.17 s** | **8× faster** |
 | **Full Clean Rebuild** | 106.75 s | **21.39 s** | **5× faster** |
 
-Output: `bin\LightPDF.exe` (**1,000.5 KB** unsigned / **1,007.5 KB** signed Authenticode)
+Output: `bin\LightPDF.exe` (**1,013.5 KB** unsigned / **1,021.5 KB** signed Authenticode)
 
 ### Compiler & Linker Flags
 
@@ -431,8 +432,13 @@ Output: `bin\LightPDF.exe` (**1,000.5 KB** unsigned / **1,007.5 KB** signed Auth
 
 LightPDF includes a unified automated test suite built on the zero-overhead `doctest` framework:
 
+```powershell
+# Run the complete automated test suite (PowerShell incremental runner)
+.\tests\run_test.ps1
+```
+
 ```cmd
-:: Run the complete automated test suite
+:: Or via Command Prompt batch runner
 tests\run_tests.bat
 ```
 
@@ -441,8 +447,8 @@ tests\run_tests.bat
 [LightPDF Test Runner] Executing 33 test cases...
 ===============================================================================
   Test Cases: 33 passed | 0 failed | 33 total
-  Assertions: 520 passed | 0 failed | 520 total
-  Elapsed:    ~3.7 s
+  Assertions: 525 passed | 0 failed | 525 total
+  Elapsed:    ~3.5 s
 ===============================================================================
 >>> ALL TESTS PASSED SUCCESSFULLY! <<<
 ```
@@ -517,7 +523,7 @@ Open `docs\html\index.html` in any web browser to view the interactive API refer
 ```
 LightPDF/
 ├── bin/
-│   ├── LightPDF.exe              # ~1,014 KB standalone binary (zero external DLLs, <1 MB budget)
+│   ├── LightPDF.exe              # ~1,014 KB standalone binary (zero external DLLs, < 1 MB target / 1.5 MB ceiling)
 │   ├── obj/                      # Intermediate build artifacts (ignored by git)
 │   └── dict/                     # Offline technical dictionary database
 │       └── en-ar.dat
@@ -535,7 +541,7 @@ LightPDF/
 │   ├── tab_controller.hpp/.cpp   # Document tabs, multi-tab layout, continuous scroll metrics, jump history
 │   ├── search_controller.hpp/.cpp# Interactive find in page, match navigation & debounce
 │   ├── selection_controller.hpp/.cpp# Text selection, link hit-testing, dictionary card lifecycle
-│   ├── ui_views.hpp/.cpp         # Modular D2D views: TabStrip, ScrollBar, Search, Overlays, Password, Recent
+│   ├── ui_views.hpp/.cpp         # Modular D2D views: TabStrip, ScrollBar, Search, Overlays, Password, Recent, Options, About
 │   ├── d2d_renderer.hpp/.cpp     # Direct2D 1.1 / D3D11 zero-copy hardware render pipeline, URL preview pill
 │   ├── pdf_document.hpp/.cpp     # WinRT Windows.Data.Pdf document wrapper, password decryption & prefetch
 │   ├── pdf_parser.hpp/.cpp       # High-speed PDF parser, CMap decoder, xref /Prev traversal, /Annots link extraction
@@ -547,7 +553,7 @@ LightPDF/
 │   ├── read_aloud_controller.hpp/.cpp # Bilingual chunking, script routing, word-to-glyph bounding mapping
 │   ├── recent_files_controller.hpp/.cpp # MRU history persistence, closed tab stack, quick switcher layout & hit-testing
 │   ├── settings_controller.hpp/.cpp # Persistent settings model, registry serialization, options layout & hit-testing
-│   ├── common_utils.hpp          # Centralized header-only utilities (DpiUtils, PathUtils, StringUtils, ClipboardUtils)
+│   ├── common_utils.hpp          # Centralized header-only utilities (DpiUtils, PathUtils, StringUtils, ClipboardUtils, PrintUtils)
 │   ├── supported_formats.hpp     # Single source of truth for supported document extensions & dialog filters
 │   └── dictionary_engine.hpp/.cpp# Offline translation & technical dictionary engine
 ├── tests/
@@ -556,13 +562,17 @@ LightPDF/
 │   │   ├── sample_2page.pdf
 │   │   └── sample_encrypted.pdf
 │   ├── doctest.h                 # Zero-overhead C++20 unit testing framework
-│   ├── unified_tests.cpp         # Complete test suite (31 test cases, 451 assertions, <4s runtime)
-│   ├── run_tests.bat             # Test compilation & execution script (/W4)
+│   ├── unified_tests.cpp         # Complete test suite (33 test cases, 525 assertions, ~4s runtime)
+│   ├── run_test.ps1              # PowerShell incremental test runner (/W4 /permissive- /MP)
+│   ├── run_tests.bat             # CMD batch test compilation & execution script (/W4 /permissive-)
 │   ├── test_samples.ps1          # Automated multi-document benchmark test script
 │   └── legacy/                   # Archived one-off interactive test harnesses
 ├── tools/
 │   ├── sign.bat                  # 1-click Authenticode code signing & bundle generator
 │   ├── sign.ps1                  # PowerShell script to sign binary & build dist package
+│   ├── package_release.ps1       # Automated GitHub release packaging script
+│   ├── measure_footprint.ps1     # Binary size, launch latency, and working-set profiler
+│   ├── benchmark.ps1             # Cold launch, tab-forward, and RAM benchmark runner
 │   └── msvc/                     # Portable MSVC 14.44 + Windows SDK 10.0.26100
 ├── build.ps1                     # PowerShell optimized release build script (/W4 /O2 /MT)
 ├── build.bat                     # CMD batch release build script (/W4 /O2 /MT)

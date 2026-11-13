@@ -68,7 +68,11 @@ Write-Host "Exported public certificate to: $certFile" -ForegroundColor Green
 # Copy binary and dictionary database to dist/
 Copy-Item -Path $BinaryPath -Destination (Join-Path $DistDir "LightPDF.exe") -Force
 if (Test-Path "bin\dict") {
-    Copy-Item -Path "bin\dict" -Destination $DistDir -Recurse -Force
+    $distDict = Join-Path $DistDir "dict"
+    if (-not (Test-Path $distDict)) {
+        New-Item -ItemType Directory -Path $distDict -Force | Out-Null
+    }
+    Copy-Item -Path "bin\dict\*" -Destination $distDict -Recurse -Force
 }
 
 # Create colleague one-click installer batch script
@@ -117,6 +121,8 @@ echo ===================================================
 echo.
 echo Removing publisher certificate from user stores...
 
+certutil.exe -user -delstore Root "Ahmed Amer Shahin" >nul 2>&1
+certutil.exe -user -delstore TrustedPublisher "Ahmed Amer Shahin" >nul 2>&1
 certutil.exe -user -delstore Root "Ahmed Amer Shahin (EtherHome)" >nul 2>&1
 certutil.exe -user -delstore TrustedPublisher "Ahmed Amer Shahin (EtherHome)" >nul 2>&1
 
@@ -152,4 +158,5 @@ Write-Host "Distribution bundle ready in '$DistDir\'!" -ForegroundColor Cyan
 Write-Host "  -> $DistDir\LightPDF.exe (Signed)"
 Write-Host "  -> $DistDir\LightPDF_Publisher.cer"
 Write-Host "  -> $DistDir\install_certificate.bat"
+Write-Host "  -> $DistDir\uninstall_certificate.bat"
 Write-Host "  -> $DistDir\README_COLLEAGUES.txt"

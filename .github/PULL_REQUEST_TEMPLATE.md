@@ -9,9 +9,10 @@ Briefly explain the goal of this pull request and the changes made.
 
 ## Verification & Testing Checklist
 Describe the tests you ran to verify your changes:
-- [ ] Rebuilt successfully with `build.bat /rebuild` (0 compiler warnings under `/W4`)
-- [ ] Ran automated unified test suite via `cmd.exe /c tests\run_tests.bat` (all 21 test cases passed)
-- [ ] Verified standalone binary size remains strictly within budget (< 1 MB strict, <= 924 KB target)
+- [ ] Rebuilt successfully with `.\build.ps1 -Rebuild` or `build.bat /rebuild` (0 compiler warnings under `/W4 /permissive-`)
+- [ ] Ran automated unified test suite via `.\tests\run_test.ps1` or `cmd.exe /c tests\run_tests.bat` (all 33 test cases / 525 assertions passed)
+- [ ] Verified standalone binary size remains within budget (< 1.5 MB strict ceiling, < 1 MB preferred target)
+- [ ] Verified zero Doxygen warnings via `.\generate_docs.ps1`
 - [ ] Verified zero external runtime DLL dependencies (only native Windows APIs)
 - [ ] Tested on High-DPI monitor (100%, 125%, 150%, or 200%)
 - [ ] Verified bilingual compatibility (English & Arabic text rendering / search)

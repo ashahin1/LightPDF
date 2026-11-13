@@ -188,6 +188,13 @@ TEST_CASE("Views: HelpOverlay Hit-Test") {
     int hit = UIViews::HelpOverlayView::HitTest(ptCenter, 1000, 800, 96.0f);
     CHECK(hit >= 0); // Inside card or tab
 
+    D2D1_RECT_F card = HelpOverlayLayout::GetCardRect(1000.0f, 800.0f);
+    for (int i = 0; i < 5; ++i) {
+        D2D1_RECT_F tab = HelpOverlayLayout::GetCategoryTabRect(card, i);
+        POINT ptTab{ (LONG)((tab.left + tab.right) * 0.5f), (LONG)((tab.top + tab.bottom) * 0.5f) };
+        CHECK(UIViews::HelpOverlayView::HitTest(ptTab, 1000, 800, 96.0f) == i);
+    }
+
     POINT ptOutside{ 5, 5 };
     int hitOutside = UIViews::HelpOverlayView::HitTest(ptOutside, 1000, 800, 96.0f);
     CHECK(hitOutside == -1); // Outside (backdrop)
